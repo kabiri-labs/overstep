@@ -150,3 +150,29 @@ class Finding(BaseModel):
     variant: Variant
     detail: str
     evidence: Observation
+
+
+class RunResult(BaseModel):
+    """The full outcome of a run: what we planned, what we saw, what was wrong.
+
+    This is the single object the pipeline hands back to callers (the CLI, tests,
+    or an embedding application) so nothing has to re-thread the individual lists.
+    """
+
+    base_url: str
+    cases: List[TestCase] = Field(default_factory=list)
+    observations: List[Observation] = Field(default_factory=list)
+    findings: List[Finding] = Field(default_factory=list)
+
+    @property
+    def vulnerabilities(self) -> List[Finding]:
+        vuln = {
+            VulnClass.BOLA,
+            VulnClass.BFLA,
+            VulnClass.PRIVILEGE_ESCALATION,
+        }
+        return [f for f in self.findings if f.vuln_class in vuln]
+
+    @property
+    def drift(self) -> List[Finding]:
+        return [f for f in self.findings if f.vuln_class == VulnClass.AUTHORIZATION_DRIFT]

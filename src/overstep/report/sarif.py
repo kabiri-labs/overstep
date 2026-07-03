@@ -6,7 +6,8 @@ import os
 from typing import List
 
 from overstep import __version__
-from overstep.models import Finding, VulnClass
+from overstep.models import RunResult, VulnClass
+from overstep.report.base import register
 
 _LEVEL = {"high": "error", "medium": "warning", "low": "note"}
 
@@ -26,16 +27,19 @@ def _rules() -> List[dict]:
             "name": vc.name,
             "shortDescription": {"text": vc.value},
             "fullDescription": {"text": help_text},
-            "defaultConfiguration": {"level": "error" if vc != VulnClass.UNEXPECTED_DENY else "note"},
+            "defaultConfiguration": {
+                "level": "error" if vc != VulnClass.UNEXPECTED_DENY else "note"
+            },
         }
         for vc, help_text in _RULE_HELP.items()
     ]
 
 
-def write(findings: List[Finding], path: str) -> None:
+@register("sarif", "overstep.sarif")
+def write(result: RunResult, path: str) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     results = []
-    for f in findings:
+    for f in result.findings:
         results.append(
             {
                 "ruleId": f.vuln_class.value,

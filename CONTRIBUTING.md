@@ -18,11 +18,15 @@ Thanks for considering a contribution!
 - `overstep/executor.py` — fire requests, record observations.
 - `overstep/classifier.py` — observations → classified findings.
 - `overstep/drift.py` — snapshot + baseline comparison.
-- `overstep/report/` — JSON / HTML / SARIF / JUnit reporters.
+- `overstep/pipeline.py` — orchestration seam (`run_pipeline`, `write_reports`).
+- `overstep/report/` — pluggable reporters; add one with `@register(...)` in
+  `report/base.py`.
+- `overstep/cli.py` — thin argument parsing / rendering over the pipeline.
 
 ## Coding standards
 - Keep it simple and composable; the planner/executor/classifier split should
-  stay clean (generation, transport and judgement are separate concerns).
+  stay clean (generation, transport and judgement are separate concerns), and
+  the CLI should stay a thin wrapper over `run_pipeline`.
 - No network-aggressive defaults. Respect `--concurrency`.
 - Keep the expression evaluator **safe** — if you add an AST node or operator,
   add tests that also prove the dangerous cases are still rejected.
