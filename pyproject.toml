@@ -1,15 +1,16 @@
-
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "authscope"
-version = "0.1.0"
-description = "Authorization invariants tester for Web/API (BOLA/BFLA)"
+name = "overstep"
+version = "0.2.0"
+description = "Matrix-driven authorization testing for HTTP APIs (BOLA/BFLA/privilege escalation/auth drift)."
 authors = [{name = "Ahmad Kabiri"}]
 readme = "README.md"
 requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+keywords = ["security", "authorization", "bola", "bfla", "api-security", "dast", "ci"]
 dependencies = [
     "httpx>=0.27",
     "pydantic>=2.6",
@@ -18,9 +19,15 @@ dependencies = [
     "rich>=13.7",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "fastapi>=0.112", "uvicorn>=0.30"]
+
 [project.urls]
-Homepage = "https://github.com/ahmad-kabiri/authscope"
-Issues = "https://github.com/ahmad-kabiri/authscope/issues"
+Homepage = "https://github.com/kabiri-labs/overstep"
+Issues = "https://github.com/kabiri-labs/overstep/issues"
 
 [project.scripts]
-authscope = "authscope.cli:main"
+overstep = "overstep.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

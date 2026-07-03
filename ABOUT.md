@@ -1,15 +1,24 @@
-
 ## About (for GitHub)
 
-**One-liner:**  
-AuthScope is a Python-powered authorization invariants tester for Web & API that systematically surfaces BOLA/BFLA and catches auth drift in CI.
+**One-liner:**
+overstep is a matrix-driven authorization testing tool for HTTP APIs that turns a
+declarative access-control matrix into positive and negative tests and catches
+BOLA, BFLA, privilege escalation and authorization drift in CI/CD.
 
-**Short description:**  
-AuthScope models *who should access what* and verifies those rules against your API in minutes. It generates cross-subject scenarios (SELF vs OTHER) from OpenAPI and real traffic (HAR), runs them asynchronously, and flags unexpected 2xx responses where access should be denied. Use it locally during pentests or wire it into CI to prevent authorization regressions before release.
+**Short description:**
+You describe *who is allowed to do what* as an authorization matrix — subjects
+(roles/identities) crossed with resources (API operations) and an allow-list
+policy. overstep expands that matrix into concrete requests: positive tests for
+access that should succeed and negative tests (self vs. other, per role) for
+access that should be denied. It runs them against a live target and reports
+every negative test that slips through, classified as BOLA, BFLA or privilege
+escalation. Snapshot the decisions and it fails your pipeline the moment the
+authorization surface drifts between releases.
 
 **Highlights:**
-- Ownership & tenant isolation checks as code (simple YAML DSL).
-- OpenAPI + HAR-driven scenario generation.
-- Cross-subject diffs for the exact same request.
-- HTML/JSON reports; CI-friendly and safe-by-default (GET first).
-- Designed to demonstrate BOLA/BFLA quickly on real systems like OWASP crAPI.
+- Authorization matrix as code — reviewed and versioned like the rest of your app.
+- Automatic positive + negative test generation (object-level and function-level).
+- Findings classified as BOLA / BFLA / privilege escalation with severity.
+- Drift baselines so CI fails on *changes*, not on known accepted risk.
+- JSON, HTML, SARIF (code scanning) and JUnit reports; non-zero exit for gating.
+- Scaffold resources straight from OpenAPI or a HAR capture.

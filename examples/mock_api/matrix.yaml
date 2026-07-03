@@ -1,0 +1,60 @@
+# Authorization matrix for the bundled demo API.
+#
+# The matrix has three parts:
+#   subjects  — the identities overstep will send requests as
+#   resources — the API operations under test
+#   policy    — who is allowed to reach each resource (everything else is denied)
+#
+# From this, overstep generates positive tests (expected allow) and negative
+# tests (expected deny). Negative tests that succeed are reported as BOLA / BFLA
+# / privilege escalation.
+
+base_url: http://127.0.0.1:8000
+
+# Privilege ordering, least -> most. Used to tell BFLA apart from vertical
+# privilege escalation.
+roles: [anonymous, user, admin]
+
+subjects:
+  - name: alice
+    role: user
+    token: alice-token
+    attributes: { user_id: u1 }
+  - name: bob
+    role: user
+    token: bob-token
+    attributes: { user_id: u2 }
+  - name: root
+    role: admin
+    token: admin-token
+    attributes: { user_id: u9 }
+  - name: anon
+    role: anonymous
+    token: null
+
+resources:
+  - name: get_user
+    request: { method: GET, path: "/users/{id}" }
+    type: object          # object-level -> BOLA surface
+    owner_param: id        # {id} must match the caller's user_id
+    owner_attr: user_id
+  - name: delete_user
+    request: { method: DELETE, path: "/users/{id}" }
+    type: object
+    owner_param: id
+    owner_attr: user_id
+  - name: admin_list_users
+    request: { method: GET, path: "/admin/users" }
+    type: function        # function-level -> BFLA surface
+
+policy:
+  get_user:
+    allow:
+      - { role: user, scope: own }   # a user may read only their own profile
+      - { role: admin, scope: any }  # admins may read anyone
+  delete_user:
+    allow:
+      - { role: admin, scope: any }  # only admins may delete
+  admin_list_users:
+    allow:
+      - { role: admin }              # admin-only function
