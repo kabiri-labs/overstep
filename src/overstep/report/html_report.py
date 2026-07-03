@@ -3,10 +3,9 @@ from __future__ import annotations
 
 import html
 import os
-from typing import List
 
-from overstep.models import Finding, TestCase
-from overstep.report import summarize
+from overstep.models import Finding, RunResult
+from overstep.report.base import register, summarize
 
 _SEVERITY_COLOR = {"high": "#d64545", "medium": "#d98a29", "low": "#3a7bd5"}
 
@@ -51,9 +50,11 @@ def _row(f: Finding) -> str:
     )
 
 
-def write(cases: List[TestCase], findings: List[Finding], path: str) -> None:
+@register("html", "report.html")
+def write(result: RunResult, path: str) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    s = summarize(cases, findings)
+    s = summarize(result)
+    findings = result.findings
 
     cards = "".join(
         [
