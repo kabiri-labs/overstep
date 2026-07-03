@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "overstep"
-version = "0.2.0"
+version = "0.1.0"
 description = "Matrix-driven authorization testing for HTTP APIs (BOLA/BFLA/privilege escalation/auth drift)."
 authors = [{name = "Ahmad Kabiri"}]
 readme = "README.md"
@@ -31,3 +31,6 @@ overstep = "overstep.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+overstep = ["py.typed"]

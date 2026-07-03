@@ -1,32 +1,19 @@
-"""Reporters that turn findings into machine- and human-readable output."""
+"""Reporters that turn a RunResult into machine- and human-readable output.
+
+Importing this package registers every built-in reporter (JSON, HTML, SARIF,
+JUnit) into the shared registry in :mod:`overstep.report.base`.
+"""
 from __future__ import annotations
 
-from collections import Counter
-from typing import Dict, List
+from overstep.report.base import ReporterSpec, all_reporters, get_reporter, register, summarize
 
-from overstep.models import Effect, Finding, TestCase, VulnClass
+# Import for side effects: each module registers its reporter on import.
+from overstep.report import html_report, json_report, junit, sarif  # noqa: E402,F401
 
-
-def summarize(cases: List[TestCase], findings: List[Finding]) -> Dict[str, object]:
-    """A compact roll-up used by the CLI and the JSON/HTML reports."""
-    positive = sum(1 for c in cases if c.expected == Effect.ALLOW)
-    negative = sum(1 for c in cases if c.expected == Effect.DENY)
-    by_class = Counter(f.vuln_class.value for f in findings)
-    vulns = sum(
-        1
-        for f in findings
-        if f.vuln_class
-        in (
-            VulnClass.BOLA,
-            VulnClass.BFLA,
-            VulnClass.PRIVILEGE_ESCALATION,
-        )
-    )
-    return {
-        "total_tests": len(cases),
-        "positive_tests": positive,
-        "negative_tests": negative,
-        "findings": len(findings),
-        "vulnerabilities": vulns,
-        "by_class": dict(by_class),
-    }
+__all__ = [
+    "ReporterSpec",
+    "all_reporters",
+    "get_reporter",
+    "register",
+    "summarize",
+]
