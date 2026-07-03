@@ -1,0 +1,50 @@
+# Authorization matrix for OWASP crAPI.
+#
+# crAPI is intentionally vulnerable, so overstep should light up with BOLA/BFLA
+# findings once you fill in real tokens. Paths below are examples — adjust them
+# to the endpoints you actually see in your HAR / the crAPI version you run.
+
+base_url: http://localhost:8888
+
+roles: [anonymous, user, mechanic, admin]
+
+subjects:
+  - name: alice
+    role: user
+    token: PASTE_ALICE_JWT_HERE
+    attributes: { user_id: "1" }      # numeric id crAPI assigns; read it from the JWT
+  - name: bob
+    role: user
+    token: PASTE_BOB_JWT_HERE
+    attributes: { user_id: "2" }
+  - name: anon
+    role: anonymous
+    token: null
+
+resources:
+  - name: get_vehicle_location
+    request: { method: GET, path: "/identity/api/v2/vehicle/{vehicleId}/location" }
+    type: object
+    owner_param: vehicleId
+    owner_attr: user_id                # map to the attribute that owns the object
+  - name: get_user_orders
+    request: { method: GET, path: "/workshop/api/shop/orders/{orderId}" }
+    type: object
+    owner_param: orderId
+    owner_attr: user_id
+  - name: list_all_users
+    request: { method: GET, path: "/identity/api/v2/admin/users" }
+    type: function
+
+policy:
+  get_vehicle_location:
+    allow:
+      - { role: user, scope: own }    # a driver sees only their own vehicle
+      - { role: admin, scope: any }
+  get_user_orders:
+    allow:
+      - { role: user, scope: own }
+      - { role: admin, scope: any }
+  list_all_users:
+    allow:
+      - { role: admin }

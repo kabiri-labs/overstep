@@ -1,7 +1,6 @@
-
 openapi: 3.0.0
 info:
-  title: Mock API with BOLA
+  title: overstep demo API (vulnerable)
   version: "1.0.0"
 paths:
   /users/{id}:
@@ -16,3 +15,20 @@ paths:
         "200": { description: OK }
         "401": { description: Unauthorized }
         "404": { description: Not Found }
+    delete:
+      summary: Delete a user
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: OK }
+        "401": { description: Unauthorized }
+  /admin/users:
+    get:
+      summary: List all users (admin only)
+      responses:
+        "200": { description: OK }
+        "401": { description: Unauthorized }
+        "403": { description: Forbidden }
