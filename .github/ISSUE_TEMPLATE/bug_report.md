@@ -18,6 +18,6 @@ Steps to reproduce the behavior.
 **Environment (please complete the following information):**
 - OS:
 - Python:
-- AuthScope version:
+- overstep version (`overstep version`):
 
 **Additional context**
