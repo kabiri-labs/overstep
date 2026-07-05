@@ -22,10 +22,24 @@ def _effect_for(status: int) -> Effect:
     return Effect.ALLOW if status in ALLOW_STATUSES else Effect.DENY
 
 
-def _headers(subject: Subject) -> Dict[str, str]:
-    if subject.token:
-        return {"Authorization": f"Bearer {subject.token}"}
-    return {}
+def build_headers(subject: Subject, case: TestCase) -> Dict[str, str]:
+    """Assemble the headers for one request.
+
+    Precedence, lowest to highest:
+      1. the resource's own headers (carried on the test case),
+      2. the subject's headers (override per identity),
+      3. a bearer ``Authorization`` derived from the subject's token — but only
+         if neither of the above already set an ``Authorization`` header, so a
+         custom auth scheme is never clobbered.
+    """
+    headers: Dict[str, str] = {}
+    headers.update(case.headers)
+    headers.update(subject.headers)
+
+    has_auth = any(k.lower() == "authorization" for k in headers)
+    if subject.token and not has_auth:
+        headers["Authorization"] = f"Bearer {subject.token}"
+    return headers
 
 
 async def _fire(
@@ -42,7 +56,7 @@ async def _fire(
             resp = await client.request(
                 case.method,
                 url,
-                headers=_headers(subject),
+                headers=build_headers(subject, case) or None,
                 params=case.query or None,
                 json=case.body,
             )

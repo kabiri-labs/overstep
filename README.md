@@ -139,6 +139,36 @@ policy:
 Conditions run through a restricted AST evaluator — comparisons, boolean logic
 and attribute/index access only. No function calls, no arbitrary names.
 
+### Custom headers
+
+By default each subject authenticates with `Authorization: Bearer <token>`. When
+an endpoint needs more — a non-bearer auth scheme, an API key, a tenant header —
+set headers on the **resource** (sent for every subject) and/or on the
+**subject** (per identity). Subject headers override resource headers, and an
+explicit `Authorization` header is never overwritten by the token:
+
+```yaml
+resources:
+  - name: get_order
+    request:
+      method: GET
+      path: "/orders/{id}"
+      headers: { Accept: application/json, X-Api-Version: "2" }  # every request
+    type: object
+    owner_param: id
+
+subjects:
+  - name: alice
+    role: user
+    token: alice-token                 # -> Authorization: Bearer alice-token
+    headers: { X-Tenant: t1 }          # extra per-subject header
+    attributes: { user_id: u1 }
+  - name: svc
+    role: admin
+    headers: { X-API-Key: "abc123" }   # custom auth, no bearer token
+    attributes: { user_id: u9 }
+```
+
 ## Commands
 
 | Command | What it does |

@@ -150,6 +150,7 @@ def plan(matrix: Matrix) -> List[TestCase]:
                         required_roles=required,
                         query=dict(resource.request.query),
                         body=resource.request.body,
+                        headers=dict(resource.request.headers),
                     )
                 )
     return cases

@@ -54,6 +54,10 @@ class Subject(BaseModel):
     name: str
     role: str = "user"
     token: Optional[str] = None
+    # Per-subject headers, merged over the resource's headers at request time.
+    # Use these for auth schemes other than bearer (X-API-Key, a custom
+    # Authorization value, a session cookie) or per-identity headers (X-Tenant).
+    headers: Dict[str, str] = Field(default_factory=dict)
     # Free-form attributes such as user_id / tenant used to resolve object owners
     # and to evaluate custom allow conditions.
     attributes: Dict[str, Any] = Field(default_factory=dict)
@@ -102,6 +106,9 @@ class TestCase(BaseModel):
     """A single, fully-resolved request we are about to send, plus what the
     matrix says *should* happen."""
 
+    # Tell pytest this is not a test class despite the "Test" prefix.
+    __test__ = False
+
     id: str
     resource: str
     subject: str
@@ -115,6 +122,7 @@ class TestCase(BaseModel):
     required_roles: List[str] = Field(default_factory=list)
     query: Dict[str, Any] = Field(default_factory=dict)
     body: Optional[Any] = None
+    headers: Dict[str, str] = Field(default_factory=dict)
 
     @property
     def is_negative(self) -> bool:
