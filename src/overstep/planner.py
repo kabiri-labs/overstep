@@ -131,6 +131,7 @@ def plan(matrix: Matrix) -> List[TestCase]:
 
     for resource in matrix.resources:
         required = matrix.required_roles(resource.name)
+        matcher = resource.access or matrix.access
         for subject in subjects:
             for variant, target in _variants(resource, subject, subjects):
                 expected = _expected_effect(matrix, resource, subject, variant, target)
@@ -151,6 +152,7 @@ def plan(matrix: Matrix) -> List[TestCase]:
                         query=dict(resource.request.query),
                         body=resource.request.body,
                         headers=dict(resource.request.headers),
+                        matcher=matcher,
                     )
                 )
     return cases

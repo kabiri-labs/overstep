@@ -169,6 +169,38 @@ subjects:
     attributes: { user_id: u9 }
 ```
 
+### Deciding allow vs. deny (response matcher)
+
+By default a `2xx` status means access was granted and anything else means it was
+denied. That's wrong for APIs that redirect on success, return `200` with an
+error body, or mask a `403` as a `404`. A **response matcher** makes the real
+signal explicit. Set it matrix-wide under `access:` and/or override it per
+resource:
+
+```yaml
+# matrix-wide default
+access:
+  allow_status: ["2xx"]             # exact codes, ranges ("200-299") or classes ("2xx")
+  deny_body_regex: "access denied|not authorized"   # a 200 with this body -> deny
+  treat_redirect_as: deny           # how to read a 3xx: deny | allow | status
+
+resources:
+  - name: start_export
+    request: { method: POST, path: "/exports" }
+    type: function
+    access:
+      allow_status: [200, 202]      # async accept counts as success
+  - name: legacy_login_redirect
+    request: { method: GET, path: "/account" }
+    type: function
+    access:
+      treat_redirect_as: allow      # this endpoint 302s on success
+```
+
+Evaluation order: `deny_body_regex` (wins, fails safe) → `allow_body_regex` →
+redirect handling → `allow_status`. Body patterns are case-insensitive and
+matched against the full response body.
+
 ## Commands
 
 | Command | What it does |

@@ -7,7 +7,7 @@ here as pydantic models so that (de)serialization to JSON is free and validated.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -48,6 +48,30 @@ class VulnClass(str, Enum):
     UNEXPECTED_DENY = "unexpected-deny"
 
 
+class ResponseMatcher(BaseModel):
+    """How to decide whether a response means access was *granted*.
+
+    A status code alone is often not enough: some APIs redirect on success,
+    return ``200`` with an error body, or mask a ``403`` as ``404``. This lets a
+    matrix express the real signal. Evaluation order (see overstep.matching):
+
+      1. ``deny_body_regex`` matches   -> deny  (catches masked errors in a 2xx)
+      2. ``allow_body_regex`` matches  -> allow
+      3. a 3xx redirect                -> per ``treat_redirect_as``
+      4. otherwise                     -> allow iff the status matches ``allow_status``
+
+    ``allow_status`` items may be an exact code (``200``), a range (``"200-299"``)
+    or a class (``"2xx"``).
+    """
+
+    allow_status: List[Union[int, str]] = Field(
+        default_factory=lambda: sorted(ALLOW_STATUSES)
+    )
+    allow_body_regex: Optional[str] = None
+    deny_body_regex: Optional[str] = None
+    treat_redirect_as: Literal["allow", "deny", "status"] = "deny"
+
+
 class Subject(BaseModel):
     """An identity that makes requests against the target."""
 
@@ -84,6 +108,8 @@ class Resource(BaseModel):
     owner_param: Optional[str] = None
     owner_attr: str = "user_id"
     description: str = ""
+    # Optional per-resource override of the matrix-level response matcher.
+    access: Optional[ResponseMatcher] = None
 
 
 class AllowRule(BaseModel):
@@ -123,6 +149,9 @@ class TestCase(BaseModel):
     query: Dict[str, Any] = Field(default_factory=dict)
     body: Optional[Any] = None
     headers: Dict[str, str] = Field(default_factory=dict)
+    # The resolved response matcher for this request (resource override or the
+    # matrix-level default), used to turn the response into allow/deny.
+    matcher: ResponseMatcher = Field(default_factory=ResponseMatcher)
 
     @property
     def is_negative(self) -> bool:

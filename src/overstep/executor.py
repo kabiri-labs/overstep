@@ -10,16 +10,13 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List
 from urllib.parse import urljoin
 
 import httpx
 
-from overstep.models import ALLOW_STATUSES, Effect, Observation, Subject, TestCase
-
-
-def _effect_for(status: int) -> Effect:
-    return Effect.ALLOW if status in ALLOW_STATUSES else Effect.DENY
+from overstep.matching import evaluate
+from overstep.models import Effect, Observation, Subject, TestCase
 
 
 def build_headers(subject: Subject, case: TestCase) -> Dict[str, str]:
@@ -72,14 +69,17 @@ async def _fire(
             )
 
         elapsed = (time.perf_counter() - started) * 1000
-        body = resp.text[:2048]
+        full_body = resp.text
+        # Match against the full body (error markers may be anywhere) but only
+        # keep a snippet as evidence.
+        effect = evaluate(case.matcher, resp.status_code, full_body)
         return Observation(
             test_id=case.id,
             status=resp.status_code,
-            effect=_effect_for(resp.status_code),
+            effect=effect,
             latency_ms=round(elapsed, 1),
             headers=dict(resp.headers),
-            body_snippet=body,
+            body_snippet=full_body[:2048],
         )
 
 

@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 import yaml
 from pydantic import BaseModel, Field
 
-from overstep.models import Resource, ResourcePolicy, ResourceType, Subject
+from overstep.models import Resource, ResourcePolicy, ResourceType, ResponseMatcher, Subject
 
 # Default privilege ordering (least -> most) when a matrix doesn't declare one.
 DEFAULT_ROLE_ORDER = ["anonymous", "user", "admin"]
@@ -29,6 +29,8 @@ class Matrix(BaseModel):
     subjects: List[Subject]
     resources: List[Resource]
     policy: Dict[str, ResourcePolicy] = Field(default_factory=dict)
+    # Default response matcher applied to every resource that doesn't override it.
+    access: ResponseMatcher = Field(default_factory=ResponseMatcher)
 
     def resource_map(self) -> Dict[str, Resource]:
         return {r.name: r for r in self.resources}
