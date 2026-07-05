@@ -15,6 +15,14 @@ base_url: http://127.0.0.1:8000
 # privilege escalation.
 roles: [anonymous, user, admin]
 
+# How a response is read as allow/deny. The demo API uses plain 2xx/401, so the
+# defaults are fine here; override per resource with `access:` when an endpoint
+# redirects on success, returns 200 with an error body, or masks 403 as 404.
+# access:
+#   allow_status: ["2xx"]
+#   deny_body_regex: "access denied|not authorized"
+#   treat_redirect_as: deny
+
 subjects:
   - name: alice
     role: user
