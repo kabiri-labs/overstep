@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### Added
+- **Setup steps & object seeding.** `setup:` requests run once before the suite
+  (as a chosen subject) and `extract` values from their responses into a capture
+  context. A resource `objects:` map assigns each subject the real id of the
+  object it owns — filled from `{{captures}}` — so SELF/OTHER probes target
+  genuine objects instead of relying on `user_id`. Captures also fill request
+  bodies, queries and headers.
 - **Dynamic authentication.** Subjects can obtain a token by logging in before
   the run via an auth provider (`type: http`, `oauth2_client_credentials`,
   `oauth2_password`) instead of carrying a static token, with the token pulled

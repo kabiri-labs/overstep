@@ -16,6 +16,7 @@ from overstep.auth import authenticate as default_authenticator
 from overstep.classifier import classify
 from overstep.drift import diff
 from overstep.executor import run as default_executor
+from overstep.fixtures import run_setup as default_setup_runner
 from overstep.matrix import Matrix
 from overstep.models import Observation, RunResult, Subject, TestCase
 from overstep.planner import plan
@@ -25,6 +26,8 @@ from overstep.report import all_reporters
 ExecutorFn = Callable[..., List[Observation]]
 # A callable with the shape of auth.authenticate.
 AuthenticatorFn = Callable[..., None]
+# A callable with the shape of fixtures.run_setup (returns a capture context).
+SetupFn = Callable[..., dict]
 
 
 class PipelineError(RuntimeError):
@@ -47,15 +50,18 @@ def run_pipeline(
     verify_tls: bool = True,
     executor: ExecutorFn = default_executor,
     authenticator: AuthenticatorFn = default_authenticator,
+    setup_runner: SetupFn = default_setup_runner,
 ) -> RunResult:
     """Plan, execute, classify and (optionally) diff against a baseline.
 
-    Dynamic authentication runs first (a no-op unless the matrix declares auth
-    providers), so subjects carry real tokens before any test fires.
+    Order: authenticate (obtain tokens) → run setup steps (create fixtures,
+    capture object ids) → plan (using the captures) → execute. The auth and setup
+    stages are no-ops unless the matrix declares them, so simple runs pay nothing.
     """
     resolved = resolve_base_url(matrix, base_url)
     authenticator(matrix, base_url=resolved, verify_tls=verify_tls)
-    cases = plan(matrix)
+    context = setup_runner(matrix, base_url=resolved, verify_tls=verify_tls)
+    cases = plan(matrix, context)
     observations = executor(
         resolved, matrix.subjects, cases, concurrency=concurrency, verify_tls=verify_tls
     )

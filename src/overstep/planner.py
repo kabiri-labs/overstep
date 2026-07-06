@@ -28,6 +28,7 @@ from overstep.models import (
     TestCase,
     Variant,
 )
+from overstep.templating import render
 
 _PARAM_RE = re.compile(r"{([^}]+)}")
 
@@ -41,12 +42,28 @@ def make_test_id(resource: str, subject: str, variant: Variant) -> str:
     return f"{resource}::{subject}::{variant.value}"
 
 
-def _pick_other(subject: Subject, subjects: List[Subject], owner_attr: str) -> Optional[Subject]:
-    """Find another subject that actually owns an object (has owner_attr)."""
+def _object_id(resource: Resource, subject: Subject, context: Dict[str, str]) -> Optional[str]:
+    """The id of the object this subject owns for this resource.
+
+    An explicit ``objects`` entry (with ``{{captures}}`` resolved) wins; otherwise
+    fall back to the subject attribute named by ``owner_attr``.
+    """
+    if subject.name in resource.objects:
+        return render(resource.objects[subject.name], context)
+    value = subject.attributes.get(resource.owner_attr)
+    return None if value is None else str(value)
+
+
+def _has_object(resource: Resource, subject: Subject) -> bool:
+    return subject.name in resource.objects or subject.attributes.get(resource.owner_attr) is not None
+
+
+def _pick_other(resource: Resource, subject: Subject, subjects: List[Subject]) -> Optional[Subject]:
+    """Find another subject that actually owns an object for this resource."""
     for other in subjects:
         if other.name == subject.name:
             continue
-        if other.attributes.get(owner_attr) is not None:
+        if _has_object(resource, other):
             return other
     return None
 
@@ -56,17 +73,18 @@ def _render_path(
     subject: Subject,
     variant: Variant,
     target: Optional[Subject],
+    context: Dict[str, str],
 ) -> str:
     """Fill in every {param} in the resource path.
 
-    The owner_param is driven by the variant (own id vs. another subject's id);
+    The owner_param is driven by the variant (own object id vs. another subject's);
     any other params fall back to the subject's own attributes, then to "1".
     """
     path = resource.request.path
     for param in _path_params(path):
         if resource.owner_param and param == resource.owner_param and variant != Variant.NA:
             src = subject if variant == Variant.SELF else target
-            value = src.attributes.get(resource.owner_attr) if src else None
+            value = _object_id(resource, src, context) if src else None
         else:
             value = subject.attributes.get(param)
         if value is None:
@@ -116,16 +134,21 @@ def _variants(resource: Resource, subject: Subject, subjects: List[Subject]) -> 
         return [(Variant.NA, None)]
 
     out: List[Tuple[Variant, Optional[Subject]]] = []
-    if subject.attributes.get(resource.owner_attr) is not None:
+    if _has_object(resource, subject):
         out.append((Variant.SELF, subject))
-    other = _pick_other(subject, subjects, resource.owner_attr)
+    other = _pick_other(resource, subject, subjects)
     if other is not None:
         out.append((Variant.OTHER, other))
     return out or [(Variant.OTHER, None)]
 
 
-def plan(matrix: Matrix) -> List[TestCase]:
-    """Generate the full list of test cases for a matrix."""
+def plan(matrix: Matrix, context: Optional[Dict[str, str]] = None) -> List[TestCase]:
+    """Generate the full list of test cases for a matrix.
+
+    ``context`` holds values captured by setup steps; it fills ``{{...}}``
+    placeholders in resource object ids and request bodies/queries/headers.
+    """
+    context = context or {}
     cases: List[TestCase] = []
     subjects = matrix.subjects
 
@@ -135,7 +158,7 @@ def plan(matrix: Matrix) -> List[TestCase]:
         for subject in subjects:
             for variant, target in _variants(resource, subject, subjects):
                 expected = _expected_effect(matrix, resource, subject, variant, target)
-                path = _render_path(resource, subject, variant, target)
+                path = _render_path(resource, subject, variant, target, context)
                 cases.append(
                     TestCase(
                         id=make_test_id(resource.name, subject.name, variant),
@@ -149,9 +172,9 @@ def plan(matrix: Matrix) -> List[TestCase]:
                         expected=expected,
                         resource_type=resource.type,
                         required_roles=required,
-                        query=dict(resource.request.query),
-                        body=resource.request.body,
-                        headers=dict(resource.request.headers),
+                        query=render(dict(resource.request.query), context),
+                        body=render(resource.request.body, context),
+                        headers=render(dict(resource.request.headers), context),
                         matcher=matcher,
                     )
                 )

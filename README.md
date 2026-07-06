@@ -246,6 +246,44 @@ overstep run matrix.yaml       # logs in as each subject, then tests
 `${...}` is resolved once from the environment; `{{...}}` is resolved per subject
 at login time — so secrets come from the environment and never touch the file.
 
+### Real objects: setup steps & captured ids
+
+Meaningful BOLA testing needs a *real owned object* — the order that belongs to
+alice, not her user id. Two pieces make that work:
+
+**`objects`** on a resource maps each subject to the id of the object it owns.
+That id drives the SELF request (the subject's own object) and the OTHER request
+(reaching for someone else's — the BOLA probe).
+
+**`setup`** steps run once before the suite, as a chosen subject, and `extract`
+values from their responses into a capture context. Captures fill `{{name}}`
+placeholders — including in `objects` — so ids created at runtime flow straight
+into the tests:
+
+```yaml
+setup:
+  - name: alice creates an order
+    as: alice                        # runs with alice's (dynamic) token
+    request: { method: POST, path: /orders, body: { item: book } }
+    extract: { ALICE_ORDER: "$.id" } # capture the new id
+  - name: bob creates an order
+    as: bob
+    request: { method: POST, path: /orders, body: { item: pen } }
+    extract: { BOB_ORDER: "$.id" }
+
+resources:
+  - name: get_order
+    request: { method: GET, path: "/orders/{id}" }
+    type: object
+    owner_param: id
+    objects: { alice: "{{ALICE_ORDER}}", bob: "{{BOB_ORDER}}" }
+```
+
+Now `get_order::bob::other` fetches **alice's real order id**, so a `200` is a
+genuine BOLA finding rather than a guess. Captures also fill `{{...}}` in request
+bodies, queries and headers. If a subject has no `objects` entry, overstep falls
+back to its `owner_attr` attribute as before.
+
 ## Commands
 
 | Command | What it does |

@@ -9,50 +9,25 @@ async test executor.
 """
 from __future__ import annotations
 
-import re
 from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin
 
 import httpx
 
+from overstep.jsonpath import extract
 from overstep.matrix import Matrix
 from overstep.models import AuthProvider, Subject
+from overstep.templating import render
 
 
 class AuthError(RuntimeError):
     """Raised when a subject's login fails or no token can be extracted."""
 
 
-def _render(value: Any, variables: Dict[str, str]) -> Any:
-    """Substitute ``{{var}}`` placeholders from ``variables`` throughout ``value``."""
-    if isinstance(value, str):
-        for key, val in variables.items():
-            value = value.replace("{{%s}}" % key, str(val))
-        return value
-    if isinstance(value, dict):
-        return {k: _render(v, variables) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_render(v, variables) for v in value]
-    return value
-
-
 def extract_token(path: str, data: Any) -> Optional[str]:
-    """Pull a value out of a JSON response by a dotted path like ``$.data.token``.
-
-    Supports object keys and list indices (``$.items[0].access_token``).
-    """
-    node = data
-    for segment in re.findall(r"\w+", path):
-        if isinstance(node, list):
-            try:
-                node = node[int(segment)]
-            except (ValueError, IndexError):
-                return None
-        elif isinstance(node, dict):
-            node = node.get(segment)
-        else:
-            return None
-    return node if node is None or isinstance(node, str) else str(node)
+    """Pull a token string out of a JSON response by a dotted path."""
+    value = extract(path, data)
+    return value if value is None or isinstance(value, str) else str(value)
 
 
 def _login_call(provider: AuthProvider, variables: Dict[str, str], base_url: Optional[str]):
@@ -65,9 +40,9 @@ def _login_call(provider: AuthProvider, variables: Dict[str, str], base_url: Opt
         req = provider.request
         url = urljoin(_slash(provider_base), req.path.lstrip("/"))
         kwargs: Dict[str, Any] = {
-            "params": _render(req.query, variables) or None,
-            "json": _render(req.body, variables),
-            "headers": _render(req.headers, variables) or None,
+            "params": render(req.query, variables) or None,
+            "json": render(req.body, variables),
+            "headers": render(req.headers, variables) or None,
         }
         return req.method, url, kwargs
 
@@ -80,10 +55,10 @@ def _login_call(provider: AuthProvider, variables: Dict[str, str], base_url: Opt
         form["grant_type"] = "client_credentials"
     elif provider.type == "oauth2_password":
         form["grant_type"] = "password"
-        form["username"] = _render(provider.username or "", variables)
-        form["password"] = _render(provider.password or "", variables)
+        form["username"] = render(provider.username or "", variables)
+        form["password"] = render(provider.password or "", variables)
     for key in ("client_id", "client_secret", "scope"):
-        val = _render(getattr(provider, key) or "", variables)
+        val = render(getattr(provider, key) or "", variables)
         if val:
             form[key] = val
     return "POST", url, {"data": form}

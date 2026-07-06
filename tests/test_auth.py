@@ -6,8 +6,8 @@ import httpx
 import pytest
 
 from overstep.auth import AuthError, authenticate, extract_token
-from overstep.auth import _render
 from overstep.matrix import Matrix
+from overstep.templating import render
 
 
 # --- pure helpers -----------------------------------------------------------
@@ -20,7 +20,7 @@ def test_extract_token_dotted_path():
 
 
 def test_render_substitutes_double_brace():
-    assert _render({"u": "{{U}}", "p": "{{P}}"}, {"U": "alice", "P": "pw"}) == {
+    assert render({"u": "{{U}}", "p": "{{P}}"}, {"U": "alice", "P": "pw"}) == {
         "u": "alice",
         "p": "pw",
     }

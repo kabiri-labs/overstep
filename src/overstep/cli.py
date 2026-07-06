@@ -25,6 +25,7 @@ from overstep import __version__
 from overstep.auth import AuthError, authenticate
 from overstep.drift import build_snapshot, load_snapshot, save_snapshot
 from overstep.executor import run as run_executor
+from overstep.fixtures import SetupError, run_setup
 from overstep.matrix import MatrixError, load_matrix
 from overstep.models import Effect, RunResult
 from overstep.pipeline import PipelineError, resolve_base_url, run_pipeline, write_reports
@@ -99,8 +100,8 @@ def run(
             concurrency=concurrency,
             verify_tls=not insecure,
         )
-    except AuthError as exc:
-        console.print(f"[bold red]auth error:[/] {exc}")
+    except (AuthError, SetupError) as exc:
+        console.print(f"[bold red]setup error:[/] {exc}")
         raise typer.Exit(code=2)
 
     console.print(
@@ -128,10 +129,11 @@ def snapshot(
     base_url = _resolve(spec, base)
     try:
         authenticate(spec, base_url=base_url, verify_tls=not insecure)
-    except AuthError as exc:
-        console.print(f"[bold red]auth error:[/] {exc}")
+        context = run_setup(spec, base_url=base_url, verify_tls=not insecure)
+    except (AuthError, SetupError) as exc:
+        console.print(f"[bold red]setup error:[/] {exc}")
         raise typer.Exit(code=2)
-    cases = plan(spec)
+    cases = plan(spec, context)
     observations = run_executor(
         base_url, spec.subjects, cases, concurrency=concurrency, verify_tls=not insecure
     )

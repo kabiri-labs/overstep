@@ -19,6 +19,7 @@ from overstep.models import (
     ResourcePolicy,
     ResourceType,
     ResponseMatcher,
+    SetupStep,
     Subject,
 )
 
@@ -41,6 +42,8 @@ class Matrix(BaseModel):
     access: ResponseMatcher = Field(default_factory=ResponseMatcher)
     # Providers used to obtain subject tokens dynamically before a run.
     auth: AuthConfig = Field(default_factory=AuthConfig)
+    # Requests run once before the suite to create fixtures / capture object ids.
+    setup: List[SetupStep] = Field(default_factory=list)
 
     def resource_map(self) -> Dict[str, Resource]:
         return {r.name: r for r in self.resources}
@@ -99,6 +102,21 @@ class Matrix(BaseModel):
                     f"subject '{subject.name}' uses unknown auth provider "
                     f"'{subject.auth.provider}'"
                 )
+
+        subject_set = set(subject_names)
+        for step in self.setup:
+            if step.run_as and step.run_as not in subject_set:
+                problems.append(
+                    f"setup step '{step.name or step.request.path}' runs as unknown "
+                    f"subject '{step.run_as}'"
+                )
+        for res in self.resources:
+            for sub_name in res.objects:
+                if sub_name not in subject_set:
+                    problems.append(
+                        f"resource '{res.name}' declares an object for unknown "
+                        f"subject '{sub_name}'"
+                    )
         return problems
 
 

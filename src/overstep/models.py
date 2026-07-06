@@ -9,7 +9,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 HTTPMethod = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
 
@@ -145,6 +145,24 @@ class AuthConfig(BaseModel):
     providers: List[AuthProvider] = Field(default_factory=list)
 
 
+class SetupStep(BaseModel):
+    """A request run once before the suite to create fixtures and capture values.
+
+    ``run_as`` (written ``as`` in YAML) picks the subject whose credentials the
+    step uses. ``extract`` maps capture names to dotted JSON paths into the
+    response; captured values then fill ``{{name}}`` placeholders in resource
+    ``objects`` maps and request bodies.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: str = ""
+    run_as: Optional[str] = Field(default=None, alias="as")
+    request: Request
+    extract: Dict[str, str] = Field(default_factory=dict)
+    expect_status: Optional[List[int]] = None
+
+
 class Resource(BaseModel):
     """A named API operation the matrix makes assertions about."""
 
@@ -158,6 +176,11 @@ class Resource(BaseModel):
     description: str = ""
     # Optional per-resource override of the matrix-level response matcher.
     access: Optional[ResponseMatcher] = None
+    # Explicit object id owned by each subject (subject name -> id). Takes
+    # precedence over owner_attr, and values may reference {{captures}} from
+    # setup steps. This is how real BOLA testing points at genuine owned objects
+    # (an order id, a document id) rather than a user id.
+    objects: Dict[str, str] = Field(default_factory=dict)
 
 
 class AllowRule(BaseModel):
