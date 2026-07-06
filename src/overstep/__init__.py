@@ -19,6 +19,7 @@ The public API mirrors the pipeline stages, so an embedding application can do::
 
 __version__ = "0.1.0"
 
+from overstep.auth import authenticate
 from overstep.matrix import Matrix, load_matrix
 from overstep.models import Finding, RunResult, VulnClass
 from overstep.pipeline import run_pipeline, write_reports
@@ -29,6 +30,7 @@ __all__ = [
     "Matrix",
     "load_matrix",
     "plan",
+    "authenticate",
     "run_pipeline",
     "write_reports",
     "RunResult",

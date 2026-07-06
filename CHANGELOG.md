@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Dynamic authentication.** Subjects can obtain a token by logging in before
+  the run via an auth provider (`type: http`, `oauth2_client_credentials`,
+  `oauth2_password`) instead of carrying a static token, with the token pulled
+  from the JSON response at a configurable `token_path`.
+- **`${ENV}` interpolation** for matrix files (`${VAR}` / `${VAR:-default}`), so
+  secrets stay out of the committed matrix; `--env-file` loads a dotenv.
+- **Custom headers** on resources and subjects, merged as
+  resource → subject → bearer, never clobbering an explicit `Authorization`.
+- **Configurable response matcher** (`access:`) to decide allow/deny by status
+  (codes, ranges, classes), body regex, and redirect handling — instead of a
+  bare 2xx check.
+
 ## [0.1.0] - 2025-09-14
 First release of **overstep** — matrix-driven authorization testing for HTTP APIs.
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 from typing import Callable, List, Optional
 
+from overstep.auth import authenticate as default_authenticator
 from overstep.classifier import classify
 from overstep.drift import diff
 from overstep.executor import run as default_executor
@@ -22,6 +23,8 @@ from overstep.report import all_reporters
 
 # A callable with the same shape as executor.run, so tests can inject a fake.
 ExecutorFn = Callable[..., List[Observation]]
+# A callable with the shape of auth.authenticate.
+AuthenticatorFn = Callable[..., None]
 
 
 class PipelineError(RuntimeError):
@@ -43,9 +46,15 @@ def run_pipeline(
     concurrency: int = 10,
     verify_tls: bool = True,
     executor: ExecutorFn = default_executor,
+    authenticator: AuthenticatorFn = default_authenticator,
 ) -> RunResult:
-    """Plan, execute, classify and (optionally) diff against a baseline."""
+    """Plan, execute, classify and (optionally) diff against a baseline.
+
+    Dynamic authentication runs first (a no-op unless the matrix declares auth
+    providers), so subjects carry real tokens before any test fires.
+    """
     resolved = resolve_base_url(matrix, base_url)
+    authenticator(matrix, base_url=resolved, verify_tls=verify_tls)
     cases = plan(matrix)
     observations = executor(
         resolved, matrix.subjects, cases, concurrency=concurrency, verify_tls=verify_tls

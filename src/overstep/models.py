@@ -72,12 +72,26 @@ class ResponseMatcher(BaseModel):
     treat_redirect_as: Literal["allow", "deny", "status"] = "deny"
 
 
+class SubjectAuth(BaseModel):
+    """Ties a subject to an auth provider and supplies its per-subject inputs.
+
+    ``vars`` fill the ``{{placeholders}}`` in the provider's login request, so two
+    subjects can share one provider with different credentials.
+    """
+
+    provider: str
+    vars: Dict[str, str] = Field(default_factory=dict)
+
+
 class Subject(BaseModel):
     """An identity that makes requests against the target."""
 
     name: str
     role: str = "user"
+    # A static bearer token. Leave unset and use `auth` to obtain one dynamically.
     token: Optional[str] = None
+    # Dynamic authentication: obtain a token from a provider before the run.
+    auth: Optional[SubjectAuth] = None
     # Per-subject headers, merged over the resource's headers at request time.
     # Use these for auth schemes other than bearer (X-API-Key, a custom
     # Authorization value, a session cookie) or per-identity headers (X-Tenant).
@@ -95,6 +109,40 @@ class Request(BaseModel):
     query: Dict[str, Any] = Field(default_factory=dict)
     body: Optional[Any] = None
     headers: Dict[str, str] = Field(default_factory=dict)
+
+
+class AuthProvider(BaseModel):
+    """How to obtain a token before the run.
+
+    ``http`` sends an arbitrary login ``request`` and pulls the token out of the
+    JSON response at ``token_path``. The ``oauth2_*`` types build the standard
+    token-endpoint form for you. Values may contain ``{{var}}`` placeholders that
+    are filled from each subject's ``auth.vars`` at login time.
+    """
+
+    name: str
+    type: Literal["http", "oauth2_password", "oauth2_client_credentials"] = "http"
+    base_url: Optional[str] = None  # defaults to the matrix base URL
+
+    # type == "http"
+    request: Optional[Request] = None
+
+    # type == "oauth2_*"
+    token_url: Optional[str] = None
+    client_id: Optional[str] = None
+    client_secret: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    scope: Optional[str] = None
+
+    # How to read and place the resulting token.
+    token_path: str = "$.access_token"       # dotted path into the JSON response
+    token_header: str = "Authorization"
+    token_format: str = "Bearer {token}"     # {token} is the extracted value
+
+
+class AuthConfig(BaseModel):
+    providers: List[AuthProvider] = Field(default_factory=list)
 
 
 class Resource(BaseModel):

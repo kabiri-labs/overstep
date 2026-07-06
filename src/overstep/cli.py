@@ -14,6 +14,7 @@ Commands:
 """
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 import typer
@@ -21,6 +22,7 @@ from rich.console import Console
 from rich.table import Table
 
 from overstep import __version__
+from overstep.auth import AuthError, authenticate
 from overstep.drift import build_snapshot, load_snapshot, save_snapshot
 from overstep.executor import run as run_executor
 from overstep.matrix import MatrixError, load_matrix
@@ -36,7 +38,25 @@ app = typer.Typer(
 console = Console()
 
 
-def _load(matrix_path: str):
+def _apply_env_file(path: Optional[str]) -> None:
+    """Load KEY=VALUE lines from a dotenv file into the process environment."""
+    if not path:
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+    except OSError as exc:
+        console.print(f"[bold red]error:[/] could not read env file '{path}': {exc}")
+        raise typer.Exit(code=2)
+
+
+def _load(matrix_path: str, env_file: Optional[str] = None):
+    _apply_env_file(env_file)
     try:
         return load_matrix(matrix_path)
     except MatrixError as exc:
@@ -61,22 +81,27 @@ def run(
     fail_on: str = typer.Option("vuln", help="Exit non-zero on: vuln | drift | any | never."),
     concurrency: int = typer.Option(10, help="Max concurrent requests."),
     insecure: bool = typer.Option(False, help="Disable TLS verification."),
+    env_file: Optional[str] = typer.Option(None, help="dotenv file with ${VAR} values."),
 ):
     """Run the matrix against a live target and write reports."""
-    spec = _load(matrix)
+    spec = _load(matrix, env_file)
     for problem in spec.validate_refs():
         console.print(f"[yellow]warning:[/] {problem}")
 
     base_url = _resolve(spec, base)
     snapshot_data = load_snapshot(baseline) if baseline else None
 
-    result = run_pipeline(
-        spec,
-        base_url,
-        baseline=snapshot_data,
-        concurrency=concurrency,
-        verify_tls=not insecure,
-    )
+    try:
+        result = run_pipeline(
+            spec,
+            base_url,
+            baseline=snapshot_data,
+            concurrency=concurrency,
+            verify_tls=not insecure,
+        )
+    except AuthError as exc:
+        console.print(f"[bold red]auth error:[/] {exc}")
+        raise typer.Exit(code=2)
 
     console.print(
         f"[bold]Planned[/] {len(result.cases)} tests "
@@ -96,10 +121,16 @@ def snapshot(
     out: str = typer.Option("baseline.json", help="Where to write the snapshot."),
     concurrency: int = typer.Option(10, help="Max concurrent requests."),
     insecure: bool = typer.Option(False, help="Disable TLS verification."),
+    env_file: Optional[str] = typer.Option(None, help="dotenv file with ${VAR} values."),
 ):
     """Record the current authorization decisions as a drift baseline."""
-    spec = _load(matrix)
+    spec = _load(matrix, env_file)
     base_url = _resolve(spec, base)
+    try:
+        authenticate(spec, base_url=base_url, verify_tls=not insecure)
+    except AuthError as exc:
+        console.print(f"[bold red]auth error:[/] {exc}")
+        raise typer.Exit(code=2)
     cases = plan(spec)
     observations = run_executor(
         base_url, spec.subjects, cases, concurrency=concurrency, verify_tls=not insecure

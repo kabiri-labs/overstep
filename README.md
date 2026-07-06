@@ -201,6 +201,51 @@ Evaluation order: `deny_body_regex` (wins, fails safe) → `allow_body_regex` �
 redirect handling → `allow_status`. Body patterns are case-insensitive and
 matched against the full response body.
 
+### Authentication (dynamic tokens & secrets)
+
+Static tokens don't survive CI — they expire and shouldn't be committed. Two
+features handle this:
+
+**`${ENV}` interpolation.** Any `${VAR}` in the matrix is replaced from the
+environment at load time (`${VAR:-default}` for a fallback); a missing variable
+fails the run loudly instead of sending the literal string. Pass a dotenv file
+with `--env-file`.
+
+**Auth providers.** A subject can obtain its token by logging in before the run,
+instead of carrying a static one. `type: http` posts an arbitrary login request
+and reads the token out of the JSON response; `oauth2_client_credentials` and
+`oauth2_password` build the standard token-endpoint form. Values may contain
+`{{var}}` placeholders filled from each subject's `auth.vars`, so one provider
+serves many identities:
+
+```yaml
+auth:
+  providers:
+    - name: login
+      type: http                      # or oauth2_password / oauth2_client_credentials
+      request:
+        method: POST
+        path: /auth/login
+        body: { username: "{{U}}", password: "{{P}}" }
+      token_path: "$.access_token"    # dotted path into the JSON response
+      # token_header: Authorization   # defaults; override for X-API-Key etc.
+      # token_format: "Bearer {token}"
+
+subjects:
+  - name: alice
+    role: user
+    auth: { provider: login, vars: { U: alice, P: "${ALICE_PASS}" } }  # secret from env
+    attributes: { user_id: u1 }
+```
+
+```bash
+export ALICE_PASS=…            # or: overstep run matrix.yaml --env-file .env
+overstep run matrix.yaml       # logs in as each subject, then tests
+```
+
+`${...}` is resolved once from the environment; `{{...}}` is resolved per subject
+at login time — so secrets come from the environment and never touch the file.
+
 ## Commands
 
 | Command | What it does |
@@ -212,7 +257,7 @@ matched against the full response body.
 | `overstep scaffold SPEC --fmt openapi\|har` | generate a starter `resources:` block |
 
 `run` flags: `--base` (override URL), `--out`, `--baseline`, `--concurrency`,
-`--insecure`, and `--fail-on {vuln,drift,any,never}`.
+`--insecure`, `--env-file`, and `--fail-on {vuln,drift,any,never}`.
 
 ## CI / CD: catching authorization drift
 

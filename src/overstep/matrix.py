@@ -12,7 +12,15 @@ from typing import Dict, List, Optional
 import yaml
 from pydantic import BaseModel, Field
 
-from overstep.models import Resource, ResourcePolicy, ResourceType, ResponseMatcher, Subject
+from overstep.interpolation import InterpolationError, interpolate
+from overstep.models import (
+    AuthConfig,
+    Resource,
+    ResourcePolicy,
+    ResourceType,
+    ResponseMatcher,
+    Subject,
+)
 
 # Default privilege ordering (least -> most) when a matrix doesn't declare one.
 DEFAULT_ROLE_ORDER = ["anonymous", "user", "admin"]
@@ -31,6 +39,8 @@ class Matrix(BaseModel):
     policy: Dict[str, ResourcePolicy] = Field(default_factory=dict)
     # Default response matcher applied to every resource that doesn't override it.
     access: ResponseMatcher = Field(default_factory=ResponseMatcher)
+    # Providers used to obtain subject tokens dynamically before a run.
+    auth: AuthConfig = Field(default_factory=AuthConfig)
 
     def resource_map(self) -> Dict[str, Resource]:
         return {r.name: r for r in self.resources}
@@ -81,12 +91,26 @@ class Matrix(BaseModel):
                     problems.append(
                         f"policy for '{name}' allows unknown role '{rule.role}'"
                     )
+
+        provider_names = {p.name for p in self.auth.providers}
+        for subject in self.subjects:
+            if subject.auth and subject.auth.provider not in provider_names:
+                problems.append(
+                    f"subject '{subject.name}' uses unknown auth provider "
+                    f"'{subject.auth.provider}'"
+                )
         return problems
 
 
-def load_matrix(path: str) -> Matrix:
+def load_matrix(path: str, env=None) -> Matrix:
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
+    # Resolve ${ENV} references before building the model so secrets stay out of
+    # the committed file.
+    try:
+        data = interpolate(data, env)
+    except InterpolationError as exc:
+        raise MatrixError(f"could not load matrix '{path}': {exc}") from exc
     try:
         return Matrix(**data)
     except Exception as exc:  # pydantic ValidationError, etc.
