@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.0] - 2026-07-06
 
 ### Added
 - **Setup steps & object seeding.** `setup:` requests run once before the suite
