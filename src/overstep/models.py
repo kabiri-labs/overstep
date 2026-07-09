@@ -260,6 +260,9 @@ class Observation(BaseModel):
     # Which of the test case's expected victim markers actually appeared in the
     # response body (empty when none were configured or none matched).
     matched_markers: List[str] = Field(default_factory=list)
+    # True when the request was deliberately not sent (e.g. a mutating verb under
+    # --read-only). Skipped observations never produce findings.
+    skipped: bool = False
 
 
 class Finding(BaseModel):

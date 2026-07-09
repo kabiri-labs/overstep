@@ -159,6 +159,9 @@ def classify(
         case = by_id.get(obs.test_id)
         if case is None:
             continue
+        # A deliberately skipped request (read-only) is not evidence either way.
+        if obs.skipped:
+            continue
 
         if case.expected == Effect.ALLOW:
             if obs.effect == Effect.DENY:

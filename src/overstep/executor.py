@@ -9,6 +9,7 @@ hammering the target.
 from __future__ import annotations
 
 import asyncio
+import random
 import time
 from typing import Dict, List
 from urllib.parse import urljoin
@@ -17,6 +18,23 @@ import httpx
 
 from overstep.matching import evaluate
 from overstep.models import Effect, Observation, Subject, TestCase
+
+# Verbs that change server state; skipped under read-only mode.
+MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+# Statuses worth retrying: rate limiting and transient upstream unavailability.
+RETRY_STATUSES = frozenset({429, 503})
+
+
+def _retry_delay(resp: httpx.Response, attempt: int, backoff_base: float) -> float:
+    """Seconds to wait before the next attempt, honouring Retry-After if present."""
+    retry_after = resp.headers.get("Retry-After")
+    if retry_after is not None:
+        try:
+            return max(0.0, float(retry_after))
+        except ValueError:
+            pass
+    # Exponential backoff with full jitter.
+    return backoff_base * (2 ** attempt) * (0.5 + random.random())
 
 
 def build_headers(subject: Subject, case: TestCase) -> Dict[str, str]:
@@ -45,28 +63,49 @@ async def _fire(
     subject: Subject,
     case: TestCase,
     semaphore: asyncio.Semaphore,
+    *,
+    read_only: bool = False,
+    max_retries: int = 0,
+    backoff_base: float = 0.5,
 ) -> Observation:
+    # Read-only mode never sends a state-changing request against a live target.
+    if read_only and case.method.upper() in MUTATING_METHODS:
+        return Observation(
+            test_id=case.id,
+            status=0,
+            effect=Effect.DENY,
+            skipped=True,
+            error=f"skipped {case.method} under --read-only",
+        )
+
     url = urljoin(base_url if base_url.endswith("/") else base_url + "/", case.path.lstrip("/"))
     async with semaphore:
         started = time.perf_counter()
-        try:
-            resp = await client.request(
-                case.method,
-                url,
-                headers=build_headers(subject, case) or None,
-                params=case.query or None,
-                json=case.body,
-            )
-        except httpx.HTTPError as exc:
-            elapsed = (time.perf_counter() - started) * 1000
-            # A transport error means the subject did not get through -> denied.
-            return Observation(
-                test_id=case.id,
-                status=0,
-                effect=Effect.DENY,
-                latency_ms=round(elapsed, 1),
-                error=str(exc),
-            )
+        resp = None
+        for attempt in range(max_retries + 1):
+            try:
+                resp = await client.request(
+                    case.method,
+                    url,
+                    headers=build_headers(subject, case) or None,
+                    params=case.query or None,
+                    json=case.body,
+                )
+            except httpx.HTTPError as exc:
+                elapsed = (time.perf_counter() - started) * 1000
+                # A transport error means the subject did not get through -> denied.
+                return Observation(
+                    test_id=case.id,
+                    status=0,
+                    effect=Effect.DENY,
+                    latency_ms=round(elapsed, 1),
+                    error=str(exc),
+                )
+            # Back off and retry on rate-limit / transient-unavailable statuses.
+            if resp.status_code in RETRY_STATUSES and attempt < max_retries:
+                await asyncio.sleep(_retry_delay(resp, attempt, backoff_base))
+                continue
+            break
 
         elapsed = (time.perf_counter() - started) * 1000
         full_body = resp.text
@@ -94,6 +133,9 @@ async def execute(
     concurrency: int = 10,
     timeout: float = 15.0,
     verify_tls: bool = True,
+    read_only: bool = False,
+    max_retries: int = 0,
+    backoff_base: float = 0.5,
 ) -> List[Observation]:
     """Run every test case and return one observation per case."""
     subject_map: Dict[str, Subject] = {s.name: s for s in subjects}
@@ -101,7 +143,16 @@ async def execute(
 
     async with httpx.AsyncClient(timeout=timeout, verify=verify_tls, follow_redirects=False) as client:
         tasks = [
-            _fire(client, base_url, subject_map[c.subject], c, semaphore)
+            _fire(
+                client,
+                base_url,
+                subject_map[c.subject],
+                c,
+                semaphore,
+                read_only=read_only,
+                max_retries=max_retries,
+                backoff_base=backoff_base,
+            )
             for c in cases
         ]
         return await asyncio.gather(*tasks)
@@ -115,6 +166,9 @@ def run(
     concurrency: int = 10,
     timeout: float = 15.0,
     verify_tls: bool = True,
+    read_only: bool = False,
+    max_retries: int = 0,
+    backoff_base: float = 0.5,
 ) -> List[Observation]:
     """Synchronous wrapper around :func:`execute`."""
     return asyncio.run(
@@ -125,5 +179,8 @@ def run(
             concurrency=concurrency,
             timeout=timeout,
             verify_tls=verify_tls,
+            read_only=read_only,
+            max_retries=max_retries,
+            backoff_base=backoff_base,
         )
     )

@@ -17,6 +17,7 @@ from overstep.classifier import classify
 from overstep.drift import diff
 from overstep.executor import run as default_executor
 from overstep.fixtures import run_setup as default_setup_runner
+from overstep.fixtures import run_teardown
 from overstep.matrix import Matrix
 from overstep.models import Observation, RunResult, Subject, TestCase
 from overstep.planner import plan
@@ -50,6 +51,9 @@ def run_pipeline(
     waivers: Optional[List["Waiver"]] = None,
     concurrency: int = 10,
     verify_tls: bool = True,
+    read_only: bool = False,
+    max_retries: int = 0,
+    backoff_base: float = 0.5,
     executor: ExecutorFn = default_executor,
     authenticator: AuthenticatorFn = default_authenticator,
     setup_runner: SetupFn = default_setup_runner,
@@ -57,15 +61,23 @@ def run_pipeline(
     """Plan, execute, classify and (optionally) diff against a baseline.
 
     Order: authenticate (obtain tokens) → run setup steps (create fixtures,
-    capture object ids) → plan (using the captures) → execute. The auth and setup
-    stages are no-ops unless the matrix declares them, so simple runs pay nothing.
+    capture object ids) → plan (using the captures) → execute → teardown. The auth,
+    setup and teardown stages are no-ops unless the matrix declares them, so simple
+    runs pay nothing.
     """
     resolved = resolve_base_url(matrix, base_url)
     authenticator(matrix, base_url=resolved, verify_tls=verify_tls)
     context = setup_runner(matrix, base_url=resolved, verify_tls=verify_tls)
     cases = plan(matrix, context)
     observations = executor(
-        resolved, matrix.subjects, cases, concurrency=concurrency, verify_tls=verify_tls
+        resolved,
+        matrix.subjects,
+        cases,
+        concurrency=concurrency,
+        verify_tls=verify_tls,
+        read_only=read_only,
+        max_retries=max_retries,
+        backoff_base=backoff_base,
     )
 
     findings = classify(matrix, cases, observations, base_url=resolved)
@@ -76,6 +88,9 @@ def run_pipeline(
     warnings: List[str] = []
     if waivers:
         findings, waived, warnings = apply_waivers(findings, waivers)
+
+    # Best-effort cleanup of any fixtures the setup steps created.
+    warnings = warnings + run_teardown(matrix, base_url=resolved, verify_tls=verify_tls, context=context)
 
     return RunResult(
         base_url=resolved,

@@ -83,6 +83,8 @@ def run(
     waivers: Optional[str] = typer.Option(None, help="Waivers file of accepted findings."),
     fail_on: str = typer.Option("vuln", help="Exit non-zero on: vuln | drift | any | never."),
     concurrency: int = typer.Option(10, help="Max concurrent requests."),
+    read_only: bool = typer.Option(False, help="Skip mutating verbs (POST/PUT/PATCH/DELETE)."),
+    max_retries: int = typer.Option(2, help="Retries on 429/503 with backoff."),
     insecure: bool = typer.Option(False, help="Disable TLS verification."),
     env_file: Optional[str] = typer.Option(None, help="dotenv file with ${VAR} values."),
 ):
@@ -107,6 +109,8 @@ def run(
             waivers=waiver_list,
             concurrency=concurrency,
             verify_tls=not insecure,
+            read_only=read_only,
+            max_retries=max_retries,
         )
     except (AuthError, SetupError) as exc:
         console.print(f"[bold red]setup error:[/] {exc}")

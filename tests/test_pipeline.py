@@ -12,7 +12,7 @@ def _fake_executor(overrides=None):
     """Build an executor stub that echoes the matrix expectation, with overrides."""
     overrides = overrides or {}
 
-    def _exec(base_url, subjects, cases, *, concurrency=10, verify_tls=True):
+    def _exec(base_url, subjects, cases, *, concurrency=10, verify_tls=True, **kwargs):
         obs = []
         for c in cases:
             status = overrides.get(c.id, 200 if c.expected == Effect.ALLOW else 403)

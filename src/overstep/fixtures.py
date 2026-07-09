@@ -102,3 +102,54 @@ def run_setup(
             client.close()
 
     return context
+
+
+def run_teardown(
+    matrix: Matrix,
+    *,
+    base_url: str,
+    verify_tls: bool = True,
+    context: Optional[Dict[str, str]] = None,
+    client: Optional[httpx.Client] = None,
+) -> List[str]:
+    """Run every teardown step best-effort, returning a list of failure messages.
+
+    Teardown must never fail a run: a cleanup error is reported as a warning, not
+    raised. Steps reuse the capture ``context`` from setup so they can address the
+    fixtures that were created (``DELETE /orders/{{order_id}}``).
+    """
+    if not matrix.teardown:
+        return []
+
+    subjects = {s.name: s for s in matrix.subjects}
+    context = dict(context or {})
+    warnings: List[str] = []
+
+    owns_client = client is None
+    client = client or httpx.Client(timeout=15.0, verify=verify_tls, follow_redirects=True)
+    try:
+        for step in matrix.teardown:
+            label = step.name or f"{step.request.method} {step.request.path}"
+            subject = subjects.get(step.run_as) if step.run_as else None
+            path = render(step.request.path, context)
+            url = urljoin(_slash(base_url), path.lstrip("/"))
+            headers = {**render(step.request.headers, context), **_subject_headers(subject)}
+            try:
+                resp = client.request(
+                    step.request.method,
+                    url,
+                    params=render(step.request.query, context) or None,
+                    json=render(step.request.body, context),
+                    headers=headers or None,
+                )
+                if resp.status_code >= 400:
+                    warnings.append(f"teardown step '{label}' returned {resp.status_code}")
+            except httpx.HTTPError as exc:
+                warnings.append(f"teardown step '{label}' failed: {exc}")
+    finally:
+        if owns_client:
+            client.close()
+
+    return warnings
+
+    return context

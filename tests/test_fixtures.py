@@ -140,3 +140,48 @@ def test_validate_flags_setup_and_objects_unknown_subjects():
     problems = matrix.validate_refs()
     assert any("unknown subject 'ghost'" in p for p in problems)
     assert any("unknown\n" not in p and "'nobody'" in p for p in problems)
+
+
+def test_run_teardown_is_best_effort_and_uses_captures():
+    import httpx
+
+    from overstep.fixtures import run_teardown
+    from overstep.matrix import Matrix
+
+    deleted = {"paths": []}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        deleted["paths"].append(request.url.path)
+        # One cleanup fails; teardown must not raise, only warn.
+        if request.url.path.endswith("/boom"):
+            return httpx.Response(500)
+        return httpx.Response(204)
+
+    matrix = Matrix(
+        subjects=[{"name": "alice", "role": "user", "token": "a"}],
+        resources=[{"name": "r", "request": {"method": "GET", "path": "/r"}}],
+        policy={"r": {"allow": [{"role": "user"}]}},
+        teardown=[
+            {"name": "drop order", "as": "alice",
+             "request": {"method": "DELETE", "path": "/orders/{{order_id}}"}},
+            {"name": "boom", "request": {"method": "DELETE", "path": "/boom"}},
+        ],
+    )
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    warnings = run_teardown(matrix, base_url="http://api.test", context={"order_id": "o-123"}, client=client)
+    # The {{order_id}} capture was substituted into the cleanup path.
+    assert "/orders/o-123" in deleted["paths"]
+    # The failing step surfaced as a warning rather than an exception.
+    assert any("boom" in w for w in warnings)
+
+
+def test_run_teardown_noop_without_steps():
+    from overstep.fixtures import run_teardown
+    from overstep.matrix import Matrix
+
+    matrix = Matrix(
+        subjects=[{"name": "alice", "role": "user"}],
+        resources=[{"name": "r", "request": {"method": "GET", "path": "/r"}}],
+        policy={"r": {"allow": [{"role": "user"}]}},
+    )
+    assert run_teardown(matrix, base_url="http://api.test") == []

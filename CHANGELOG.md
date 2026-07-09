@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.8.0] - 2026-07-09
+
+### Added
+- **429/503 retry with backoff.** The executor now retries rate-limited and
+  transiently-unavailable responses, honouring a `Retry-After` header and
+  otherwise using exponential backoff with full jitter (`--max-retries`, default 2).
+  A large matrix no longer trips a WAF into flaky failures.
+- **Read-only mode (`--read-only`).** Skips every mutating verb (POST/PUT/PATCH/
+  DELETE) so the suite can be pointed at a sensitive environment without changing
+  state. Skipped requests are recorded but never produce findings.
+- **Teardown steps (`teardown:`).** Best-effort cleanup requests that run once
+  after the suite and can reference `{{captures}}` from setup, so fixtures created
+  for BOLA testing are removed. A teardown failure is reported as a warning, never
+  a run failure.
+
 ## [0.7.0] - 2026-07-09
 
 ### Added

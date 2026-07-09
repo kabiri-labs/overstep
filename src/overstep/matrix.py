@@ -44,6 +44,9 @@ class Matrix(BaseModel):
     auth: AuthConfig = Field(default_factory=AuthConfig)
     # Requests run once before the suite to create fixtures / capture object ids.
     setup: List[SetupStep] = Field(default_factory=list)
+    # Requests run once after the suite (best-effort) to clean up fixtures the
+    # setup steps created. Can reference {{captures}} from setup.
+    teardown: List[SetupStep] = Field(default_factory=list)
 
     def resource_map(self) -> Dict[str, Resource]:
         return {r.name: r for r in self.resources}
