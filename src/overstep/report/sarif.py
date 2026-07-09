@@ -51,6 +51,7 @@ def write(result: RunResult, path: str) -> None:
                     "status": f.status,
                     "expected": f.expected.value,
                     "observed": f.observed.value,
+                    "confidence": f.confidence,
                 },
                 "locations": [
                     {

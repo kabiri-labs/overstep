@@ -26,6 +26,7 @@ code { background: #f2f2f2; padding: 0.1rem 0.3rem; border-radius: 4px; }
 details > summary { cursor: pointer; color: #3a7bd5; }
 pre { background: #f7f7f7; padding: 0.5rem; overflow-x: auto; border-radius: 4px; }
 .empty { color: #2a8a4a; font-weight: 600; }
+.conf { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.03em; color: #555; border: 1px solid #ddd; border-radius: 6px; padding: 0.05rem 0.35rem; }
 """
 
 
@@ -42,7 +43,8 @@ def _row(f: Finding) -> str:
         f'<div class="sev" style="color:{color}">{html.escape(f.severity)}</div></td>'
         f"<td><code>{html.escape(f.method)} {html.escape(f.path)}</code><br>"
         f"<small>{html.escape(f.subject)} · {html.escape(f.role)} · {html.escape(f.variant.value)}</small></td>"
-        f"<td>expected <b>{html.escape(f.expected.value)}</b><br>observed <b>{html.escape(f.observed.value)}</b> ({f.status})</td>"
+        f"<td>expected <b>{html.escape(f.expected.value)}</b><br>observed <b>{html.escape(f.observed.value)}</b> ({f.status})"
+        f'<br><span class="conf">{html.escape(f.confidence)}</span></td>'
         f"<td>{html.escape(f.detail)}"
         "<details><summary>evidence</summary>"
         f"<pre>{html.escape(ev.body_snippet[:1200])}</pre></details></td>"

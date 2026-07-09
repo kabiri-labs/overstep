@@ -99,6 +99,11 @@ class Subject(BaseModel):
     # Free-form attributes such as user_id / tenant used to resolve object owners
     # and to evaluate custom allow conditions.
     attributes: Dict[str, Any] = Field(default_factory=dict)
+    # A string that uniquely identifies *this* subject's data in a response (an
+    # email, a name, a per-user secret). Used by the content-aware oracle: when a
+    # BOLA probe is allowed, overstep looks for the victim's marker in the body to
+    # confirm real data leaked rather than trusting the status code alone.
+    marker: Optional[str] = None
 
 
 class Request(BaseModel):
@@ -223,6 +228,10 @@ class TestCase(BaseModel):
     # The resolved response matcher for this request (resource override or the
     # matrix-level default), used to turn the response into allow/deny.
     matcher: ResponseMatcher = Field(default_factory=ResponseMatcher)
+    # For OTHER-variant object probes: the victim subject's marker(s). If the
+    # response body contains one of these, a slipped-through probe is a *confirmed*
+    # data leak, not merely a permissive status code.
+    expect_markers: List[str] = Field(default_factory=list)
 
     @property
     def is_negative(self) -> bool:
@@ -239,6 +248,9 @@ class Observation(BaseModel):
     headers: Dict[str, str] = Field(default_factory=dict)
     body_snippet: str = ""
     error: Optional[str] = None
+    # Which of the test case's expected victim markers actually appeared in the
+    # response body (empty when none were configured or none matched).
+    matched_markers: List[str] = Field(default_factory=list)
 
 
 class Finding(BaseModel):
@@ -258,6 +270,11 @@ class Finding(BaseModel):
     variant: Variant
     detail: str
     evidence: Observation
+    # How sure we are the finding is real. "confirmed" — the victim's marker was
+    # seen in the response (a proven leak) or the signal is unambiguous;
+    # "suspected" — access was granted but the expected victim data did not appear;
+    # "unverified" — decided on status alone with no content check configured.
+    confidence: Literal["confirmed", "suspected", "unverified"] = "confirmed"
 
 
 class RunResult(BaseModel):

@@ -159,6 +159,13 @@ def plan(matrix: Matrix, context: Optional[Dict[str, str]] = None) -> List[TestC
             for variant, target in _variants(resource, subject, subjects):
                 expected = _expected_effect(matrix, resource, subject, variant, target)
                 path = _render_path(resource, subject, variant, target, context)
+                # For an OTHER probe, a leak would expose the victim's data, so
+                # carry the victim's marker along for the content-aware oracle.
+                expect_markers = (
+                    [target.marker]
+                    if variant == Variant.OTHER and target and target.marker
+                    else []
+                )
                 cases.append(
                     TestCase(
                         id=make_test_id(resource.name, subject.name, variant),
@@ -176,6 +183,7 @@ def plan(matrix: Matrix, context: Optional[Dict[str, str]] = None) -> List[TestC
                         body=render(resource.request.body, context),
                         headers=render(dict(resource.request.headers), context),
                         matcher=matcher,
+                        expect_markers=expect_markers,
                     )
                 )
     return cases

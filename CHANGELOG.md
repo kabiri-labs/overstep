@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.0] - 2026-07-09
+
+### Added
+- **Content-aware BOLA oracle.** A subject can declare a `marker` — a string that
+  uniquely identifies *its* data (an email, a per-user secret). When a BOLA probe
+  slips through, overstep scans the response body for the victim's marker and
+  grades the finding's `confidence`: `confirmed` when the victim's data actually
+  leaked, `suspected` when access was granted but the owner data never appeared
+  (downgraded to `medium` severity — likely an empty result, verify manually), and
+  `unverified` when no marker was configured (status-only, as before). This turns
+  "the status was 200" into "the response really contained someone else's data",
+  cutting the biggest source of BOLA false positives. `confidence` is surfaced in
+  the JSON, HTML and SARIF reports.
+
 ## [0.2.0] - 2026-07-06
 
 ### Added

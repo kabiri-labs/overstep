@@ -45,12 +45,48 @@ def _classify_violation(matrix: Matrix, case: TestCase) -> VulnClass:
     return VulnClass.BFLA
 
 
-def _detail(case: TestCase, obs: Observation, vuln: VulnClass) -> str:
+def _grade(vuln: VulnClass, case: TestCase, obs: Observation):
+    """Assign (severity, confidence) using the content-aware oracle.
+
+    Only object-level probes (BOLA) can be content-verified: we know the victim's
+    marker. When it shows up in the body the leak is *confirmed*; when a marker was
+    configured but never appeared the grant is *suspected* (possibly an empty
+    result) and downgraded; with no marker at all we fall back to status alone and
+    label the finding *unverified*.
+    """
+    if vuln != VulnClass.BOLA:
+        return "high", "confirmed"
+    if not case.expect_markers:
+        return "high", "unverified"
+    if obs.matched_markers:
+        return "high", "confirmed"
+    return "medium", "suspected"
+
+
+def _detail(case: TestCase, obs: Observation, vuln: VulnClass, confidence: str = "confirmed") -> str:
     if vuln == VulnClass.BOLA:
+        if confidence == "confirmed":
+            leaked = ", ".join(obs.matched_markers)
+            proof = (
+                f" and the response exposed the owner's data ({leaked})"
+                if leaked
+                else ""
+            )
+            return (
+                f"{case.subject} ({case.role}) read another subject's object via "
+                f"{case.method} {case.path} and got {obs.status}{proof}; the matrix "
+                f"only allows owners here."
+            )
+        if confidence == "suspected":
+            return (
+                f"{case.subject} ({case.role}) was granted {case.method} {case.path} "
+                f"(status {obs.status}) on another subject's object, but the expected "
+                f"owner data did not appear — suspected BOLA, verify manually."
+            )
         return (
             f"{case.subject} ({case.role}) read another subject's object via "
             f"{case.method} {case.path} and got {obs.status}; the matrix only "
-            f"allows owners here."
+            f"allows owners here (no content marker configured to confirm the leak)."
         )
     if vuln == VulnClass.PRIVILEGE_ESCALATION:
         allowed = ", ".join(case.required_roles) or "a higher-privileged role"
@@ -103,11 +139,12 @@ def classify(matrix: Matrix, cases: List[TestCase], observations: List[Observati
         # Negative test.
         if obs.effect == Effect.ALLOW:
             vuln = _classify_violation(matrix, case)
+            severity, confidence = _grade(vuln, case, obs)
             findings.append(
                 Finding(
                     test_id=case.id,
                     vuln_class=vuln,
-                    severity="high",
+                    severity=severity,
                     resource=case.resource,
                     subject=case.subject,
                     role=case.role,
@@ -117,8 +154,9 @@ def classify(matrix: Matrix, cases: List[TestCase], observations: List[Observati
                     observed=obs.effect,
                     status=obs.status,
                     variant=case.variant,
-                    detail=_detail(case, obs, vuln),
+                    detail=_detail(case, obs, vuln, confidence),
                     evidence=obs,
+                    confidence=confidence,
                 )
             )
 

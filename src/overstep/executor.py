@@ -73,6 +73,8 @@ async def _fire(
         # Match against the full body (error markers may be anywhere) but only
         # keep a snippet as evidence.
         effect = evaluate(case.matcher, resp.status_code, full_body)
+        # Content-aware oracle: did the victim's data actually come back?
+        matched = [m for m in case.expect_markers if m and m in full_body]
         return Observation(
             test_id=case.id,
             status=resp.status_code,
@@ -80,6 +82,7 @@ async def _fire(
             latency_ms=round(elapsed, 1),
             headers=dict(resp.headers),
             body_snippet=full_body[:2048],
+            matched_markers=matched,
         )
 
 
