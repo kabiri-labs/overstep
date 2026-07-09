@@ -43,6 +43,7 @@ class Variant(str, Enum):
 class VulnClass(str, Enum):
     BOLA = "BOLA"
     BFLA = "BFLA"
+    BOPLA = "BOPLA"
     PRIVILEGE_ESCALATION = "privilege-escalation"
     AUTHORIZATION_DRIFT = "authorization-drift"
     UNEXPECTED_DENY = "unexpected-deny"
@@ -186,6 +187,14 @@ class Resource(BaseModel):
     # setup steps. This is how real BOLA testing points at genuine owned objects
     # (an order id, a document id) rather than a user id.
     objects: Dict[str, str] = Field(default_factory=dict)
+    # BOPLA (object property-level): JSON keys that must NOT appear in a response
+    # even for an allowed caller (e.g. "password_hash", "is_admin"). If one shows
+    # up in a granted response the resource over-shares and a BOPLA is reported.
+    forbidden_fields: List[str] = Field(default_factory=list)
+    # Cross-method probing: extra HTTP methods to fire at another subject's object
+    # (e.g. a GET resource also probed with PUT/DELETE). Each becomes a negative
+    # test — if it succeeds the endpoint is missing method-level authorization.
+    probe_methods: List[str] = Field(default_factory=list)
 
 
 class AllowRule(BaseModel):
@@ -305,6 +314,7 @@ class RunResult(BaseModel):
         vuln = {
             VulnClass.BOLA,
             VulnClass.BFLA,
+            VulnClass.BOPLA,
             VulnClass.PRIVILEGE_ESCALATION,
         }
         return [f for f in self.findings if f.vuln_class in vuln]

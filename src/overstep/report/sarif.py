@@ -14,6 +14,7 @@ _LEVEL = {"high": "error", "medium": "warning", "low": "note"}
 _RULE_HELP = {
     VulnClass.BOLA: "Broken Object Level Authorization: a subject accessed an object it does not own.",
     VulnClass.BFLA: "Broken Function Level Authorization: a subject invoked a function it is not permitted to.",
+    VulnClass.BOPLA: "Broken Object Property Level Authorization: an allowed response exposed a property the caller should not see.",
     VulnClass.PRIVILEGE_ESCALATION: "A subject reached a resource reserved for a more privileged role.",
     VulnClass.AUTHORIZATION_DRIFT: "The authorization decision changed relative to the recorded baseline.",
     VulnClass.UNEXPECTED_DENY: "A subject was denied access the matrix says should be allowed.",

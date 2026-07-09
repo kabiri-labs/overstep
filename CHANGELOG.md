@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.7.0] - 2026-07-09
+
+### Added
+- **BOPLA (object property-level) checks.** A resource can declare
+  `forbidden_fields:` — JSON keys that must never appear in a response, even for an
+  allowed caller (`password_hash`, `is_admin`, …). When one shows up in a granted
+  response overstep reports a `BOPLA` finding. Detection is key-based (the body is
+  parsed as JSON), so a forbidden name appearing as free text does not false-positive.
+- **Cross-method probing.** A resource can declare `probe_methods: [PUT, DELETE]`;
+  overstep fires each verb at *another* subject's object as a negative test. A
+  probe that succeeds means the endpoint is missing method-level authorization and
+  is reported as BOLA/BFLA — catching a whole class of write-side bugs without
+  hand-writing a resource per verb.
+
+### Changed
+- `BOPLA` is treated as a gating vulnerability and carries a SARIF rule.
+
 ## [0.6.0] - 2026-07-09
 
 ### Added

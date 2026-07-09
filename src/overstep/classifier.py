@@ -10,7 +10,8 @@ There are two kinds of mismatch:
 """
 from __future__ import annotations
 
-from typing import Dict, List
+import json
+from typing import Dict, List, Set
 
 from overstep.matrix import Matrix
 from overstep.models import (
@@ -44,6 +45,40 @@ def _classify_violation(matrix: Matrix, case: TestCase) -> VulnClass:
     if case.resource_type == ResourceType.OBJECT and case.variant == Variant.OTHER:
         return VulnClass.BOLA
     return VulnClass.BFLA
+
+
+def _json_keys(body: str) -> Set[str]:
+    """Every object key that appears anywhere in a JSON body (recursively).
+
+    Returns an empty set when the body is not valid JSON, so BOPLA checks match
+    real property *keys* rather than substrings of arbitrary text.
+    """
+    try:
+        data = json.loads(body)
+    except (ValueError, TypeError):
+        return set()
+
+    keys: Set[str] = set()
+
+    def _walk(node) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                keys.add(key)
+                _walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                _walk(item)
+
+    _walk(data)
+    return keys
+
+
+def _leaked_fields(resource, obs: Observation) -> Set[str]:
+    """Forbidden JSON keys present in an allowed response (BOPLA surface)."""
+    if resource is None or not resource.forbidden_fields:
+        return set()
+    present = _json_keys(obs.body_snippet)
+    return {f for f in resource.forbidden_fields if f in present}
 
 
 def _grade(vuln: VulnClass, case: TestCase, obs: Observation):
@@ -116,6 +151,7 @@ def classify(
     by_id: Dict[str, TestCase] = {c.id: c for c in cases}
     by_case: Dict[str, TestCase] = by_id
     subjects = {s.name: s for s in matrix.subjects}
+    resources = matrix.resource_map()
     repro_base = base_url or matrix.base_url or ""
     findings: List[Finding] = []
 
@@ -148,6 +184,33 @@ def classify(
                         evidence=obs,
                     )
                 )
+            elif obs.effect == Effect.ALLOW:
+                # BOPLA: an allowed read that over-shares forbidden properties.
+                leaked = _leaked_fields(resources.get(case.resource), obs)
+                if leaked:
+                    fields = ", ".join(sorted(leaked))
+                    findings.append(
+                        Finding(
+                            test_id=case.id,
+                            vuln_class=VulnClass.BOPLA,
+                            severity="high",
+                            resource=case.resource,
+                            subject=case.subject,
+                            role=case.role,
+                            method=case.method,
+                            path=case.path,
+                            expected=case.expected,
+                            observed=obs.effect,
+                            status=obs.status,
+                            variant=case.variant,
+                            detail=(
+                                f"{case.subject} ({case.role}) was allowed "
+                                f"{case.method} {case.path} but the response exposed "
+                                f"forbidden field(s): {fields}."
+                            ),
+                            evidence=obs,
+                        )
+                    )
             continue
 
         # Negative test.

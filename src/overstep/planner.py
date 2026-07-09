@@ -186,4 +186,33 @@ def plan(matrix: Matrix, context: Optional[Dict[str, str]] = None) -> List[TestC
                         expect_markers=expect_markers,
                     )
                 )
+
+                # Cross-method probing: fire other verbs at the SAME (other)
+                # object. Each is a negative test — succeeding means the endpoint
+                # authorizes a method the subject was never granted.
+                if variant == Variant.OTHER and target is not None:
+                    for probe in resource.probe_methods:
+                        method = probe.upper()
+                        if method == resource.request.method.upper():
+                            continue
+                        cases.append(
+                            TestCase(
+                                id=f"{make_test_id(resource.name, subject.name, variant)}::{method}",
+                                resource=resource.name,
+                                subject=subject.name,
+                                role=subject.role,
+                                method=method,
+                                path_template=resource.request.path,
+                                path=path,
+                                variant=variant,
+                                expected=Effect.DENY,
+                                resource_type=resource.type,
+                                required_roles=required,
+                                query=render(dict(resource.request.query), context),
+                                body=render(resource.request.body, context),
+                                headers=render(dict(resource.request.headers), context),
+                                matcher=matcher,
+                                expect_markers=expect_markers,
+                            )
+                        )
     return cases
