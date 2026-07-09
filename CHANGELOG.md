@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.0] - 2026-07-09
+
+### Added
+- **CI-native distribution.** overstep now ships the artifacts a DevSecOps team
+  needs to adopt it in minutes:
+  - a **`Dockerfile`** (+ `.dockerignore`) that installs the package and exposes
+    the CLI as the entrypoint, so a pipeline can `docker run … overstep run …`;
+  - a composite **GitHub Action** (`action.yml`) with `matrix`, `base-url`, `out`,
+    `fail-on`, `waivers` and `baseline` inputs and a `sarif` output for
+    `upload-sarif`;
+  - a **pre-commit hook** (`.pre-commit-hooks.yaml`, `overstep-validate`) that
+    lints the matrix before every commit;
+  - copy-paste **GitHub Actions and GitLab CI** examples under `examples/ci/`.
+
 ## [0.5.0] - 2026-07-09
 
 ### Added

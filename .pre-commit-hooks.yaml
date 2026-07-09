@@ -1,0 +1,15 @@
+# pre-commit hooks published by overstep.
+#
+# In a consuming repo's .pre-commit-config.yaml:
+#   - repo: https://github.com/kabiri-labs/overstep
+#     rev: v0.6.0
+#     hooks:
+#       - id: overstep-validate
+#         args: [matrix.yaml]
+- id: overstep-validate
+  name: overstep validate (authorization matrix)
+  description: "Lint the authorization matrix for structural problems before commit."
+  entry: overstep validate
+  language: python
+  files: '\.ya?ml$'
+  pass_filenames: false

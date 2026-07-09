@@ -1,0 +1,14 @@
+# Example: run overstep in GitLab CI. Copy into your .gitlab-ci.yml.
+overstep:
+  stage: test
+  image: python:3.12-slim
+  script:
+    - pip install --no-cache-dir overstep
+    # Start the app under test so it is reachable at the matrix base_url.
+    - overstep run matrix.yaml --out overstep-out --fail-on vuln
+  artifacts:
+    when: always
+    paths:
+      - overstep-out/
+    reports:
+      junit: overstep-out/junit.xml

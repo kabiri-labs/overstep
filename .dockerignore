@@ -1,0 +1,14 @@
+.git
+.gitignore
+.github
+tests
+examples
+out
+*.pyc
+__pycache__
+.pytest_cache
+.venv
+venv
+dist
+build
+*.egg-info

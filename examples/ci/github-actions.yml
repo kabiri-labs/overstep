@@ -1,0 +1,32 @@
+# Example: run overstep in GitHub Actions and upload findings to code scanning.
+# Copy into .github/workflows/authz.yml in your own repository.
+name: authorization-tests
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  overstep:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write   # required to upload SARIF
+    steps:
+      - uses: actions/checkout@v4
+
+      # Start the app under test here (docker compose up, etc.) so it is
+      # reachable at the base_url declared in the matrix.
+
+      - name: Authorization tests
+        id: overstep
+        uses: kabiri-labs/overstep@v0.6.0
+        with:
+          matrix: matrix.yaml
+          fail-on: vuln
+          waivers: waivers.yaml   # optional
+
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.overstep.outputs.sarif }}

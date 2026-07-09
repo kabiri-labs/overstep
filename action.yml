@@ -1,0 +1,61 @@
+name: "overstep authorization testing"
+description: "Run a matrix-driven authorization test (BOLA/BFLA/privilege escalation/drift) and upload SARIF to code scanning."
+author: "Ahmad Kabiri"
+branding:
+  icon: "shield"
+  color: "red"
+
+inputs:
+  matrix:
+    description: "Path to the authorization matrix YAML."
+    required: true
+  base-url:
+    description: "Base URL override for the target under test."
+    required: false
+    default: ""
+  out:
+    description: "Directory to write reports into."
+    required: false
+    default: "overstep-out"
+  fail-on:
+    description: "Exit non-zero on: vuln | drift | any | never."
+    required: false
+    default: "vuln"
+  waivers:
+    description: "Path to a waivers file of accepted findings."
+    required: false
+    default: ""
+  baseline:
+    description: "Path to a drift baseline snapshot to compare against."
+    required: false
+    default: ""
+  version:
+    description: "overstep version to install (PEP 440 specifier), e.g. '==0.6.0'. Empty installs the latest."
+    required: false
+    default: ""
+
+outputs:
+  sarif:
+    description: "Path to the generated SARIF report."
+    value: "${{ inputs.out }}/overstep.sarif"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install overstep
+      shell: bash
+      run: python -m pip install --disable-pip-version-check "overstep${{ inputs.version }}"
+
+    - name: Run overstep
+      shell: bash
+      run: |
+        args=("${{ inputs.matrix }}" --out "${{ inputs.out }}" --fail-on "${{ inputs.fail-on }}")
+        [ -n "${{ inputs.base-url }}" ] && args+=(--base "${{ inputs.base-url }}")
+        [ -n "${{ inputs.waivers }}" ] && args+=(--waivers "${{ inputs.waivers }}")
+        [ -n "${{ inputs.baseline }}" ] && args+=(--baseline "${{ inputs.baseline }}")
+        overstep run "${args[@]}"
