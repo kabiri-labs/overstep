@@ -10,14 +10,19 @@ overstep takes a declarative **authorization matrix** — who is allowed to do w
 — and turns it into concrete HTTP tests. It generates **positive** tests (access
 that *should* succeed) and **negative** tests (access that *should* be denied),
 runs them against a live target, and reports every negative test that slipped
-through as an authorization vulnerability: **BOLA**, **BFLA** or **privilege
-escalation**. Snapshot the results and CI fails the moment your authorization
-surface **drifts**.
+through as an authorization vulnerability: **BOLA**, **BFLA**, **BOPLA** or
+**privilege escalation**. Snapshot the results and CI fails the moment your
+authorization surface **drifts**.
 
 ```
    authorization matrix  ──►  positive + negative tests  ──►  run  ──►  findings
-   (subjects × resources)         (self / other, per role)        (BOLA/BFLA/privesc/drift)
+   (subjects × resources)     (self/other, per role,          (BOLA/BFLA/BOPLA/
+                               cross-method)                    privesc/drift)
 ```
+
+Every finding is classified, mapped to its **CWE / OWASP API Top 10** entry,
+graded by **confidence**, and shipped with a copy-pasteable **`curl` repro** —
+so it lands in a dashboard or a ticket ready to act on.
 
 ---
 
@@ -32,6 +37,8 @@ is a question about the intersection of a **role**, a **resource** and an
   subject's* object (`GET /orders/{id}` for an id they don't own).
 - **BFLA** (Broken Function Level Authorization) — a subject invokes a function
   their role shouldn't have (`GET /admin/users` as a normal user).
+- **BOPLA** (Broken Object Property Level Authorization) — an allowed response
+  exposes a *field* the caller shouldn't see (`is_admin`, `password_hash`).
 - **Privilege escalation** — a lower-privileged role reaches something reserved
   for a higher one.
 - **Authorization drift** — a decision that changed since your last release,
@@ -42,6 +49,13 @@ is a question about the intersection of a **role**, a **resource** and an
 ```bash
 python -m venv .venv && . .venv/bin/activate
 pip install -e .            # or: pip install -e ".[dev]" for tests + demo server
+```
+
+Or run it without installing anything, straight from the container image:
+
+```bash
+docker run --rm -v "$PWD:/work" -w /work ghcr.io/kabiri-labs/overstep \
+    run matrix.yaml --out out
 ```
 
 ## Quickstart (bundled vulnerable demo)
@@ -69,8 +83,8 @@ and reports in `out/`:
 
 | File | For |
 |---|---|
-| `report.html` | humans |
-| `findings.json` | scripts / dashboards |
+| `report.html` | humans — findings with evidence and repro |
+| `findings.json` | scripts / dashboards (CWE + OWASP tagged) |
 | `overstep.sarif` | GitHub code scanning |
 | `junit.xml` | CI test reporters |
 
@@ -122,6 +136,69 @@ From this, overstep generates (`overstep plan examples/mock_api/matrix.yaml`):
 | allow | `GET /users/u1` | root | other |
 | **deny** | `GET /admin/users` | alice | na  ← BFLA / privesc probe |
 | allow | `GET /admin/users` | root | na |
+
+## Sharper findings
+
+### Confidence: proving a leak, not guessing from status
+
+A `200` on a BOLA probe is not proof that data leaked — the endpoint might have
+returned an empty list. Give each subject a **`marker`** (a string that uniquely
+identifies *its* data), and overstep looks for the victim's marker in the
+response before it trusts the status:
+
+```yaml
+subjects:
+  - { name: alice, role: user, token: a, marker: "alice@example.com", attributes: { user_id: u1 } }
+  - { name: bob,   role: user, token: b, marker: "bob@example.com",   attributes: { user_id: u2 } }
+```
+
+Findings are then graded:
+
+- **confirmed** — the victim's data actually appeared in the response (a proven leak);
+- **suspected** — access was granted but the owner data never showed up (downgraded
+  to *medium* severity — likely an empty result, verify by hand);
+- **unverified** — decided on status alone because no marker was configured.
+
+### Reproduction on every finding
+
+Each finding carries a copy-pasteable **`curl`** command and a structured request
+record, with credentials masked so reports are safe to share:
+
+```
+curl -sS -X GET -H 'Authorization: Bearer ***' http://127.0.0.1:8000/users/u2
+```
+
+### BOPLA: forbidden response fields
+
+Even an *allowed* read can over-share. List the JSON keys a response must never
+contain and overstep reports a BOPLA when one appears (matching is key-based, so
+a name in free text won't false-positive):
+
+```yaml
+resources:
+  - name: get_user
+    request: { method: GET, path: "/users/{id}" }
+    type: object
+    owner_param: id
+    forbidden_fields: [password_hash, is_admin]
+```
+
+### Cross-method probing
+
+A GET-only resource can hide a missing check on other verbs. `probe_methods`
+fires each verb at *another* subject's object as a negative test — a success is a
+missing method-level authorization:
+
+```yaml
+resources:
+  - name: get_order
+    request: { method: GET, path: "/orders/{id}" }
+    type: object
+    owner_param: id
+    probe_methods: [PUT, DELETE]   # can a non-owner modify/delete it?
+```
+
+## Writing the policy
 
 ### Custom conditions
 
@@ -190,18 +267,12 @@ resources:
     type: function
     access:
       allow_status: [200, 202]      # async accept counts as success
-  - name: legacy_login_redirect
-    request: { method: GET, path: "/account" }
-    type: function
-    access:
-      treat_redirect_as: allow      # this endpoint 302s on success
 ```
 
 Evaluation order: `deny_body_regex` (wins, fails safe) → `allow_body_regex` →
-redirect handling → `allow_status`. Body patterns are case-insensitive and
-matched against the full response body.
+redirect handling → `allow_status`. Body patterns are case-insensitive.
 
-### Authentication (dynamic tokens & secrets)
+## Authentication (dynamic tokens & secrets)
 
 Static tokens don't survive CI — they expire and shouldn't be committed. Two
 features handle this:
@@ -228,8 +299,6 @@ auth:
         path: /auth/login
         body: { username: "{{U}}", password: "{{P}}" }
       token_path: "$.access_token"    # dotted path into the JSON response
-      # token_header: Authorization   # defaults; override for X-API-Key etc.
-      # token_format: "Bearer {token}"
 
 subjects:
   - name: alice
@@ -238,27 +307,19 @@ subjects:
     attributes: { user_id: u1 }
 ```
 
-```bash
-export ALICE_PASS=…            # or: overstep run matrix.yaml --env-file .env
-overstep run matrix.yaml       # logs in as each subject, then tests
-```
-
 `${...}` is resolved once from the environment; `{{...}}` is resolved per subject
 at login time — so secrets come from the environment and never touch the file.
 
-### Real objects: setup steps & captured ids
+## Real objects: setup, captured ids & teardown
 
 Meaningful BOLA testing needs a *real owned object* — the order that belongs to
-alice, not her user id. Two pieces make that work:
+alice, not her user id.
 
 **`objects`** on a resource maps each subject to the id of the object it owns.
-That id drives the SELF request (the subject's own object) and the OTHER request
-(reaching for someone else's — the BOLA probe).
-
 **`setup`** steps run once before the suite, as a chosen subject, and `extract`
-values from their responses into a capture context. Captures fill `{{name}}`
-placeholders — including in `objects` — so ids created at runtime flow straight
-into the tests:
+values from their responses into a capture context that fills `{{name}}`
+placeholders — including in `objects`. **`teardown`** steps run best-effort after
+the suite (reusing those captures) to clean the fixtures up:
 
 ```yaml
 setup:
@@ -277,12 +338,47 @@ resources:
     type: object
     owner_param: id
     objects: { alice: "{{ALICE_ORDER}}", bob: "{{BOB_ORDER}}" }
+
+teardown:
+  - { as: alice, request: { method: DELETE, path: "/orders/{{ALICE_ORDER}}" } }
+  - { as: bob,   request: { method: DELETE, path: "/orders/{{BOB_ORDER}}" } }
 ```
 
 Now `get_order::bob::other` fetches **alice's real order id**, so a `200` is a
-genuine BOLA finding rather than a guess. Captures also fill `{{...}}` in request
-bodies, queries and headers. If a subject has no `objects` entry, overstep falls
-back to its `owner_attr` attribute as before.
+genuine BOLA finding. A teardown failure is reported as a warning, never a run
+failure.
+
+## Running safely against live targets
+
+- `--read-only` skips every mutating verb (POST/PUT/PATCH/DELETE) so the suite can
+  be pointed at a sensitive environment without changing state.
+- `--max-retries N` (default 2) retries `429`/`503` responses, honouring
+  `Retry-After` and otherwise backing off with full jitter — so a large matrix
+  doesn't trip a rate limiter into flaky failures.
+- `--concurrency` bounds in-flight requests.
+
+## Waivers: accepted risk without turning off gating
+
+A reviewed, consciously-accepted finding shouldn't fail the pipeline forever nor
+silence the tool. A waivers file names findings by their stable `test_id`, with a
+mandatory reason and an optional expiry:
+
+```yaml
+# waivers.yaml
+waivers:
+  - id: get_order::alice::other
+    vuln_class: BOLA
+    reason: "Tracked in SEC-1234; fix scheduled next release."
+    expires: 2026-12-31
+```
+
+```bash
+overstep run matrix.yaml --waivers waivers.yaml
+```
+
+Waived findings move out of the gating set but stay visible in the reports. An
+**expired** waiver stops suppressing and prints a warning, forcing re-review —
+which keeps waivers distinct from a drift baseline.
 
 ## Commands
 
@@ -292,12 +388,43 @@ back to its `owner_attr` attribute as before.
 | `overstep snapshot MATRIX` | record current decisions as a drift baseline |
 | `overstep plan MATRIX` | print the generated test cases (no network) |
 | `overstep validate MATRIX` | lint a matrix for structural problems |
-| `overstep scaffold SPEC --fmt openapi\|har` | generate a starter `resources:` block |
+| `overstep scaffold SPEC` | draft a `resources:` block (or a full matrix) from OpenAPI/HAR |
 
-`run` flags: `--base` (override URL), `--out`, `--baseline`, `--concurrency`,
-`--insecure`, `--env-file`, and `--fail-on {vuln,drift,any,never}`.
+`run` flags: `--base`, `--out`, `--baseline`, `--waivers`, `--concurrency`,
+`--read-only`, `--max-retries`, `--insecure`, `--env-file`, and
+`--fail-on {vuln,drift,any,never}`.
 
-## CI / CD: catching authorization drift
+## Bootstrapping a matrix from a spec
+
+Don't write the resource list — or the policy — by hand:
+
+```bash
+# just the resources
+overstep scaffold openapi.yaml --fmt openapi > resources.snippet.yaml
+overstep scaffold traffic.har  --fmt har     > resources.snippet.yaml
+
+# a full starter matrix (roles + subjects + policy) inferred from
+# the spec's securitySchemes scopes and per-operation security
+overstep scaffold openapi.yaml --with-policy > matrix.yaml
+```
+
+`--with-policy` turns each declared scope into a privilege-ordered role, gives
+every secured endpoint an allow rule per required scope (object resources default
+to owner-scope for non-admin roles), and marks unsecured endpoints public. Review
+and tighten the result — it's a starting point, not a source of truth.
+
+## CI / CD
+
+overstep ships the artifacts a pipeline needs:
+
+- **GitHub Action** — see [`examples/ci/github-actions.yml`](examples/ci/github-actions.yml);
+  it runs the matrix and uploads SARIF to code scanning.
+- **GitLab CI** — see [`examples/ci/gitlab-ci.yml`](examples/ci/gitlab-ci.yml).
+- **Docker image** — `ghcr.io/kabiri-labs/overstep`.
+- **pre-commit hook** — `overstep-validate` lints the matrix on every commit
+  (see [`.pre-commit-hooks.yaml`](.pre-commit-hooks.yaml)).
+
+### Catching authorization drift
 
 Bake the known-good state into a baseline, then fail only when authorization
 *changes*:
@@ -310,23 +437,21 @@ overstep snapshot examples/mock_api/matrix.yaml --out baseline.json
 overstep run examples/mock_api/matrix.yaml --baseline baseline.json --fail-on drift
 ```
 
-A cell that flips from **deny → allow** is a newly opened hole (high severity);
-**allow → deny** is a new restriction (medium). Keep `matrix.yaml` and
-`baseline.json` in version control and authorization gets reviewed like any other
-code. See [`.github/workflows/ci.yml`](.github/workflows/ci.yml) for a full
-example, including uploading SARIF to GitHub code scanning.
+A cell that flips from **deny → allow** is a newly opened hole; **allow → deny**
+is a new restriction. Keep `matrix.yaml` and `baseline.json` in version control
+and authorization gets reviewed like any other code.
 
-## Bootstrapping a matrix from a spec
+## Finding taxonomy
 
-Don't write the resource list by hand:
+Every class maps to its CWE and OWASP API Security Top 10 entry, carried in the
+SARIF rules (with a `security-severity` score) and on every JSON finding:
 
-```bash
-overstep scaffold openapi.yaml --fmt openapi > resources.snippet.yaml
-overstep scaffold traffic.har  --fmt har     > resources.snippet.yaml
-```
-
-overstep guesses object-vs-function from id-like path parameters; you add the
-policy.
+| Class | CWE | OWASP API Top 10 |
+|---|---|---|
+| BOLA | CWE-639 | API1:2023 |
+| BOPLA | CWE-213 | API3:2023 |
+| BFLA | CWE-285 | API5:2023 |
+| privilege-escalation | CWE-269 | API5:2023 |
 
 ## Comparison
 
@@ -334,9 +459,10 @@ policy.
 |---|---|---|---|
 | Authorization matrix as code | ✅ | ⚠️ (per-request, manual) | ❌ |
 | Positive **and** negative tests | ✅ | ⚠️ | ⚠️ |
-| BOLA / BFLA / privesc classification | ✅ | ⚠️ | ❌ |
-| Drift baselines for CI | ✅ | ❌ | ❌ |
-| SARIF + JUnit output | ✅ | ❌ | ⚠️ |
+| BOLA / BFLA / BOPLA / privesc classification | ✅ | ⚠️ | ❌ |
+| Content-verified findings + repro | ✅ | ⚠️ | ❌ |
+| Drift baselines & waivers for CI | ✅ | ❌ | ❌ |
+| SARIF (CWE/OWASP) + JUnit output | ✅ | ❌ | ⚠️ |
 
 > ⚠️ means possible only with significant manual effort.
 
