@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.9.0] - 2026-07-09
+
+### Added
+- **CWE / OWASP API Top 10 tagging.** A new taxonomy maps every finding class to
+  its CWE (BOLA→CWE-639, BFLA→CWE-285, BOPLA→CWE-213, privilege-escalation→CWE-269)
+  and OWASP API Security Top 10 entry. SARIF rules now carry `helpUri`, a
+  `security-severity` score (so GitHub code scanning ranks them correctly),
+  and `external/cwe/...` + `APIx:2023` tags; each result and every JSON finding is
+  annotated with its `cwe` and `owasp_api`. Findings are now first-class in
+  vulnerability dashboards and compliance reports.
+
 ## [0.8.0] - 2026-07-09
 
 ### Added

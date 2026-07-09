@@ -8,6 +8,7 @@ from typing import List
 from overstep import __version__
 from overstep.models import RunResult, VulnClass
 from overstep.report.base import register
+from overstep.taxonomy import TAXONOMY, sarif_tags
 
 _LEVEL = {"high": "error", "medium": "warning", "low": "note"}
 
@@ -22,18 +23,29 @@ _RULE_HELP = {
 
 
 def _rules() -> List[dict]:
-    return [
-        {
-            "id": vc.value,
-            "name": vc.name,
-            "shortDescription": {"text": vc.value},
-            "fullDescription": {"text": help_text},
-            "defaultConfiguration": {
-                "level": "error" if vc != VulnClass.UNEXPECTED_DENY else "note"
-            },
-        }
-        for vc, help_text in _RULE_HELP.items()
-    ]
+    rules = []
+    for vc, help_text in _RULE_HELP.items():
+        tax = TAXONOMY[vc]
+        rules.append(
+            {
+                "id": vc.value,
+                "name": vc.name,
+                "shortDescription": {"text": vc.value},
+                "fullDescription": {"text": help_text},
+                "helpUri": tax.help_uri,
+                "help": {"text": f"{help_text}\n\n{tax.cwe} ({tax.cwe_name}) · {tax.owasp_api}"},
+                "defaultConfiguration": {
+                    "level": "error" if vc != VulnClass.UNEXPECTED_DENY else "note"
+                },
+                "properties": {
+                    "cwe": tax.cwe,
+                    "owasp-api": tax.owasp_api,
+                    "security-severity": tax.security_severity,
+                    "tags": sarif_tags(vc),
+                },
+            }
+        )
+    return rules
 
 
 @register("sarif", "overstep.sarif")
@@ -53,6 +65,9 @@ def write(result: RunResult, path: str) -> None:
                     "expected": f.expected.value,
                     "observed": f.observed.value,
                     "confidence": f.confidence,
+                    "cwe": TAXONOMY[f.vuln_class].cwe,
+                    "owasp-api": TAXONOMY[f.vuln_class].owasp_api,
+                    "security-severity": TAXONOMY[f.vuln_class].security_severity,
                 },
                 "locations": [
                     {
