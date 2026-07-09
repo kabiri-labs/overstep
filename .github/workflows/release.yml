@@ -1,18 +1,44 @@
 name: Release
 
-# Trigger by pushing a version tag, e.g.:
-#   git tag v0.10.0 && git push origin v0.10.0
+# Two ways to cut a release:
+#   1. Push a version tag:    git tag v0.10.0 && git push origin v0.10.0
+#   2. Run manually:          Actions -> Release -> Run workflow -> version = 0.10.0
+# The manual path creates the tag and the GitHub Release for you, so it works even
+# where pushing tags directly is not possible.
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, without the leading v (e.g. 0.10.0). Must match the package version."
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
+  setup:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            V="${{ github.event.inputs.version }}"
+          else
+            V="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Releasing version $V"
+
   build:
     name: Build & test
+    needs: setup
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,19 +54,19 @@ jobs:
           pip install -e ".[dev]"
           pytest -q
 
-      - name: Verify tag matches package version
+      - name: Verify version matches the package
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
+          WANT="${{ needs.setup.outputs.version }}"
           PKG=$(python -c "import overstep; print(overstep.__version__)")
-          echo "tag=$TAG package=$PKG"
-          test "$TAG" = "$PKG" || { echo "::error::tag v$TAG does not match package version $PKG"; exit 1; }
+          echo "requested=$WANT package=$PKG"
+          test "$WANT" = "$PKG" || { echo "::error::requested version $WANT does not match package version $PKG"; exit 1; }
 
       - name: Build sdist and wheel
         run: python -m build
 
       - name: Extract release notes from CHANGELOG
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${{ needs.setup.outputs.version }}"
           awk -v ver="$VERSION" '
             $0 ~ "^## \\[" ver "\\]" { grab=1; next }
             grab && /^## \[/ { exit }
@@ -58,10 +84,10 @@ jobs:
 
   github-release:
     name: GitHub Release
-    needs: build
+    needs: [setup, build]
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # create the release and attach assets
+      contents: write   # create the tag (if missing), the release and its assets
     steps:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
@@ -71,7 +97,9 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: overstep ${{ github.ref_name }}
+          tag_name: v${{ needs.setup.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: overstep v${{ needs.setup.outputs.version }}
           body_path: release-notes.md
           files: dist/*
           draft: false
@@ -79,7 +107,7 @@ jobs:
 
   pypi:
     name: Publish to PyPI
-    needs: build
+    needs: [setup, build]
     runs-on: ubuntu-latest
     # A dedicated environment makes the trusted-publisher binding explicit and
     # lets you add manual approval / protection rules on PyPI publishes.
