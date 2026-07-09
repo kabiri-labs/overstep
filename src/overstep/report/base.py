@@ -53,5 +53,6 @@ def summarize(result: RunResult) -> Dict[str, object]:
         "findings": len(result.findings),
         "vulnerabilities": len(result.vulnerabilities),
         "drift": len(result.drift),
+        "waived": len(result.waived),
         "by_class": dict(by_class),
     }

@@ -1,0 +1,16 @@
+# Accepted-risk waivers for the demo API.
+#
+# Each waiver suppresses a finding (by its stable test_id) from CI gating without
+# silencing the tool. A `reason` is mandatory; an `expires` date is strongly
+# recommended so accepted risk is re-reviewed instead of rotting forever. An
+# expired waiver stops suppressing and prints a warning on the next run.
+#
+# Find a finding's id in findings.json (the `test_id` field), e.g.
+#   get_order::alice::other
+waivers:
+  - id: get_order::alice::other
+    vuln_class: BOLA
+    reason: >-
+      Known gap tracked in JIRA SEC-1234; fix scheduled for the next release.
+      Accepted by the security team for the current milestone.
+    expires: 2026-12-31

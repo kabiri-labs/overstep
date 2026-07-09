@@ -31,6 +31,7 @@ from overstep.models import Effect, RunResult
 from overstep.pipeline import PipelineError, resolve_base_url, run_pipeline, write_reports
 from overstep.planner import plan
 from overstep.report import summarize
+from overstep.waivers import WaiverError, load_waivers
 
 app = typer.Typer(
     help="overstep — matrix-driven authorization testing for HTTP APIs.",
@@ -79,6 +80,7 @@ def run(
     base: Optional[str] = typer.Option(None, help="Base URL override."),
     out: str = typer.Option("out", help="Output directory for reports."),
     baseline: Optional[str] = typer.Option(None, help="Snapshot to compare against for drift."),
+    waivers: Optional[str] = typer.Option(None, help="Waivers file of accepted findings."),
     fail_on: str = typer.Option("vuln", help="Exit non-zero on: vuln | drift | any | never."),
     concurrency: int = typer.Option(10, help="Max concurrent requests."),
     insecure: bool = typer.Option(False, help="Disable TLS verification."),
@@ -91,18 +93,27 @@ def run(
 
     base_url = _resolve(spec, base)
     snapshot_data = load_snapshot(baseline) if baseline else None
+    try:
+        waiver_list = load_waivers(waivers) if waivers else None
+    except WaiverError as exc:
+        console.print(f"[bold red]error:[/] {exc}")
+        raise typer.Exit(code=2)
 
     try:
         result = run_pipeline(
             spec,
             base_url,
             baseline=snapshot_data,
+            waivers=waiver_list,
             concurrency=concurrency,
             verify_tls=not insecure,
         )
     except (AuthError, SetupError) as exc:
         console.print(f"[bold red]setup error:[/] {exc}")
         raise typer.Exit(code=2)
+
+    for warning in result.warnings:
+        console.print(f"[yellow]warning:[/] {warning}")
 
     console.print(
         f"[bold]Planned[/] {len(result.cases)} tests "
@@ -216,6 +227,8 @@ def _print_summary(result: RunResult) -> None:
     table.add_row("[bold red]Vulnerabilities[/]", str(s["vulnerabilities"]))
     if s["drift"]:
         table.add_row("Authorization drift", str(s["drift"]))
+    if s.get("waived"):
+        table.add_row("Waived (accepted)", str(s["waived"]))
     for cls, count in sorted(s["by_class"].items()):
         table.add_row(f"  {cls}", str(count))
     console.print(table)

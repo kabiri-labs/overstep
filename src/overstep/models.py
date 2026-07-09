@@ -294,6 +294,11 @@ class RunResult(BaseModel):
     cases: List[TestCase] = Field(default_factory=list)
     observations: List[Observation] = Field(default_factory=list)
     findings: List[Finding] = Field(default_factory=list)
+    # Findings suppressed by a matching, non-expired waiver. Kept out of gating
+    # but recorded so accepted risk stays visible in reports.
+    waived: List[Finding] = Field(default_factory=list)
+    # Non-fatal warnings raised during the run (e.g. an expired waiver).
+    warnings: List[str] = Field(default_factory=list)
 
     @property
     def vulnerabilities(self) -> List[Finding]:

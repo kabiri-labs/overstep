@@ -21,6 +21,7 @@ from overstep.matrix import Matrix
 from overstep.models import Observation, RunResult, Subject, TestCase
 from overstep.planner import plan
 from overstep.report import all_reporters
+from overstep.waivers import Waiver, apply_waivers
 
 # A callable with the same shape as executor.run, so tests can inject a fake.
 ExecutorFn = Callable[..., List[Observation]]
@@ -46,6 +47,7 @@ def run_pipeline(
     base_url: Optional[str] = None,
     *,
     baseline: Optional[dict] = None,
+    waivers: Optional[List["Waiver"]] = None,
     concurrency: int = 10,
     verify_tls: bool = True,
     executor: ExecutorFn = default_executor,
@@ -70,11 +72,18 @@ def run_pipeline(
     if baseline is not None:
         findings = findings + diff(baseline, cases, observations)
 
+    waived: List = []
+    warnings: List[str] = []
+    if waivers:
+        findings, waived, warnings = apply_waivers(findings, waivers)
+
     return RunResult(
         base_url=resolved,
         cases=cases,
         observations=observations,
         findings=findings,
+        waived=waived,
+        warnings=warnings,
     )
 
 

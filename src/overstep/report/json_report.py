@@ -15,6 +15,8 @@ def write(result: RunResult, path: str) -> None:
         "base_url": result.base_url,
         "summary": summarize(result),
         "findings": [f.model_dump() for f in result.findings],
+        "waived": [f.model_dump() for f in result.waived],
+        "warnings": result.warnings,
     }
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, ensure_ascii=False)

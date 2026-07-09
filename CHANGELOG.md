@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.0] - 2026-07-09
+
+### Added
+- **Waivers / accepted-risk suppression.** `overstep run --waivers waivers.yaml`
+  moves reviewed, consciously-accepted findings out of the gating set without
+  silencing the tool. Each waiver names a finding by its stable `test_id` (optionally
+  narrowed to a `vuln_class`), a mandatory `reason`, and an optional `expires`
+  date. Waived findings are recorded separately (in the JSON report and the
+  summary) so accepted risk stays visible. **Expired waivers stop suppressing and
+  print a warning**, forcing re-review — keeping this distinct from a drift
+  baseline. A sample `examples/mock_api/waivers.yaml` is included.
+
 ## [0.4.0] - 2026-07-09
 
 ### Added
