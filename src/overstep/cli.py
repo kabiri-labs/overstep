@@ -200,9 +200,23 @@ def scaffold(
     spec_file: str = typer.Argument(..., help="OpenAPI YAML or HAR file."),
     fmt: str = typer.Option("openapi", help="Input format: openapi | har."),
     only_get: bool = typer.Option(False, help="Only include GET operations."),
+    with_policy: bool = typer.Option(
+        False,
+        "--with-policy",
+        help="OpenAPI only: emit a full matrix (roles + subjects + policy) inferred from security schemes.",
+    ),
 ):
-    """Emit a starter resources block from an OpenAPI or HAR file."""
+    """Emit a starter resources block — or a full matrix — from OpenAPI or HAR."""
     from overstep.loaders.openapi import resources_to_yaml
+
+    if with_policy:
+        if fmt != "openapi":
+            console.print("[bold red]error:[/] --with-policy requires --fmt openapi")
+            raise typer.Exit(code=2)
+        from overstep.loaders.openapi import scaffold_matrix
+
+        typer.echo(scaffold_matrix(spec_file, only_get=only_get))
+        return
 
     if fmt == "openapi":
         from overstep.loaders.openapi import load_resources

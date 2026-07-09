@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.10.0] - 2026-07-09
+
+### Added
+- **Policy inference from OpenAPI security schemes.** `overstep scaffold spec.yaml
+  --with-policy` now emits a *full* starter matrix — roles, subjects, resources
+  **and a policy** — by reading the spec's `securitySchemes` scopes and each
+  operation's `security` requirement. Declared scopes become roles ordered
+  least→most privileged; an endpoint requiring a scope gets an allow rule per scope
+  (object resources default to owner-scope for non-admin roles); an endpoint with
+  no security becomes public (`anonymous`). This removes most of the manual policy
+  authoring that was the main adoption cost.
+
 ## [0.9.0] - 2026-07-09
 
 ### Added
