@@ -66,7 +66,7 @@ def run_pipeline(
         resolved, matrix.subjects, cases, concurrency=concurrency, verify_tls=verify_tls
     )
 
-    findings = classify(matrix, cases, observations)
+    findings = classify(matrix, cases, observations, base_url=resolved)
     if baseline is not None:
         findings = findings + diff(baseline, cases, observations)
 

@@ -270,6 +270,12 @@ class Finding(BaseModel):
     variant: Variant
     detail: str
     evidence: Observation
+    # A copy-pasteable reproduction of the request that triggered the finding,
+    # with credentials masked. Empty when repro could not be built.
+    curl: str = ""
+    # A structured, secret-masked record of the same request (method/url/headers/
+    # body) for dashboards and tickets.
+    request: Optional[Dict[str, Any]] = None
     # How sure we are the finding is real. "confirmed" — the victim's marker was
     # seen in the response (a proven leak) or the signal is unambiguous;
     # "suspected" — access was granted but the expected victim data did not appear;

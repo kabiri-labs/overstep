@@ -22,6 +22,7 @@ from overstep.models import (
     Variant,
     VulnClass,
 )
+from overstep.repro import request_record, to_curl
 
 
 def _min_required_rank(matrix: Matrix, case: TestCase) -> int:
@@ -100,9 +101,22 @@ def _detail(case: TestCase, obs: Observation, vuln: VulnClass, confidence: str =
     )
 
 
-def classify(matrix: Matrix, cases: List[TestCase], observations: List[Observation]) -> List[Finding]:
-    """Produce findings from expectations vs. observations."""
+def classify(
+    matrix: Matrix,
+    cases: List[TestCase],
+    observations: List[Observation],
+    *,
+    base_url: str = "",
+) -> List[Finding]:
+    """Produce findings from expectations vs. observations.
+
+    ``base_url`` (defaulting to the matrix's own) is used to render a
+    reproduction (``curl`` + a masked request record) onto every finding.
+    """
     by_id: Dict[str, TestCase] = {c.id: c for c in cases}
+    by_case: Dict[str, TestCase] = by_id
+    subjects = {s.name: s for s in matrix.subjects}
+    repro_base = base_url or matrix.base_url or ""
     findings: List[Finding] = []
 
     for obs in observations:
@@ -159,6 +173,14 @@ def classify(matrix: Matrix, cases: List[TestCase], observations: List[Observati
                     confidence=confidence,
                 )
             )
+
+    # Attach a copy-pasteable reproduction to every finding.
+    for f in findings:
+        case = by_case.get(f.test_id)
+        subject = subjects.get(f.subject)
+        if case is not None and subject is not None:
+            f.curl = to_curl(repro_base, subject, case)
+            f.request = request_record(repro_base, subject, case)
 
     # Highest severity, then stable by test id, so reports read consistently.
     order = {"high": 0, "medium": 1, "low": 2}

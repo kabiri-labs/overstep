@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.0] - 2026-07-09
+
+### Added
+- **Reproduction evidence on every finding.** Each finding now carries a
+  copy-pasteable `curl` command and a structured `request` record (method, URL,
+  headers, body) so a developer can re-run the exact request that triggered it.
+  Credentials (`Authorization`, `Cookie`, `X-Api-Key`, …) are masked in both, so
+  reports are safe to paste into tickets and dashboards. The HTML report shows the
+  repro line alongside the response body under **evidence & repro**.
+
 ## [0.3.0] - 2026-07-09
 
 ### Added

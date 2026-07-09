@@ -27,6 +27,7 @@ details > summary { cursor: pointer; color: #3a7bd5; }
 pre { background: #f7f7f7; padding: 0.5rem; overflow-x: auto; border-radius: 4px; }
 .empty { color: #2a8a4a; font-weight: 600; }
 .conf { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.03em; color: #555; border: 1px solid #ddd; border-radius: 6px; padding: 0.05rem 0.35rem; }
+.rlabel { margin: 0.5rem 0 0.15rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: #888; }
 """
 
 
@@ -46,8 +47,10 @@ def _row(f: Finding) -> str:
         f"<td>expected <b>{html.escape(f.expected.value)}</b><br>observed <b>{html.escape(f.observed.value)}</b> ({f.status})"
         f'<br><span class="conf">{html.escape(f.confidence)}</span></td>'
         f"<td>{html.escape(f.detail)}"
-        "<details><summary>evidence</summary>"
-        f"<pre>{html.escape(ev.body_snippet[:1200])}</pre></details></td>"
+        "<details><summary>evidence &amp; repro</summary>"
+        + (f"<p class='rlabel'>reproduce</p><pre>{html.escape(f.curl)}</pre>" if f.curl else "")
+        + f"<p class='rlabel'>response</p><pre>{html.escape(ev.body_snippet[:1200])}</pre>"
+        "</details></td>"
         "</tr>"
     )
 
