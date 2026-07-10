@@ -108,12 +108,19 @@ class Subject(BaseModel):
 
 
 class Request(BaseModel):
-    """The HTTP request template for a resource."""
+    """The HTTP request template for a resource.
+
+    ``body`` is sent as JSON. Set ``form`` instead to send an
+    ``application/x-www-form-urlencoded`` body (the two are mutually exclusive; if
+    both are set, ``form`` wins). ``form`` is also the target of a ``form`` object
+    identifier injection.
+    """
 
     method: HTTPMethod
     path: str
     query: Dict[str, Any] = Field(default_factory=dict)
     body: Optional[Any] = None
+    form: Dict[str, Any] = Field(default_factory=dict)
     headers: Dict[str, str] = Field(default_factory=dict)
 
 
@@ -259,6 +266,55 @@ class SetupStep(BaseModel):
     expect_status: Optional[List[int]] = None
 
 
+class OwnershipLocation(str, Enum):
+    """Where in a request the identifier of the accessed object lives.
+
+    The object identifier is the BOLA/BOPLA surface: overstep fills it with the
+    caller's own object (SELF) or a victim's (OTHER). It is not always a path
+    parameter — real APIs carry it in a query string, a header, a cookie, a form
+    field, a JSON body, GraphQL variables, or an MCP tool argument.
+    """
+
+    PATH = "path"
+    QUERY = "query"
+    HEADER = "header"
+    COOKIE = "cookie"
+    FORM = "form"
+    JSON = "json"
+    GRAPHQL_VARIABLES = "graphql_variables"
+    MCP_ARGUMENT = "mcp_argument"
+
+
+class OwnershipInjection(BaseModel):
+    """One place to write the accessed object's identifier.
+
+    ``selector`` is interpreted per ``location``: a path parameter name
+    (``path``), a query/header/cookie/form key, a JSONPath into the JSON body
+    (``json``, e.g. ``$.order.id``), a variable name or ``$.path`` under
+    ``variables`` (``graphql_variables``), or a tool-argument key / ``$.path``
+    (``mcp_argument``). ``owner_attr`` overrides which subject attribute supplies
+    the value for this injection (default: the resource's ``owner_attr``), so one
+    injection can carry the object id while another carries, say, a tenant.
+    """
+
+    location: OwnershipLocation
+    selector: str
+    owner_attr: Optional[str] = None
+
+
+class Ownership(BaseModel):
+    """The generalized object-identifier model for a resource.
+
+    Lists every place the accessed object's id must be written. When set it
+    supersedes the legacy ``owner_param`` / ``owner_arg`` (which are still
+    accepted and converted to a single injection). Multiple injections are
+    written together, so an object addressed by both a header and a path is
+    exercised in one probe.
+    """
+
+    injections: List[OwnershipInjection] = Field(default_factory=list)
+
+
 class Resource(BaseModel):
     """A named API operation the matrix makes assertions about."""
 
@@ -275,9 +331,14 @@ class Resource(BaseModel):
     type: ResourceType = ResourceType.FUNCTION
     # For object resources: the path parameter (http) or tool argument (mcp) that
     # identifies the owned object, and the subject attribute it must match.
+    # owner_param / owner_arg are the legacy single-location shortcuts; `ownership`
+    # is the general model. When both are present, `ownership` wins.
     owner_param: Optional[str] = None
     owner_arg: Optional[str] = None
     owner_attr: str = "user_id"
+    # Generalized object-identifier injection (path/query/header/cookie/form/json/
+    # graphql_variables/mcp_argument). Supersedes owner_param/owner_arg when set.
+    ownership: Optional[Ownership] = None
     description: str = ""
     # Optional per-resource override of the matrix-level response matcher.
     access: Optional[ResponseMatcher] = None
@@ -296,6 +357,33 @@ class Resource(BaseModel):
     # (e.g. a GET resource also probed with PUT/DELETE). Each becomes a negative
     # test — if it succeeds the endpoint is missing method-level authorization.
     probe_methods: List[str] = Field(default_factory=list)
+
+    def effective_injections(self) -> List["OwnershipInjection"]:
+        """The object-identifier injections for this resource.
+
+        Prefers the explicit ``ownership`` model; otherwise falls back to the
+        legacy ``owner_param`` (a path injection) / ``owner_arg`` (an MCP-argument
+        injection) so existing matrices keep working unchanged.
+        """
+        if self.ownership and self.ownership.injections:
+            return list(self.ownership.injections)
+        legacy: List[OwnershipInjection] = []
+        if self.owner_param:
+            legacy.append(
+                OwnershipInjection(location=OwnershipLocation.PATH, selector=self.owner_param)
+            )
+        if self.owner_arg:
+            legacy.append(
+                OwnershipInjection(
+                    location=OwnershipLocation.MCP_ARGUMENT, selector=self.owner_arg
+                )
+            )
+        return legacy
+
+    @property
+    def is_object_locatable(self) -> bool:
+        """True when this resource declares any way to locate the owned object."""
+        return bool(self.effective_injections())
 
 
 class AllowRule(BaseModel):
@@ -336,6 +424,9 @@ class TestCase(BaseModel):
     required_roles: List[str] = Field(default_factory=list)
     query: Dict[str, Any] = Field(default_factory=dict)
     body: Optional[Any] = None
+    # An application/x-www-form-urlencoded body. When non-empty the executor sends
+    # this instead of ``body`` (JSON). Target of a ``form`` ownership injection.
+    form: Dict[str, Any] = Field(default_factory=dict)
     headers: Dict[str, str] = Field(default_factory=dict)
     # The resolved response matcher for this request (resource override or the
     # matrix-level default), used to turn the response into allow/deny.
