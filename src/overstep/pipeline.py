@@ -164,15 +164,18 @@ def snapshot_pipeline(
     authenticator: AuthenticatorFn = default_authenticator,
     setup_runner: SetupFn = default_setup_runner,
     teardown_runner: TeardownFn = default_teardown_runner,
-) -> dict:
+) -> Tuple[dict, List[str]]:
     """Record the current authorization decisions as a drift baseline.
 
     Runs the same orchestration as :func:`run_pipeline` — including the transport
     dispatcher (so MCP and mixed matrices snapshot correctly) and teardown — but
     instead of classifying, it serializes the observed decision for every case.
+
+    Returns the snapshot alongside any teardown warnings so the caller can surface
+    a fixture-cleanup failure instead of writing the baseline silently.
     """
     resolved = resolve_base_url(matrix, base_url)
-    cases, observations, _ = _execute_stages(
+    cases, observations, teardown_warnings = _execute_stages(
         matrix,
         resolved,
         concurrency=concurrency,
@@ -185,7 +188,7 @@ def snapshot_pipeline(
         setup_runner=setup_runner,
         teardown_runner=teardown_runner,
     )
-    return build_snapshot(cases, observations)
+    return build_snapshot(cases, observations), teardown_warnings
 
 
 def write_reports(result: RunResult, outdir: str) -> List[str]:

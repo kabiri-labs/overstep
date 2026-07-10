@@ -128,6 +128,9 @@ def run(
         console.print(f"[bold red]setup error:[/] {exc}")
         raise typer.Exit(code=2)
 
+    # Anchor SARIF findings to the matrix file they came from.
+    result.source = matrix
+
     for warning in result.warnings:
         console.print(f"[yellow]warning:[/] {warning}")
 
@@ -161,7 +164,7 @@ def snapshot(
     spec = _load(matrix, env_file)
     base_url = _resolve(spec, base)
     try:
-        snap = snapshot_pipeline(
+        snap, warnings = snapshot_pipeline(
             spec,
             base_url,
             concurrency=concurrency,
@@ -172,6 +175,8 @@ def snapshot(
     except (AuthError, SetupError) as exc:
         console.print(f"[bold red]setup error:[/] {exc}")
         raise typer.Exit(code=2)
+    for warning in warnings:
+        console.print(f"[yellow]warning:[/] {warning}")
     save_snapshot(snap, out)
     console.print(f"Snapshot of {len(snap['decisions'])} decisions written to [bold]{out}[/]")
 

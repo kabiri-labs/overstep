@@ -48,9 +48,16 @@ def _rules() -> List[dict]:
     return rules
 
 
+# Fallback artifact URI when the run doesn't know its matrix file. GitHub code
+# scanning rejects a result that has no physical location, so every result must
+# carry one even though authorization findings have no source line.
+_DEFAULT_ARTIFACT = "authorization-matrix.yaml"
+
+
 @register("sarif", "overstep.sarif")
 def write(result: RunResult, path: str) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    artifact_uri = result.source or _DEFAULT_ARTIFACT
     results = []
     for f in result.findings:
         results.append(
@@ -71,9 +78,15 @@ def write(result: RunResult, path: str) -> None:
                 },
                 "locations": [
                     {
+                        # The authorization matrix is the "source" of the policy a
+                        # finding violates; anchor there so code scanning accepts
+                        # the result. The endpoint stays in the logical location.
+                        "physicalLocation": {
+                            "artifactLocation": {"uri": artifact_uri}
+                        },
                         "logicalLocations": [
                             {"name": f"{f.method} {f.path}", "kind": "resource"}
-                        ]
+                        ],
                     }
                 ],
             }

@@ -24,7 +24,13 @@
 - **Teardown runs even when a run fails.** Fixture cleanup now executes in a
   `finally`, so a crash or interrupt during planning or dispatch no longer leaks
   the objects that setup steps created. A teardown failure is still only a
-  warning and never masks the original error.
+  warning and never masks the original error. `snapshot` now surfaces those
+  teardown warnings too, instead of writing the baseline silently.
+- **SARIF results now carry a physical location.** Every finding is anchored to
+  the matrix file it came from (`run` fills this in; a placeholder is used
+  otherwise), with the endpoint kept as a logical location. GitHub code scanning
+  rejects a result with no physical location, so without this the `upload-sarif`
+  step failed even though the scan itself succeeded.
 
 ## [0.16.0] - 2026-07-10
 

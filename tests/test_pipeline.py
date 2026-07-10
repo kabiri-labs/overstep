@@ -71,17 +71,30 @@ def test_pipeline_applies_baseline_drift(matrix):
 
 def test_snapshot_pipeline_records_every_decision(matrix):
     """snapshot shares the run orchestration: every planned case gets a decision."""
-    snap = snapshot_pipeline(matrix, executor=_fake_executor())
+    snap, warnings = snapshot_pipeline(matrix, executor=_fake_executor())
     assert set(snap["decisions"]) == {c.id for c in plan(matrix)}
     assert snap["tool"] == "overstep"
+    assert warnings == []
 
 
 def test_snapshot_pipeline_goes_through_the_injected_executor(matrix):
     """The snapshot must observe what the (dispatched) executor returns, so an
     override on the shared executor flows into the recorded decision."""
     executor = _fake_executor(overrides={"get_user::alice::other": 200})
-    snap = snapshot_pipeline(matrix, executor=executor)
+    snap, _ = snapshot_pipeline(matrix, executor=executor)
     assert snap["decisions"]["get_user::alice::other"]["observed"] == Effect.ALLOW.value
+
+
+def test_snapshot_pipeline_surfaces_teardown_warnings(matrix):
+    """A fixture-cleanup failure during snapshot must not be swallowed."""
+    def noisy_teardown(*args, **kwargs):
+        return ["could not delete fixture order-1"]
+
+    snap, warnings = snapshot_pipeline(
+        matrix, executor=_fake_executor(), teardown_runner=noisy_teardown
+    )
+    assert snap["decisions"]
+    assert "could not delete fixture order-1" in warnings
 
 
 def test_run_teardown_runs_even_when_the_executor_raises(matrix):

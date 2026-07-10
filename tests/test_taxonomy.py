@@ -74,3 +74,29 @@ def test_sarif_rule_carries_cwe_and_owasp_metadata(tmp_path):
     res = sarif["runs"][0]["results"][0]
     assert res["properties"]["cwe"] == "CWE-639"
     assert res["properties"]["owasp-api"].startswith("API1:2023")
+
+
+def test_sarif_result_has_a_physical_location(tmp_path):
+    """GitHub code scanning rejects a result with no physical location, so every
+    finding must carry an artifactLocation (defaulting to the matrix placeholder)."""
+    result = RunResult(base_url="http://api.test", findings=[_finding()])
+    out = tmp_path / "overstep.sarif"
+    get_reporter("sarif").write(result, str(out))
+    sarif = json.loads(out.read_text())
+
+    loc = sarif["runs"][0]["results"][0]["locations"][0]
+    assert loc["physicalLocation"]["artifactLocation"]["uri"] == "authorization-matrix.yaml"
+    # The endpoint is still preserved as a logical location.
+    assert loc["logicalLocations"][0]["name"] == "GET /users/u2"
+
+
+def test_sarif_result_anchors_to_the_run_source_when_known(tmp_path):
+    result = RunResult(
+        base_url="http://api.test", source="examples/mock_api/matrix.yaml", findings=[_finding()]
+    )
+    out = tmp_path / "overstep.sarif"
+    get_reporter("sarif").write(result, str(out))
+    sarif = json.loads(out.read_text())
+
+    loc = sarif["runs"][0]["results"][0]["locations"][0]
+    assert loc["physicalLocation"]["artifactLocation"]["uri"] == "examples/mock_api/matrix.yaml"
