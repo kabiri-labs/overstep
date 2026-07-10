@@ -15,6 +15,8 @@ from pydantic import BaseModel, Field
 from overstep.interpolation import InterpolationError, interpolate
 from overstep.models import (
     AuthConfig,
+    McpMatcher,
+    McpServer,
     Resource,
     ResourcePolicy,
     ResourceType,
@@ -40,6 +42,10 @@ class Matrix(BaseModel):
     policy: Dict[str, ResourcePolicy] = Field(default_factory=dict)
     # Default response matcher applied to every resource that doesn't override it.
     access: ResponseMatcher = Field(default_factory=ResponseMatcher)
+    # MCP servers reachable by transport: mcp resources.
+    servers: List[McpServer] = Field(default_factory=list)
+    # Default MCP matcher applied to every mcp resource that doesn't override it.
+    mcp_access: McpMatcher = Field(default_factory=McpMatcher)
     # Providers used to obtain subject tokens dynamically before a run.
     auth: AuthConfig = Field(default_factory=AuthConfig)
     # Requests run once before the suite to create fixtures / capture object ids.
@@ -50,6 +56,9 @@ class Matrix(BaseModel):
 
     def resource_map(self) -> Dict[str, Resource]:
         return {r.name: r for r in self.resources}
+
+    def server_map(self) -> Dict[str, McpServer]:
+        return {s.name: s for s in self.servers}
 
     def role_order(self) -> List[str]:
         return self.roles or DEFAULT_ROLE_ORDER
@@ -82,16 +91,30 @@ class Matrix(BaseModel):
 
         from overstep.transports import transport_names
         known_transports = set(transport_names())
+        server_names = {s.name for s in self.servers}
         for res in self.resources:
             if res.transport not in known_transports:
                 problems.append(
                     f"resource '{res.name}' uses unknown transport '{res.transport}' "
                     f"(known: {', '.join(sorted(known_transports))})"
                 )
-            if res.type == ResourceType.OBJECT and not res.owner_param:
-                problems.append(
-                    f"object resource '{res.name}' must set owner_param"
-                )
+            if res.transport == "mcp":
+                if res.call is None:
+                    problems.append(f"mcp resource '{res.name}' must set a 'call'")
+                elif res.call.server not in server_names:
+                    problems.append(
+                        f"mcp resource '{res.name}' references unknown server "
+                        f"'{res.call.server}'"
+                    )
+                if res.type == ResourceType.OBJECT and not res.owner_arg:
+                    problems.append(f"mcp object resource '{res.name}' must set owner_arg")
+            else:
+                if res.request is None:
+                    problems.append(f"http resource '{res.name}' must set a 'request'")
+                if res.type == ResourceType.OBJECT and not res.owner_param:
+                    problems.append(
+                        f"object resource '{res.name}' must set owner_param"
+                    )
             if res.name not in self.policy:
                 problems.append(
                     f"resource '{res.name}' has no policy entry (everything will be denied)"

@@ -39,6 +39,10 @@ class PipelineError(RuntimeError):
 def resolve_base_url(matrix: Matrix, override: Optional[str] = None) -> str:
     base = override or matrix.base_url
     if not base:
+        # The base URL is only needed by the HTTP transport; an all-MCP matrix
+        # carries its endpoints on the servers block instead.
+        if matrix.resources and all(r.transport != "http" for r in matrix.resources):
+            return ""
         raise PipelineError("no base URL (set matrix.base_url or pass an override)")
     return base
 

@@ -128,9 +128,14 @@ def _expected_effect(
     return Effect.DENY
 
 
+def _owner_key(resource: Resource) -> Optional[str]:
+    """The path param (http) or tool argument (mcp) that identifies the object."""
+    return resource.owner_param or resource.owner_arg
+
+
 def _variants(resource: Resource, subject: Subject, subjects: List[Subject]) -> List[Tuple[Variant, Optional[Subject]]]:
     """Which (variant, target) pairs to generate for this subject/resource."""
-    if resource.type != ResourceType.OBJECT or not resource.owner_param:
+    if resource.type != ResourceType.OBJECT or not _owner_key(resource):
         return [(Variant.NA, None)]
 
     out: List[Tuple[Variant, Optional[Subject]]] = []
@@ -140,6 +145,36 @@ def _variants(resource: Resource, subject: Subject, subjects: List[Subject]) -> 
     if other is not None:
         out.append((Variant.OTHER, other))
     return out or [(Variant.OTHER, None)]
+
+
+def _build_mcp_invocation(matrix, resource, subject, variant, target, context):
+    """Resolve a fully-rendered MCP tool-call for one subject/variant.
+
+    The server is resolved to its URL/headers and embedded on the case so the
+    executor stays self-contained. For object resources the ``owner_arg`` argument
+    is filled with the caller's (SELF) or victim's (OTHER) object id — the BOLA
+    surface — and the matcher is the resource override or the matrix default.
+    """
+    from overstep.models import McpInvocation
+
+    call = resource.call
+    server = matrix.server_map().get(call.server)
+    arguments = render(dict(call.arguments), context)
+    if resource.owner_arg and variant != Variant.NA:
+        src = subject if variant == Variant.SELF else target
+        oid = _object_id(resource, src, context) if src else None
+        if oid is not None:
+            arguments[resource.owner_arg] = oid
+    matcher = resource.mcp_access or matrix.mcp_access
+    return McpInvocation(
+        url=server.url if server else "",
+        headers=render(dict(server.headers), context) if server else {},
+        protocol_version=server.protocol_version if server else "2025-06-18",
+        tool=call.tool,
+        arguments=arguments,
+        matcher=matcher,
+        mutating=call.mutating,
+    )
 
 
 def plan(matrix: Matrix, context: Optional[Dict[str, str]] = None) -> List[TestCase]:
@@ -158,7 +193,6 @@ def plan(matrix: Matrix, context: Optional[Dict[str, str]] = None) -> List[TestC
         for subject in subjects:
             for variant, target in _variants(resource, subject, subjects):
                 expected = _expected_effect(matrix, resource, subject, variant, target)
-                path = _render_path(resource, subject, variant, target, context)
                 # For an OTHER probe, a leak would expose the victim's data, so
                 # carry the victim's marker along for the content-aware oracle.
                 expect_markers = (
@@ -166,25 +200,44 @@ def plan(matrix: Matrix, context: Optional[Dict[str, str]] = None) -> List[TestC
                     if variant == Variant.OTHER and target and target.marker
                     else []
                 )
+                common = dict(
+                    id=make_test_id(resource.name, subject.name, variant),
+                    resource=resource.name,
+                    subject=subject.name,
+                    role=subject.role,
+                    transport=resource.transport,
+                    variant=variant,
+                    expected=expected,
+                    resource_type=resource.type,
+                    required_roles=required,
+                    expect_markers=expect_markers,
+                )
+
+                if resource.transport == "mcp":
+                    inv = _build_mcp_invocation(matrix, resource, subject, variant, target, context)
+                    cases.append(
+                        TestCase(
+                            **common,
+                            method="tools/call",
+                            path=inv.tool,
+                            path_template=inv.tool,
+                            mcp=inv,
+                        )
+                    )
+                    # Cross-method probing is HTTP-specific; MCP has no verb.
+                    continue
+
+                path = _render_path(resource, subject, variant, target, context)
                 cases.append(
                     TestCase(
-                        id=make_test_id(resource.name, subject.name, variant),
-                        resource=resource.name,
-                        subject=subject.name,
-                        role=subject.role,
-                        transport=resource.transport,
+                        **common,
                         method=resource.request.method,
                         path_template=resource.request.path,
                         path=path,
-                        variant=variant,
-                        expected=expected,
-                        resource_type=resource.type,
-                        required_roles=required,
                         query=render(dict(resource.request.query), context),
                         body=render(resource.request.body, context),
                         headers=render(dict(resource.request.headers), context),
                         matcher=matcher,
-                        expect_markers=expect_markers,
                     )
                 )
 

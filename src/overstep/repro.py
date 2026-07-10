@@ -40,8 +40,35 @@ def _full_url(base_url: str, path: str, query: Dict[str, Any]) -> str:
     return url
 
 
+def _mcp_headers(case: TestCase, subject: Subject) -> Dict[str, str]:
+    inv = case.mcp
+    headers: Dict[str, str] = dict(inv.headers) if inv else {}
+    headers.update(subject.headers)
+    if subject.token and not any(k.lower() == "authorization" for k in headers):
+        headers["Authorization"] = f"Bearer {subject.token}"
+    return headers
+
+
+def _mcp_payload(case: TestCase) -> Dict[str, Any]:
+    inv = case.mcp
+    return {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": inv.tool if inv else case.path, "arguments": inv.arguments if inv else {}},
+    }
+
+
 def request_record(base_url: str, subject: Subject, case: TestCase) -> Dict[str, Any]:
     """A structured, secret-masked description of the request that was sent."""
+    if case.mcp is not None:
+        return {
+            "method": "tools/call",
+            "url": case.mcp.url,
+            "tool": case.mcp.tool,
+            "arguments": case.mcp.arguments,
+            "headers": mask_headers(_mcp_headers(case, subject)),
+        }
     return {
         "method": case.method,
         "url": _full_url(base_url, case.path, case.query),
@@ -52,6 +79,16 @@ def request_record(base_url: str, subject: Subject, case: TestCase) -> Dict[str,
 
 def to_curl(base_url: str, subject: Subject, case: TestCase) -> str:
     """Render the request as a ``curl`` command with masked credentials."""
+    if case.mcp is not None:
+        parts = ["curl", "-sS", "-X", "POST"]
+        headers = mask_headers(_mcp_headers(case, subject))
+        headers.setdefault("Content-Type", "application/json")
+        for key, value in headers.items():
+            parts += ["-H", shlex.quote(f"{key}: {value}")]
+        parts += ["--data", shlex.quote(json.dumps(_mcp_payload(case)))]
+        parts.append(shlex.quote(case.mcp.url))
+        return " ".join(parts)
+
     parts = ["curl", "-sS", "-X", case.method]
     for key, value in mask_headers(build_headers(subject, case)).items():
         parts += ["-H", shlex.quote(f"{key}: {value}")]

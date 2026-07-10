@@ -1,0 +1,53 @@
+# Authorization matrix for the bundled vulnerable MCP demo server.
+#
+#   python -m uvicorn examples.mcp_api.server:app --port 9000
+#   overstep run examples/mcp_api/matrix.yaml --out out
+#
+# MCP resources declare `transport: mcp` and a `call` (server + tool) instead of
+# an HTTP request. The `owner_arg` is the tool argument that carries the object id
+# — overstep fills it with the caller's own id (SELF) or a victim's (OTHER) to
+# probe for BOLA on tool-calls.
+roles: [anonymous, user, admin]
+
+servers:
+  - name: docs
+    url: http://127.0.0.1:9000/mcp
+
+# Deny signal for this server: an isError result or a JSON-RPC error means denied.
+mcp_access:
+  is_error_is_deny: true
+  jsonrpc_error_is_deny: true
+
+subjects:
+  - { name: alice, role: user,  token: alice-token, marker: "alice@corp.example", attributes: { doc_id: d-alice } }
+  - { name: bob,   role: user,  token: bob-token,   marker: "bob@corp.example",   attributes: { doc_id: d-bob } }
+  - { name: root,  role: admin, token: admin-token }
+  - { name: anon,  role: anonymous, token: null }
+
+resources:
+  - name: read_document
+    transport: mcp
+    call: { server: docs, tool: read_document }
+    type: object            # object-level -> BOLA surface on the tool argument
+    owner_arg: doc_id        # the argument that identifies the owned object
+    owner_attr: doc_id       # matched against the subject's doc_id attribute
+  - name: list_all_users
+    transport: mcp
+    call: { server: docs, tool: list_all_users }
+    type: function          # function-level -> BFLA / privesc surface
+  - name: reset_tenant
+    transport: mcp
+    call: { server: docs, tool: reset_tenant, mutating: true }   # skipped under --read-only
+    type: function
+
+policy:
+  read_document:
+    allow:
+      - { role: user, scope: own }    # a user may read only their own document
+      - { role: admin, scope: any }
+  list_all_users:
+    allow:
+      - { role: admin }               # admin-only
+  reset_tenant:
+    allow:
+      - { role: admin }               # admin-only

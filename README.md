@@ -1,6 +1,6 @@
 # overstep
 
-**Matrix-driven authorization testing for HTTP APIs.**
+**Matrix-driven authorization testing for HTTP APIs and MCP tool-calls.**
 
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
@@ -24,9 +24,10 @@ Every finding is classified, mapped to its **CWE / OWASP API Top 10** entry,
 graded by **confidence**, and shipped with a copy-pasteable **`curl` repro** —
 so it lands in a dashboard or a ticket ready to act on.
 
-The matrix, planning and classification are **transport-agnostic**; HTTP is the
-default (and today only) transport, and execution is pluggable behind a small
-registry (see [Transports & extensibility](#transports--extensibility)).
+The matrix, planning and classification are **transport-agnostic**: the same
+matrix tests **HTTP APIs** and **MCP / agent tool-calls** behind a pluggable
+transport registry (see [Testing MCP tool-calls](#testing-mcp--agent-tool-calls)
+and [Transports & extensibility](#transports--extensibility)).
 
 ---
 
@@ -457,6 +458,59 @@ SARIF rules (with a `security-severity` score) and on every JSON finding:
 | BFLA | CWE-285 | API5:2023 |
 | privilege-escalation | CWE-269 | API5:2023 |
 
+## Testing MCP / agent tool-calls
+
+The same matrix tests **MCP servers** (and the tool-calls an agent makes through
+them), not just HTTP APIs. Authorization bugs map one-to-one: a subject reading
+another subject's object via a tool argument is **BOLA**; invoking a tool its role
+shouldn't is **BFLA / privilege escalation**. A resource sets `transport: mcp` and
+a `call` instead of an HTTP `request`, and `servers:` declares the endpoints:
+
+```yaml
+servers:
+  - name: docs
+    url: http://127.0.0.1:9000/mcp        # MCP over Streamable HTTP (JSON-RPC)
+
+# MCP has no 403 — decide allow/deny from the tool result:
+mcp_access:
+  is_error_is_deny: true                  # a result with isError: true -> denied
+  jsonrpc_error_is_deny: true             # a JSON-RPC error -> denied
+  # deny_content_regex: "permission denied"
+
+subjects:
+  - { name: alice, role: user, token: alice-token, marker: "alice@corp", attributes: { doc_id: d-alice } }
+  - { name: bob,   role: user, token: bob-token,   marker: "bob@corp",   attributes: { doc_id: d-bob } }
+
+resources:
+  - name: read_document
+    transport: mcp
+    call: { server: docs, tool: read_document }
+    type: object            # BOLA surface on the tool argument
+    owner_arg: doc_id        # overstep fills this with the caller's / a victim's object id
+    owner_attr: doc_id
+  - name: reset_tenant
+    transport: mcp
+    call: { server: docs, tool: reset_tenant, mutating: true }   # skipped under --read-only
+    type: function          # BFLA / privesc surface
+```
+
+overstep performs a best-effort `initialize` handshake and then `tools/call` per
+subject, using that subject's token/headers for identity. Because there is no
+status code, the **marker** oracle matters more than in HTTP: when a cross-owner
+tool-call returns the victim's marker, the BOLA is graded **confirmed**. Findings
+carry an MCP `tools/call` repro, and `--read-only` skips `mutating` tools.
+
+Try it against the bundled vulnerable MCP demo:
+
+```bash
+python -m uvicorn examples.mcp_api.server:app --port 9000
+overstep run examples/mcp_api/matrix.yaml --out out
+```
+
+> This tests the **server's** enforcement directly and deterministically.
+> Driving the *agent* with natural-language prompts (confused-deputy /
+> prompt-injection) is a separate, non-deterministic concern and out of scope.
+
 ## Transports & extensibility
 
 overstep separates *what* it tests (the matrix, the planned self/other and
@@ -476,9 +530,9 @@ resources:
 
 A single run can mix transports: the dispatcher groups the planned cases by their
 `transport` and routes each group to the matching executor. `overstep validate`
-flags a resource whose `transport` is not registered. HTTP is the built-in
-transport today; the registry is the seam a non-HTTP target — for example **MCP /
-agent tool-calls** — plugs into without changing the core.
+flags a resource whose `transport` is not registered. The built-in transports are
+`http` and `mcp` (see [Testing MCP tool-calls](#testing-mcp--agent-tool-calls));
+the registry is the seam any further target plugs into without changing the core.
 
 ## Comparison
 
@@ -487,6 +541,7 @@ agent tool-calls** — plugs into without changing the core.
 | Authorization matrix as code | ✅ | ⚠️ (per-request, manual) | ❌ |
 | Positive **and** negative tests | ✅ | ⚠️ | ⚠️ |
 | BOLA / BFLA / BOPLA / privesc classification | ✅ | ⚠️ | ❌ |
+| HTTP **and** MCP tool-call authorization | ✅ | ❌ | ❌ |
 | Content-verified findings + repro | ✅ | ⚠️ | ❌ |
 | Drift baselines & waivers for CI | ✅ | ❌ | ❌ |
 | SARIF (CWE/OWASP) + JUnit output | ✅ | ❌ | ⚠️ |

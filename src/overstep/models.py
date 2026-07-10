@@ -117,6 +117,65 @@ class Request(BaseModel):
     headers: Dict[str, str] = Field(default_factory=dict)
 
 
+class McpCall(BaseModel):
+    """A tool-call template for an MCP (transport: mcp) resource.
+
+    ``arguments`` may carry ``{{captures}}`` and, for object resources, the
+    ``owner_arg`` argument is filled with the caller's / victim's object id at plan
+    time (the BOLA surface). ``mutating`` marks a tool with side effects so
+    ``--read-only`` can skip it.
+    """
+
+    server: str
+    tool: str
+    arguments: Dict[str, Any] = Field(default_factory=dict)
+    mutating: bool = False
+
+
+class McpServer(BaseModel):
+    """An MCP server the matrix can reach, declared under ``servers:``.
+
+    Only Streamable HTTP servers are supported today: ``url`` is the JSON-RPC
+    endpoint. Per-server ``headers`` are merged under each subject's own headers.
+    """
+
+    name: str
+    url: str
+    headers: Dict[str, str] = Field(default_factory=dict)
+    protocol_version: str = "2025-06-18"
+
+
+class McpMatcher(BaseModel):
+    """How to decide allow/deny from an MCP tool result.
+
+    MCP has no 403: a denial usually surfaces as a JSON-RPC ``error`` or a result
+    with ``isError: true``. Evaluation order (see overstep.mcp_matching):
+
+      1. ``deny_content_regex`` matches   -> deny
+      2. ``allow_content_regex`` matches  -> allow
+      3. a JSON-RPC error                 -> deny iff ``jsonrpc_error_is_deny``
+      4. ``isError: true``                -> deny iff ``is_error_is_deny``
+      5. otherwise                        -> allow (the tool ran and returned data)
+    """
+
+    is_error_is_deny: bool = True
+    jsonrpc_error_is_deny: bool = True
+    deny_content_regex: Optional[str] = None
+    allow_content_regex: Optional[str] = None
+
+
+class McpInvocation(BaseModel):
+    """A fully-resolved MCP tool-call carried on a test case for the executor."""
+
+    url: str
+    headers: Dict[str, str] = Field(default_factory=dict)
+    protocol_version: str = "2025-06-18"
+    tool: str
+    arguments: Dict[str, Any] = Field(default_factory=dict)
+    matcher: McpMatcher = Field(default_factory=McpMatcher)
+    mutating: bool = False
+
+
 class AuthProvider(BaseModel):
     """How to obtain a token before the run.
 
@@ -173,19 +232,26 @@ class Resource(BaseModel):
     """A named API operation the matrix makes assertions about."""
 
     name: str
-    request: Request
+    # The HTTP request template (transport: http). Optional so an MCP resource can
+    # supply a `call` instead.
+    request: Optional[Request] = None
+    # The MCP tool-call template (transport: mcp).
+    call: Optional[McpCall] = None
     # Which delivery mechanism carries this resource's request. "http" is the
     # default; other transports (registered in overstep.transports) route through
     # their own executor without the core needing to know how.
     transport: str = "http"
     type: ResourceType = ResourceType.FUNCTION
-    # For object resources: the path parameter that identifies the owning subject
-    # and the subject attribute it must match.
+    # For object resources: the path parameter (http) or tool argument (mcp) that
+    # identifies the owned object, and the subject attribute it must match.
     owner_param: Optional[str] = None
+    owner_arg: Optional[str] = None
     owner_attr: str = "user_id"
     description: str = ""
     # Optional per-resource override of the matrix-level response matcher.
     access: Optional[ResponseMatcher] = None
+    # Optional per-resource override of the matrix-level MCP matcher.
+    mcp_access: Optional[McpMatcher] = None
     # Explicit object id owned by each subject (subject name -> id). Takes
     # precedence over owner_attr, and values may reference {{captures}} from
     # setup steps. This is how real BOLA testing points at genuine owned objects
@@ -247,6 +313,8 @@ class TestCase(BaseModel):
     # response body contains one of these, a slipped-through probe is a *confirmed*
     # data leak, not merely a permissive status code.
     expect_markers: List[str] = Field(default_factory=list)
+    # For transport: mcp — the fully-resolved tool-call to deliver. None for HTTP.
+    mcp: Optional[McpInvocation] = None
 
     @property
     def is_negative(self) -> bool:

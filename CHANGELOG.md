@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.12.0] - 2026-07-10
+
+### Added
+- **MCP tool-call transport.** overstep can now test authorization on **MCP /
+  agent tool-calls**, not just HTTP APIs. A resource sets `transport: mcp` and a
+  `call: { server, tool, arguments }`; `servers:` declares the MCP endpoints. The
+  same matrix, planner, classifier, markers/confidence, waivers, drift and reports
+  apply — BOLA on a tool argument (`owner_arg`), BFLA/privilege-escalation on a
+  tool a role shouldn't invoke, all mapped to the existing CWE/OWASP taxonomy.
+  - Speaks **MCP over Streamable HTTP (JSON-RPC 2.0)** using the existing httpx
+    client — no new dependency. Best-effort `initialize` handshake with session-id
+    capture, then `tools/call`.
+  - A dedicated **MCP oracle** (`McpMatcher`): since MCP has no `403`, allow/deny
+    is decided from a JSON-RPC `error`, an `isError: true` result, and content
+    regexes. The content-aware marker oracle scans the tool result, so a
+    cross-owner read is a *confirmed* leak.
+  - Identity reuses the subject's token/headers/auth providers; `--read-only`
+    skips tools flagged `mutating`; findings carry an **MCP `tools/call` repro**.
+  - `validate` checks MCP resources (`call`, known `server`, `owner_arg`).
+  - A bundled intentionally-vulnerable demo MCP server and matrix under
+    `examples/mcp_api/`.
+- An all-MCP matrix no longer needs a `base_url` (it lives on `servers:`).
+
 ## [0.11.0] - 2026-07-10
 
 ### Added

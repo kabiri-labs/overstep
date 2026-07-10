@@ -18,6 +18,7 @@ from overstep.transports.base import (
 
 # Import for side effects: each module registers its transport on import.
 from overstep.transports import http  # noqa: E402,F401
+from overstep.transports import mcp  # noqa: E402,F401
 
 __all__ = [
     "DEFAULT_TRANSPORT",
