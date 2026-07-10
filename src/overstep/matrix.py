@@ -108,20 +108,25 @@ class Matrix(BaseModel):
                     f"parameter in path '{res.request.path}'"
                 )
 
-        # No placeholder for ownership: warn when a default-attribute injection has
-        # no subject that can supply a value.
-        if injections and any(inj.owner_attr is None for inj in injections):
-            resolvable = [
-                s
-                for s in self.subjects
-                if s.name in res.objects or s.attributes.get(res.owner_attr) is not None
-            ]
-            if not resolvable:
-                problems.append(
-                    f"object resource '{res.name}' has no subject with a resolvable "
-                    f"object (add an 'objects:' entry or an '{res.owner_attr}' "
-                    f"attribute); ownership probes will be skipped"
-                )
+        # No placeholder for ownership: warn when no subject can supply a value for
+        # every injection (whether it reads the default object or an override
+        # attribute), so probes are never silently skipped or half-populated.
+        def _resolves(subject) -> bool:
+            for inj in injections:
+                if inj.owner_attr is not None:
+                    if subject.attributes.get(inj.owner_attr) is None:
+                        return False
+                elif subject.name not in res.objects and subject.attributes.get(res.owner_attr) is None:
+                    return False
+            return True
+
+        if injections and not any(_resolves(s) for s in self.subjects):
+            attrs = sorted({inj.owner_attr or res.owner_attr for inj in injections})
+            problems.append(
+                f"object resource '{res.name}' has no subject with a resolvable "
+                f"object (add an 'objects:' entry or attribute(s): {', '.join(attrs)}); "
+                f"ownership probes will be skipped"
+            )
         return problems
 
     def validate_refs(self) -> List[str]:

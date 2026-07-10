@@ -96,16 +96,30 @@ def _injections_by_location(
     return out
 
 
-def _has_object(resource: Resource, subject: Subject) -> bool:
-    return subject.name in resource.objects or subject.attributes.get(resource.owner_attr) is not None
+def _locates_object(resource: Resource, subject: Subject, context: Dict[str, str]) -> bool:
+    """Whether this subject can supply a value for every ownership injection.
+
+    Basing this on the actual injections (not just ``objects`` / the default
+    ``owner_attr``) means an owner_attr-only injection — e.g. a tenant carried in
+    a header — still drives SELF/OTHER generation for subjects that have that
+    attribute.
+    """
+    injections = resource.effective_injections()
+    if not injections:
+        return False
+    return all(
+        _injection_value(resource, subject, inj, context) is not None for inj in injections
+    )
 
 
-def _pick_other(resource: Resource, subject: Subject, subjects: List[Subject]) -> Optional[Subject]:
+def _pick_other(
+    resource: Resource, subject: Subject, subjects: List[Subject], context: Dict[str, str]
+) -> Optional[Subject]:
     """Find another subject that actually owns an object for this resource."""
     for other in subjects:
         if other.name == subject.name:
             continue
-        if _has_object(resource, other):
+        if _locates_object(resource, other, context):
             return other
     return None
 
@@ -240,15 +254,20 @@ def _expected_effect(
     return Effect.DENY
 
 
-def _variants(resource: Resource, subject: Subject, subjects: List[Subject]) -> List[Tuple[Variant, Optional[Subject]]]:
+def _variants(
+    resource: Resource,
+    subject: Subject,
+    subjects: List[Subject],
+    context: Dict[str, str],
+) -> List[Tuple[Variant, Optional[Subject]]]:
     """Which (variant, target) pairs to generate for this subject/resource."""
     if resource.type != ResourceType.OBJECT or not resource.is_object_locatable:
         return [(Variant.NA, None)]
 
     out: List[Tuple[Variant, Optional[Subject]]] = []
-    if _has_object(resource, subject):
+    if _locates_object(resource, subject, context):
         out.append((Variant.SELF, subject))
-    other = _pick_other(resource, subject, subjects)
+    other = _pick_other(resource, subject, subjects, context)
     if other is not None:
         out.append((Variant.OTHER, other))
     return out or [(Variant.OTHER, None)]
@@ -315,7 +334,7 @@ def plan(matrix: Matrix, context: Optional[Dict[str, str]] = None) -> List[TestC
         required = matrix.required_roles(resource.name)
         matcher = resource.access or matrix.access
         for subject in subjects:
-            for variant, target in _variants(resource, subject, subjects):
+            for variant, target in _variants(resource, subject, subjects, context):
                 expected = _expected_effect(matrix, resource, subject, variant, target)
                 # For an OTHER probe, a leak would expose the victim's data, so
                 # carry the victim's marker along for the content-aware oracle.

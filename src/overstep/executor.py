@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import random
 import time
-from typing import Dict, List
+from typing import Dict, List, Optional
 from urllib.parse import urljoin
 
 import httpx
@@ -37,6 +37,29 @@ def _retry_delay(resp: httpx.Response, attempt: int, backoff_base: float) -> flo
     return backoff_base * (2 ** attempt) * (0.5 + random.random())
 
 
+def _find_header(headers: Dict[str, str], name: str) -> Optional[str]:
+    """The value of a header matched case-insensitively, or None."""
+    for key, value in headers.items():
+        if key.lower() == name:
+            return value
+    return None
+
+
+def _merge_cookie_values(*values: Optional[str]) -> str:
+    """Merge one or more Cookie header strings into a single value."""
+    jar: Dict[str, str] = {}
+    for value in values:
+        if not value:
+            continue
+        for part in value.split(";"):
+            part = part.strip()
+            if not part:
+                continue
+            key, _, val = part.partition("=")
+            jar[key.strip()] = val.strip()
+    return "; ".join(f"{k}={v}" for k, v in jar.items())
+
+
 def build_headers(subject: Subject, case: TestCase) -> Dict[str, str]:
     """Assemble the headers for one request.
 
@@ -46,10 +69,23 @@ def build_headers(subject: Subject, case: TestCase) -> Dict[str, str]:
       3. a bearer ``Authorization`` derived from the subject's token — but only
          if neither of the above already set an ``Authorization`` header, so a
          custom auth scheme is never clobbered.
+
+    The ``Cookie`` header is the exception to (2): the case's cookie (e.g. an
+    object-id ownership injection) is *merged* with the subject's session cookie
+    rather than overwritten, so a BOLA probe still carries the injected id when
+    the subject authenticates with a cookie.
     """
+    case_cookie = _find_header(case.headers, "cookie")
+    subject_cookie = _find_header(subject.headers, "cookie")
+
     headers: Dict[str, str] = {}
     headers.update(case.headers)
     headers.update(subject.headers)
+
+    if case_cookie and subject_cookie:
+        for key in [k for k in list(headers) if k.lower() == "cookie"]:
+            del headers[key]
+        headers["Cookie"] = _merge_cookie_values(case_cookie, subject_cookie)
 
     has_auth = any(k.lower() == "authorization" for k in headers)
     if subject.token and not has_auth:

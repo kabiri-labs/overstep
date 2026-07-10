@@ -169,6 +169,54 @@ def test_owner_attr_override_pulls_a_different_attribute():
     assert cases["get_order::alice::other"].query["t"] == "t2"
 
 
+def test_owner_attr_only_injection_drives_variant_generation():
+    """A resource whose sole locator is an owner_attr injection must still emit
+    real SELF/OTHER probes for subjects that carry that attribute."""
+    m = Matrix(
+        base_url="http://api.test",
+        roles=["user"],
+        subjects=[
+            {"name": "alice", "role": "user", "token": "a", "attributes": {"tenant": "t1"}},
+            {"name": "bob", "role": "user", "token": "b", "attributes": {"tenant": "t2"}},
+        ],
+        resources=[
+            {
+                "name": "get_by_tenant",
+                "request": {"method": "GET", "path": "/records"},
+                "type": "object",
+                # No objects map and no user_id attribute: the ONLY locator is the
+                # tenant, sourced via owner_attr.
+                "ownership": {"injections": [{"location": "query", "selector": "tenant", "owner_attr": "tenant"}]},
+            }
+        ],
+        policy={"get_by_tenant": {"allow": [{"role": "user", "scope": "any"}]}},
+    )
+    assert m.validate_refs() == []  # subjects have tenant -> resolvable
+    cases = _by_id(plan(m))
+    # SELF is generated (previously skipped) and carries the subject's own tenant.
+    assert cases["get_by_tenant::alice::self"].query["tenant"] == "t1"
+    # OTHER has a real target and the victim's tenant injected (not empty).
+    assert cases["get_by_tenant::alice::other"].query["tenant"] == "t2"
+
+
+def test_cookie_injection_survives_subject_cookie_auth():
+    """A subject's session Cookie must not clobber an injected object-id cookie."""
+    from overstep.executor import build_headers
+
+    m = _http_matrix(
+        {
+            "request": {"method": "GET", "path": "/orders"},
+            "ownership": {"injections": [{"location": "cookie", "selector": "owner"}]},
+        }
+    )
+    # alice authenticates with a session cookie.
+    m.subjects[0].headers = {"Cookie": "sid=alice-session"}
+    case = _by_id(plan(m))["get_order::alice::other"]  # injected owner=o-bob
+    cookie = build_headers(m.subjects[0], case)["Cookie"]
+    assert "sid=alice-session" in cookie   # session preserved
+    assert "owner=o-bob" in cookie         # injected object id preserved
+
+
 # --- MCP --------------------------------------------------------------------
 
 def _mcp_matrix(ownership_or_legacy):
