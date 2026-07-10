@@ -80,7 +80,14 @@ class Matrix(BaseModel):
             if name not in rmap:
                 problems.append(f"policy references unknown resource '{name}'")
 
+        from overstep.transports import transport_names
+        known_transports = set(transport_names())
         for res in self.resources:
+            if res.transport not in known_transports:
+                problems.append(
+                    f"resource '{res.name}' uses unknown transport '{res.transport}' "
+                    f"(known: {', '.join(sorted(known_transports))})"
+                )
             if res.type == ResourceType.OBJECT and not res.owner_param:
                 problems.append(
                     f"object resource '{res.name}' must set owner_param"

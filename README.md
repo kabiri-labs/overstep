@@ -24,6 +24,10 @@ Every finding is classified, mapped to its **CWE / OWASP API Top 10** entry,
 graded by **confidence**, and shipped with a copy-pasteable **`curl` repro** —
 so it lands in a dashboard or a ticket ready to act on.
 
+The matrix, planning and classification are **transport-agnostic**; HTTP is the
+default (and today only) transport, and execution is pluggable behind a small
+registry (see [Transports & extensibility](#transports--extensibility)).
+
 ---
 
 ## Why a matrix?
@@ -452,6 +456,29 @@ SARIF rules (with a `security-severity` score) and on every JSON finding:
 | BOPLA | CWE-213 | API3:2023 |
 | BFLA | CWE-285 | API5:2023 |
 | privilege-escalation | CWE-269 | API5:2023 |
+
+## Transports & extensibility
+
+overstep separates *what* it tests (the matrix, the planned self/other and
+cross-method probes, the BOLA/BFLA/BOPLA/privesc classification, the reports) from
+*how* a request is delivered. Delivery lives behind a **transport registry**
+(`overstep.transports`) — the same pluggable pattern as the reporters. A resource
+picks its transport; everything downstream is unchanged:
+
+```yaml
+resources:
+  - name: get_user
+    transport: http            # the default; may be omitted
+    request: { method: GET, path: "/users/{id}" }
+    type: object
+    owner_param: id
+```
+
+A single run can mix transports: the dispatcher groups the planned cases by their
+`transport` and routes each group to the matching executor. `overstep validate`
+flags a resource whose `transport` is not registered. HTTP is the built-in
+transport today; the registry is the seam a non-HTTP target — for example **MCP /
+agent tool-calls** — plugs into without changing the core.
 
 ## Comparison
 

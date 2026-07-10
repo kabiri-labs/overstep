@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.11.0] - 2026-07-10
+
+### Added
+- **Transport abstraction.** Execution is now pluggable behind a transport
+  registry (`overstep.transports`), mirroring the reporter registry. A resource
+  declares a `transport:` (default `http`), the planner carries it onto every test
+  case, and a dispatcher routes each case to the matching transport's executor —
+  so a single run can mix transports. HTTP is registered as the built-in `http`
+  transport with no behaviour change. `validate` now flags a resource that
+  references an unknown transport. This is the seam that lets non-HTTP targets
+  (e.g. MCP tool-calls) be added without touching the matrix, planner, classifier
+  or reports.
+
 ## [0.10.0] - 2026-07-09
 
 ### Added

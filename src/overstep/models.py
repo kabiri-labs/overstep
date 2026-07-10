@@ -174,6 +174,10 @@ class Resource(BaseModel):
 
     name: str
     request: Request
+    # Which delivery mechanism carries this resource's request. "http" is the
+    # default; other transports (registered in overstep.transports) route through
+    # their own executor without the core needing to know how.
+    transport: str = "http"
     type: ResourceType = ResourceType.FUNCTION
     # For object resources: the path parameter that identifies the owning subject
     # and the subject attribute it must match.
@@ -224,6 +228,8 @@ class TestCase(BaseModel):
     resource: str
     subject: str
     role: str
+    # The transport that will deliver this case (carried from the resource).
+    transport: str = "http"
     method: str
     path_template: str
     path: str

@@ -15,7 +15,7 @@ from typing import Callable, List, Optional
 from overstep.auth import authenticate as default_authenticator
 from overstep.classifier import classify
 from overstep.drift import diff
-from overstep.executor import run as default_executor
+from overstep.transports import dispatch as default_executor
 from overstep.fixtures import run_setup as default_setup_runner
 from overstep.fixtures import run_teardown
 from overstep.matrix import Matrix
