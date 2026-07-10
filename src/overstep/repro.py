@@ -59,8 +59,29 @@ def _mcp_payload(case: TestCase) -> Dict[str, Any]:
     }
 
 
+def _mask_env(env: Dict[str, str], subject: Subject) -> Dict[str, str]:
+    """Redact identity/secret values from a stdio server's environment."""
+    masked: Dict[str, str] = {}
+    for key, value in env.items():
+        secret = (
+            value == subject.token
+            or any(w in key.upper() for w in ("TOKEN", "SECRET", "KEY", "PASSWORD"))
+        )
+        masked[key] = _MASK if secret else value
+    return masked
+
+
 def request_record(base_url: str, subject: Subject, case: TestCase) -> Dict[str, Any]:
     """A structured, secret-masked description of the request that was sent."""
+    if case.mcp is not None and case.mcp.kind == "stdio":
+        return {
+            "method": "tools/call",
+            "transport": "stdio",
+            "command": case.mcp.command,
+            "env": _mask_env(case.mcp.env, subject),
+            "tool": case.mcp.tool,
+            "arguments": case.mcp.arguments,
+        }
     if case.mcp is not None:
         return {
             "method": "tools/call",
@@ -78,7 +99,18 @@ def request_record(base_url: str, subject: Subject, case: TestCase) -> Dict[str,
 
 
 def to_curl(base_url: str, subject: Subject, case: TestCase) -> str:
-    """Render the request as a ``curl`` command with masked credentials."""
+    """Render the request as a ``curl`` command with masked credentials.
+
+    For a stdio MCP call there is no curl; we render a shell repro that sets the
+    identity environment and pipes the tools/call into the server process.
+    """
+    if case.mcp is not None and case.mcp.kind == "stdio":
+        env = " ".join(f"{k}={shlex.quote(v)}" for k, v in _mask_env(case.mcp.env, subject).items())
+        cmd = " ".join(shlex.quote(c) for c in case.mcp.command)
+        call = json.dumps(_mcp_payload(case))
+        prefix = f"{env} " if env else ""
+        return f"{prefix}{cmd}  # then send JSON-RPC: {call}"
+
     if case.mcp is not None:
         parts = ["curl", "-sS", "-X", "POST"]
         headers = mask_headers(_mcp_headers(case, subject))

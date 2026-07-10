@@ -135,14 +135,28 @@ class McpCall(BaseModel):
 class McpServer(BaseModel):
     """An MCP server the matrix can reach, declared under ``servers:``.
 
-    Only Streamable HTTP servers are supported today: ``url`` is the JSON-RPC
-    endpoint. Per-server ``headers`` are merged under each subject's own headers.
+    Two kinds are supported:
+
+    * **Streamable HTTP** — set ``url`` (the JSON-RPC endpoint). Per-server
+      ``headers`` merge under each subject's own headers, and identity is the
+      subject's bearer token / headers.
+    * **stdio** — set ``command`` (argv of a local server process). ``env`` is a
+      static environment, and ``token_env`` names the variable the subject's token
+      is injected into, so each identity launches its own process.
     """
 
     name: str
-    url: str
+    url: Optional[str] = None
     headers: Dict[str, str] = Field(default_factory=dict)
     protocol_version: str = "2025-06-18"
+    # stdio transport
+    command: Optional[List[str]] = None
+    env: Dict[str, str] = Field(default_factory=dict)
+    token_env: Optional[str] = None
+
+    @property
+    def kind(self) -> str:
+        return "stdio" if self.command else "http"
 
 
 class McpMatcher(BaseModel):
@@ -167,8 +181,13 @@ class McpMatcher(BaseModel):
 class McpInvocation(BaseModel):
     """A fully-resolved MCP tool-call carried on a test case for the executor."""
 
-    url: str
+    kind: Literal["http", "stdio"] = "http"
+    # http transport
+    url: str = ""
     headers: Dict[str, str] = Field(default_factory=dict)
+    # stdio transport (argv + resolved environment carrying this subject's identity)
+    command: List[str] = Field(default_factory=list)
+    env: Dict[str, str] = Field(default_factory=dict)
     protocol_version: str = "2025-06-18"
     tool: str
     arguments: Dict[str, Any] = Field(default_factory=dict)

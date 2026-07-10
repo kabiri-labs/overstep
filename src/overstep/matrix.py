@@ -92,6 +92,9 @@ class Matrix(BaseModel):
         from overstep.transports import transport_names
         known_transports = set(transport_names())
         server_names = {s.name for s in self.servers}
+        for srv in self.servers:
+            if not srv.url and not srv.command:
+                problems.append(f"server '{srv.name}' must set a url (http) or a command (stdio)")
         for res in self.resources:
             if res.transport not in known_transports:
                 problems.append(

@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.14.0] - 2026-07-10
+
+### Added
+- **stdio MCP transport.** overstep can now test **local MCP servers** launched as
+  a subprocess, speaking newline-delimited JSON-RPC over stdin/stdout (initialize
+  → `notifications/initialized` → `tools/call`). A server declares `command:`
+  (argv) instead of `url:`; identity — which has no HTTP header on stdio — is
+  injected into the child's environment via `token_env` (the subject's token) plus
+  a static `env`, so each subject runs its own process. Findings carry a stdio
+  repro (masked env + command + the JSON-RPC call), `--read-only` still skips
+  `mutating` tools, and `validate` requires each server to set a `url` or a
+  `command`. A bundled vulnerable stdio demo server and matrix are included
+  (`examples/mcp_api/stdio_server.py`, `matrix_stdio.yaml`).
+
 ## [0.13.0] - 2026-07-10
 
 ### Added

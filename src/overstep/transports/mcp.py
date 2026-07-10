@@ -105,6 +105,10 @@ async def _call(
             error=f"skipped mutating tool '{inv.tool}' under --read-only",
         )
 
+    if inv.kind == "stdio":
+        async with semaphore:
+            return await _call_stdio(case, inv)
+
     headers = mcp_headers(inv, subject)
     async with semaphore:
         started = time.perf_counter()
@@ -152,6 +156,100 @@ async def _call(
             matched_markers=matched,
             error=(error.get("message") if isinstance(error, dict) else None),
         )
+
+
+async def _stdio_tools_call(inv, timeout: float = 15.0) -> dict:
+    """Launch a stdio MCP server, do the handshake and one tools/call.
+
+    Returns the parsed JSON-RPC message for the call (id 2), or ``{}`` on failure.
+    Identity travels in ``inv.env`` (merged over the current environment).
+    """
+    import os
+
+    child_env = {**os.environ, **inv.env}
+    proc = await asyncio.create_subprocess_exec(
+        *inv.command,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+        env=child_env,
+    )
+
+    async def send(msg: dict) -> None:
+        proc.stdin.write((json.dumps(msg) + "\n").encode())
+        await proc.stdin.drain()
+
+    async def read_id(want: int) -> dict:
+        while True:
+            line = await proc.stdout.readline()
+            if not line:
+                return {}
+            try:
+                msg = json.loads(line.decode())
+            except ValueError:
+                continue  # ignore any non-JSON noise on stdout
+            if isinstance(msg, dict) and msg.get("id") == want:
+                return msg
+
+    async def exchange() -> dict:
+        await send({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"protocolVersion": inv.protocol_version, "capabilities": {},
+                       "clientInfo": {"name": "overstep", "version": "1"}},
+        })
+        await read_id(1)
+        await send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        await send({
+            "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+            "params": {"name": inv.tool, "arguments": inv.arguments},
+        })
+        return await read_id(2)
+
+    try:
+        return await asyncio.wait_for(exchange(), timeout=timeout)
+    except (asyncio.TimeoutError, Exception):
+        return {}
+    finally:
+        try:
+            if proc.stdin and not proc.stdin.is_closing():
+                proc.stdin.close()
+        except Exception:
+            pass
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=2.0)
+        except (asyncio.TimeoutError, Exception):
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+
+async def _call_stdio(case: TestCase, inv) -> Observation:
+    started = time.perf_counter()
+    try:
+        message = await _stdio_tools_call(inv)
+    except Exception as exc:  # launch failure -> denied
+        return Observation(test_id=case.id, status=0, effect=Effect.DENY, error=str(exc))
+
+    elapsed = (time.perf_counter() - started) * 1000
+    error = message.get("error") if isinstance(message, dict) else None
+    result = message.get("result") if isinstance(message, dict) else None
+    result = result if isinstance(result, dict) else {}
+    is_error = bool(result.get("isError"))
+    text = content_text(result.get("content"))
+    effect = evaluate_mcp(inv.matcher, jsonrpc_error=error, is_error=is_error, text=text)
+    matched = [m for m in case.expect_markers if m and m in text]
+    # No HTTP status for stdio; 200 marks a delivered call, 0 a transport failure.
+    status = 200 if message else 0
+    return Observation(
+        test_id=case.id,
+        status=status,
+        effect=effect,
+        latency_ms=round(elapsed, 1),
+        body_snippet=text[:2048],
+        matched_markers=matched,
+        error=(error.get("message") if isinstance(error, dict) else None),
+    )
 
 
 async def execute_mcp(

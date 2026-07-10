@@ -166,15 +166,29 @@ def _build_mcp_invocation(matrix, resource, subject, variant, target, context):
         if oid is not None:
             arguments[resource.owner_arg] = oid
     matcher = resource.mcp_access or matrix.mcp_access
-    return McpInvocation(
-        url=server.url if server else "",
-        headers=render(dict(server.headers), context) if server else {},
+
+    kind = server.kind if server else "http"
+    fields = dict(
+        kind=kind,
         protocol_version=server.protocol_version if server else "2025-06-18",
         tool=call.tool,
         arguments=arguments,
         matcher=matcher,
         mutating=call.mutating,
     )
+    if kind == "stdio":
+        # Identity for stdio is injected into the child's environment: the static
+        # server env plus this subject's token under token_env.
+        env = render(dict(server.env), context)
+        if server.token_env and subject.token is not None:
+            env[server.token_env] = subject.token
+        fields.update(command=list(server.command or []), env=env)
+    else:
+        fields.update(
+            url=server.url if server else "",
+            headers=render(dict(server.headers), context) if server else {},
+        )
+    return McpInvocation(**fields)
 
 
 def plan(matrix: Matrix, context: Optional[Dict[str, str]] = None) -> List[TestCase]:

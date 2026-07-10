@@ -472,7 +472,9 @@ The same matrix tests **MCP servers** (and the tool-calls an agent makes through
 them), not just HTTP APIs. Authorization bugs map one-to-one: a subject reading
 another subject's object via a tool argument is **BOLA**; invoking a tool its role
 shouldn't is **BFLA / privilege escalation**. A resource sets `transport: mcp` and
-a `call` instead of an HTTP `request`, and `servers:` declares the endpoints:
+a `call` instead of an HTTP `request`, and `servers:` declares the endpoints. Two
+server kinds are supported — **Streamable HTTP** (`url:`) and **stdio** (`command:`,
+a local process). Below is HTTP; for stdio see [Local (stdio) MCP servers](#local-stdio-mcp-servers).
 
 ```yaml
 servers:
@@ -525,6 +527,28 @@ Try it against the bundled vulnerable MCP demo:
 ```bash
 python -m uvicorn examples.mcp_api.server:app --port 9000
 overstep run examples/mcp_api/matrix.yaml --out out
+```
+
+### Local (stdio) MCP servers
+
+For a server that runs as a local process, declare a `command` instead of a
+`url`. overstep launches the process itself — one per subject — and speaks
+JSON-RPC over stdin/stdout. There is no HTTP header for identity on stdio, so the
+subject's token is injected into the process **environment** via `token_env`:
+
+```yaml
+servers:
+  - name: docs
+    command: ["python", "server.py"]   # a local MCP server
+    token_env: MCP_TOKEN                # each subject's token -> this env var
+```
+
+Everything else is identical — object/function resources, `owner_arg`, markers,
+`--read-only` (skips `mutating` tools), reports. Findings carry a stdio repro
+(masked env + command + the JSON-RPC call). Try the bundled stdio demo:
+
+```bash
+overstep run examples/mcp_api/matrix_stdio.yaml --out out
 ```
 
 > This tests the **server's** enforcement directly and deterministically.
