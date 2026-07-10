@@ -197,17 +197,41 @@ def validate(
 
 @app.command()
 def scaffold(
-    spec_file: str = typer.Argument(..., help="OpenAPI YAML or HAR file."),
-    fmt: str = typer.Option("openapi", help="Input format: openapi | har."),
+    spec_file: str = typer.Argument(..., help="OpenAPI/HAR file, or an MCP server URL / tools.json (--fmt mcp)."),
+    fmt: str = typer.Option("openapi", help="Input format: openapi | har | mcp."),
     only_get: bool = typer.Option(False, help="Only include GET operations."),
     with_policy: bool = typer.Option(
         False,
         "--with-policy",
         help="OpenAPI only: emit a full matrix (roles + subjects + policy) inferred from security schemes.",
     ),
+    server_name: str = typer.Option("mcp", help="MCP: name for the scaffolded server."),
+    server_url: Optional[str] = typer.Option(None, help="MCP: server URL to embed (defaults to the source URL)."),
+    token: Optional[str] = typer.Option(None, help="MCP: bearer token for fetching tools/list from a live server."),
 ):
-    """Emit a starter resources block — or a full matrix — from OpenAPI or HAR."""
+    """Emit a starter resources block — or a full matrix — from OpenAPI, HAR or MCP."""
     from overstep.loaders.openapi import resources_to_yaml
+
+    if fmt == "mcp":
+        from overstep.loaders.mcp import (
+            fetch_tools,
+            load_tools_from_file,
+            scaffold_matrix_from_tools,
+        )
+
+        if spec_file.startswith("http://") or spec_file.startswith("https://"):
+            url = server_url or spec_file
+            try:
+                tools = fetch_tools(spec_file, token=token)
+            except Exception as exc:  # network / protocol errors
+                console.print(f"[bold red]error:[/] could not reach MCP server: {exc}")
+                raise typer.Exit(code=2)
+        else:
+            url = server_url or "http://localhost:8000/mcp"
+            tools = load_tools_from_file(spec_file)
+
+        typer.echo(scaffold_matrix_from_tools(tools, server_name=server_name, server_url=url))
+        return
 
     if with_policy:
         if fmt != "openapi":
@@ -223,7 +247,7 @@ def scaffold(
     elif fmt == "har":
         from overstep.loaders.har import load_resources
     else:
-        console.print("[bold red]error:[/] --fmt must be 'openapi' or 'har'")
+        console.print("[bold red]error:[/] --fmt must be 'openapi', 'har' or 'mcp'")
         raise typer.Exit(code=2)
 
     typer.echo(resources_to_yaml(load_resources(spec_file, only_get=only_get)))

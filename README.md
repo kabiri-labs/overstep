@@ -418,6 +418,14 @@ every secured endpoint an allow rule per required scope (object resources defaul
 to owner-scope for non-admin roles), and marks unsecured endpoints public. Review
 and tighten the result — it's a starting point, not a source of truth.
 
+For MCP, scaffold straight from a live server's `tools/list`:
+
+```bash
+overstep scaffold http://host/mcp --fmt mcp > matrix.yaml
+```
+
+See [Testing MCP tool-calls](#testing-mcp--agent-tool-calls) for what it infers.
+
 ## CI / CD
 
 overstep ships the artifacts a pipeline needs:
@@ -499,6 +507,18 @@ subject, using that subject's token/headers for identity. Because there is no
 status code, the **marker** oracle matters more than in HTTP: when a cross-owner
 tool-call returns the victim's marker, the BOLA is graded **confirmed**. Findings
 carry an MCP `tools/call` repro, and `--read-only` skips `mutating` tools.
+
+**Don't write the resources by hand** — scaffold them from the server's own
+`tools/list`, with object/function type and mutating tools inferred automatically:
+
+```bash
+overstep scaffold http://127.0.0.1:9000/mcp --fmt mcp --server-name docs > matrix.yaml
+# or from a saved tools/list response:  overstep scaffold tools.json --fmt mcp --server-url ...
+```
+
+An id-like tool argument becomes the `owner_arg` (the BOLA surface); a tool whose
+`annotations` say `destructiveHint` (or whose name reads like a write) is marked
+`mutating`. Review the starter policy, then run.
 
 Try it against the bundled vulnerable MCP demo:
 

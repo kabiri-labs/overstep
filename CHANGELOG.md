@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.13.0] - 2026-07-10
+
+### Added
+- **Scaffold a matrix from an MCP server.** `overstep scaffold <url> --fmt mcp`
+  connects to a live MCP server (`initialize` + `tools/list`) — or reads a saved
+  `tools.json` — and drafts a full starter matrix: servers, roles, placeholder
+  subjects, resources and a starter policy. Each tool is classified **object vs
+  function** (an id-like argument becomes the `owner_arg` BOLA surface) and
+  **mutating tools are detected automatically** from `annotations`
+  (`destructiveHint` / `readOnlyHint`), falling back to a verb heuristic on the
+  name, so `--read-only` skips them. `--server-name`, `--server-url` and `--token`
+  tune the output. The bundled demo MCP server now advertises input schemas and
+  annotations so live scaffolding works out of the box.
+
 ## [0.12.0] - 2026-07-10
 
 ### Added

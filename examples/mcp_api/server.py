@@ -38,9 +38,24 @@ _DOCS = {
 }
 
 _TOOLS = [
-    {"name": "read_document", "description": "Read a document by id"},
-    {"name": "list_all_users", "description": "List all users (admin only)"},
-    {"name": "reset_tenant", "description": "Reset the tenant (admin only)", "annotations": {"destructiveHint": True}},
+    {
+        "name": "read_document",
+        "description": "Read a document by id",
+        "inputSchema": {"type": "object", "properties": {"doc_id": {"type": "string"}}},
+        "annotations": {"readOnlyHint": True},
+    },
+    {
+        "name": "list_all_users",
+        "description": "List all users (admin only)",
+        "inputSchema": {"type": "object", "properties": {}},
+        "annotations": {"readOnlyHint": True},
+    },
+    {
+        "name": "reset_tenant",
+        "description": "Reset the tenant (admin only)",
+        "inputSchema": {"type": "object", "properties": {}},
+        "annotations": {"destructiveHint": True, "readOnlyHint": False},
+    },
 ]
 
 
