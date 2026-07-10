@@ -1,0 +1,49 @@
+# MCP matrix that seeds real objects via tool-calls (setup) and cleans them up
+# (teardown), then probes them for BOLA — the MCP analogue of the HTTP fixtures.
+#
+#   python -m uvicorn examples.mcp_api.server:app --port 9000
+#   overstep run examples/mcp_api/matrix_setup.yaml --out out
+roles: [anonymous, user, admin]
+
+servers:
+  - name: docs
+    url: http://127.0.0.1:9000/mcp
+
+mcp_access:
+  is_error_is_deny: true
+  jsonrpc_error_is_deny: true
+
+subjects:
+  - { name: alice, role: user, token: alice-token, marker: "alice@corp.example" }
+  - { name: bob,   role: user, token: bob-token,   marker: "bob@corp.example" }
+
+# Create a document as each subject and capture its real id.
+setup:
+  - name: alice creates a document
+    as: alice
+    call: { server: docs, tool: create_document, arguments: { body: "alice's notes" } }
+    extract: { ALICE_DOC: "$.id" }
+  - name: bob creates a document
+    as: bob
+    call: { server: docs, tool: create_document, arguments: { body: "bob's notes" } }
+    extract: { BOB_DOC: "$.id" }
+
+# Best-effort cleanup of the created fixtures.
+teardown:
+  - { as: alice, call: { server: docs, tool: delete_document, arguments: { doc_id: "{{ALICE_DOC}}" } } }
+  - { as: bob,   call: { server: docs, tool: delete_document, arguments: { doc_id: "{{BOB_DOC}}" } } }
+
+resources:
+  - name: read_document
+    transport: mcp
+    call: { server: docs, tool: read_document }
+    type: object
+    owner_arg: doc_id
+    # Point each subject at the real object id captured in setup.
+    objects: { alice: "{{ALICE_DOC}}", bob: "{{BOB_DOC}}" }
+
+policy:
+  read_document:
+    allow:
+      - { role: user, scope: own }
+      - { role: admin, scope: any }

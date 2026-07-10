@@ -56,6 +56,18 @@ _TOOLS = [
         "inputSchema": {"type": "object", "properties": {}},
         "annotations": {"destructiveHint": True, "readOnlyHint": False},
     },
+    {
+        "name": "create_document",
+        "description": "Create a document owned by the caller",
+        "inputSchema": {"type": "object", "properties": {"body": {"type": "string"}}},
+        "annotations": {"readOnlyHint": False},
+    },
+    {
+        "name": "delete_document",
+        "description": "Delete a document by id",
+        "inputSchema": {"type": "object", "properties": {"doc_id": {"type": "string"}}},
+        "annotations": {"destructiveHint": True},
+    },
 ]
 
 
@@ -123,6 +135,22 @@ async def mcp(request: Request):
             if role != "admin":
                 return JSONResponse(_ok(req_id, _text_result("permission denied", is_error=True)))
             return JSONResponse(_ok(req_id, _text_result('{"status": "reset"}')))
+
+        if name == "create_document":
+            # A fixture-creating tool: mint a new document owned by the caller and
+            # return its id (used by setup steps to seed real BOLA objects).
+            subject, _ = _caller(request)
+            new_id = f"d-{len(_DOCS) + 1}"
+            _DOCS[new_id] = {
+                "owner": subject or "anon",
+                "email": f"{subject or 'anon'}@corp.example",
+                "body": args.get("body", ""),
+            }
+            return JSONResponse(_ok(req_id, _text_result(f'{{"id": "{new_id}"}}')))
+
+        if name == "delete_document":
+            _DOCS.pop(args.get("doc_id"), None)
+            return JSONResponse(_ok(req_id, _text_result('{"status": "deleted"}')))
 
         return JSONResponse(_err(req_id, -32601, f"unknown tool '{name}'"))
 

@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.15.0] - 2026-07-10
+
+### Added
+- **MCP setup & teardown.** `setup:` and `teardown:` steps can now be MCP
+  tool-calls (`call: { server, tool, arguments }`) instead of HTTP requests, so
+  fixtures for MCP BOLA testing are created and cleaned up over the same
+  transport. A setup step's `extract` reads dotted paths out of the tool result's
+  JSON content (e.g. capture a new document id from `create_document`), and those
+  captures fill `{{...}}` in resource `objects`/arguments and later teardown calls.
+  Works for both HTTP and stdio MCP servers via a synchronous MCP client; teardown
+  is best-effort (failures become warnings). `validate` checks that each step sets
+  a `request` or a `call` and references a known server. The demo MCP server gains
+  `create_document`/`delete_document`, with a `matrix_setup.yaml` example.
+
 ## [0.14.0] - 2026-07-10
 
 ### Added

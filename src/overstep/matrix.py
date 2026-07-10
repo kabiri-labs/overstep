@@ -140,12 +140,19 @@ class Matrix(BaseModel):
                 )
 
         subject_set = set(subject_names)
-        for step in self.setup:
-            if step.run_as and step.run_as not in subject_set:
-                problems.append(
-                    f"setup step '{step.name or step.request.path}' runs as unknown "
-                    f"subject '{step.run_as}'"
-                )
+        for phase, steps in (("setup", self.setup), ("teardown", self.teardown)):
+            for step in steps:
+                label = step.name or (step.call.tool if step.call else (step.request.path if step.request else "?"))
+                if step.run_as and step.run_as not in subject_set:
+                    problems.append(
+                        f"{phase} step '{label}' runs as unknown subject '{step.run_as}'"
+                    )
+                if step.call is None and step.request is None:
+                    problems.append(f"{phase} step '{label}' must set a 'request' or a 'call'")
+                if step.call is not None and step.call.server not in server_names:
+                    problems.append(
+                        f"{phase} step '{label}' references unknown server '{step.call.server}'"
+                    )
         for res in self.resources:
             for sub_name in res.objects:
                 if sub_name not in subject_set:

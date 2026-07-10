@@ -9,6 +9,7 @@ tests point at genuine objects.
 """
 from __future__ import annotations
 
+import json
 from typing import Dict, Optional
 from urllib.parse import urljoin
 
@@ -16,7 +17,9 @@ import httpx
 
 from overstep.jsonpath import extract
 from overstep.matrix import Matrix
-from overstep.models import Subject
+from overstep.mcp_client import mcp_tool_call
+from overstep.mcp_matching import content_text
+from overstep.models import SetupStep, Subject
 from overstep.templating import render
 
 
@@ -35,6 +38,49 @@ def _subject_headers(subject: Optional[Subject]) -> Dict[str, str]:
 
 def _slash(base: str) -> str:
     return base if base.endswith("/") else base + "/"
+
+
+def _step_label(step: SetupStep) -> str:
+    if step.name:
+        return step.name
+    if step.call is not None:
+        return f"tools/call {step.call.tool}"
+    return f"{step.request.method} {step.request.path}"
+
+
+def _mcp_step_result(matrix: Matrix, step: SetupStep, subject, context, label, *, verify_tls: bool) -> str:
+    """Run an MCP setup/teardown tool-call and return its result content text.
+
+    Raises SetupError on an unknown server, a JSON-RPC error or an isError result.
+    """
+    server = matrix.server_map().get(step.call.server)
+    if server is None:
+        raise SetupError(f"setup step '{label}' references unknown server '{step.call.server}'")
+    arguments = render(dict(step.call.arguments), context)
+    message = mcp_tool_call(server, subject, step.call.tool, arguments, verify_tls=verify_tls)
+    error = message.get("error") if isinstance(message, dict) else None
+    result = message.get("result") if isinstance(message, dict) else None
+    result = result if isinstance(result, dict) else {}
+    if error is not None:
+        raise SetupError(f"setup step '{label}' errored: {error.get('message')}")
+    if result.get("isError"):
+        raise SetupError(f"setup step '{label}' returned an error result")
+    return content_text(result.get("content"))
+
+
+def _run_mcp_setup_step(matrix: Matrix, step: SetupStep, subject, context, label, *, verify_tls: bool) -> None:
+    text = _mcp_step_result(matrix, step, subject, context, label, verify_tls=verify_tls)
+    if not step.extract:
+        return
+    try:
+        payload = json.loads(text)
+    except ValueError as exc:
+        raise SetupError(f"setup step '{label}' did not return JSON content") from exc
+    for var, path_expr in step.extract.items():
+        value = extract(path_expr, payload)
+        if value is None:
+            raise SetupError(f"setup step '{label}' found nothing at '{path_expr}' for '{var}'")
+        context[var] = str(value)
 
 
 def run_setup(
@@ -58,10 +104,14 @@ def run_setup(
     client = client or httpx.Client(timeout=15.0, verify=verify_tls, follow_redirects=True)
     try:
         for step in matrix.setup:
-            label = step.name or f"{step.request.method} {step.request.path}"
+            label = _step_label(step)
             if step.run_as and step.run_as not in subjects:
                 raise SetupError(f"setup step '{label}' runs as unknown subject '{step.run_as}'")
             subject = subjects.get(step.run_as) if step.run_as else None
+
+            if step.call is not None:
+                _run_mcp_setup_step(matrix, step, subject, context, label, verify_tls=verify_tls)
+                continue
 
             path = render(step.request.path, context)
             url = urljoin(_slash(base_url), path.lstrip("/"))
@@ -129,8 +179,16 @@ def run_teardown(
     client = client or httpx.Client(timeout=15.0, verify=verify_tls, follow_redirects=True)
     try:
         for step in matrix.teardown:
-            label = step.name or f"{step.request.method} {step.request.path}"
+            label = _step_label(step)
             subject = subjects.get(step.run_as) if step.run_as else None
+
+            if step.call is not None:
+                try:
+                    _mcp_step_result(matrix, step, subject, context, label, verify_tls=verify_tls)
+                except SetupError as exc:
+                    warnings.append(str(exc))
+                continue
+
             path = render(step.request.path, context)
             url = urljoin(_slash(base_url), path.lstrip("/"))
             headers = {**render(step.request.headers, context), **_subject_headers(subject)}

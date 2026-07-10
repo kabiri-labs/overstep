@@ -236,13 +236,18 @@ class SetupStep(BaseModel):
     step uses. ``extract`` maps capture names to dotted JSON paths into the
     response; captured values then fill ``{{name}}`` placeholders in resource
     ``objects`` maps and request bodies.
+
+    A step is HTTP (set ``request``) or MCP (set ``call`` — a tool-call whose JSON
+    result content is what ``extract`` reads), so fixtures can be created and
+    object ids captured over either transport.
     """
 
     model_config = ConfigDict(populate_by_name=True)
 
     name: str = ""
     run_as: Optional[str] = Field(default=None, alias="as")
-    request: Request
+    request: Optional[Request] = None
+    call: Optional[McpCall] = None
     extract: Dict[str, str] = Field(default_factory=dict)
     expect_status: Optional[List[int]] = None
 

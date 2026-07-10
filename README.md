@@ -353,6 +353,20 @@ Now `get_order::bob::other` fetches **alice's real order id**, so a `200` is a
 genuine BOLA finding. A teardown failure is reported as a warning, never a run
 failure.
 
+Setup and teardown steps work over **MCP** too — give a step a `call:` (a
+tool-call) instead of a `request:`, and `extract` reads the captured id out of the
+tool result's JSON content:
+
+```yaml
+setup:
+  - name: alice creates a document
+    as: alice
+    call: { server: docs, tool: create_document, arguments: { body: "notes" } }
+    extract: { ALICE_DOC: "$.id" }     # capture the new id from the tool result
+teardown:
+  - { as: alice, call: { server: docs, tool: delete_document, arguments: { doc_id: "{{ALICE_DOC}}" } } }
+```
+
 ## Running safely against live targets
 
 - `--read-only` skips every mutating verb (POST/PUT/PATCH/DELETE) so the suite can
