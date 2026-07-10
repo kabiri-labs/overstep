@@ -84,12 +84,17 @@ async def _fire(
         resp = None
         for attempt in range(max_retries + 1):
             try:
+                # A form body (application/x-www-form-urlencoded) takes precedence
+                # over a JSON body; a resource sets one or the other.
+                request_kwargs = (
+                    {"data": case.form} if case.form else {"json": case.body}
+                )
                 resp = await client.request(
                     case.method,
                     url,
                     headers=build_headers(subject, case) or None,
                     params=case.query or None,
-                    json=case.body,
+                    **request_kwargs,
                 )
             except httpx.HTTPError as exc:
                 elapsed = (time.perf_counter() - started) * 1000

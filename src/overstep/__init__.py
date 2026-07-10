@@ -17,7 +17,7 @@ The public API mirrors the pipeline stages, so an embedding application can do::
         raise SystemExit(1)
 """
 
-__version__ = "0.17.0"
+__version__ = "0.18.0"
 
 from overstep.auth import authenticate
 from overstep.matrix import Matrix, load_matrix

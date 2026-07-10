@@ -367,6 +367,53 @@ teardown:
   - { as: alice, call: { server: docs, tool: delete_document, arguments: { doc_id: "{{ALICE_DOC}}" } } }
 ```
 
+## Where the object id lives: injections
+
+The identifier of the object a subject reaches for is the BOLA surface — but it
+isn't always a path parameter. Real APIs carry it in a query string, a header, a
+cookie, a form field, a JSON body, GraphQL variables, or an MCP tool argument.
+`ownership.injections` says where to write it; overstep fills each location with
+the caller's own object (SELF) or a victim's (OTHER), so the same probe works
+wherever the id travels.
+
+```yaml
+resources:
+  - name: get_order
+    request: { method: GET, path: /orders }   # id is NOT in the path
+    type: object
+    objects: { alice: order-a1, bob: order-b1 }
+    ownership:
+      injections:
+        - location: query                       # -> GET /orders?order_id=order-b1
+          selector: order_id
+```
+
+`location` is one of `path`, `query`, `header`, `cookie`, `form`, `json`,
+`graphql_variables`, or `mcp_argument`. `selector` is read per location: a path
+parameter name, a query/header/cookie/form key, a JSONPath into the JSON body
+(`$.order.id`, nested objects and arrays supported), a variable name (or
+`$.path`) for GraphQL, or a tool-argument key. A `form` injection sends an
+`application/x-www-form-urlencoded` body.
+
+List several injections to exercise an object addressed in more than one place at
+once, and set `owner_attr` on an injection to source it from a different subject
+attribute (for example the tenant) than the object id:
+
+```yaml
+    ownership:
+      injections:
+        - { location: header, selector: X-Account-ID }               # the object id
+        - { location: header, selector: X-Tenant, owner_attr: tenant } # the caller's tenant
+```
+
+The legacy shortcuts still work unchanged: `owner_param: id` is exactly a single
+`path` injection, and `owner_arg: doc_id` (MCP) a single `mcp_argument` injection.
+An object resource must declare at least one locator; `validate` flags an
+injection whose location doesn't match the transport, a `path` selector that
+isn't a parameter of the path, and an object that no subject can actually
+resolve (so overstep never falls back to a placeholder id). A full example lives
+in [`examples/injections/matrix.yaml`](examples/injections/matrix.yaml).
+
 ## Running safely against live targets
 
 - `--read-only` skips every mutating verb (POST/PUT/PATCH/DELETE) so the suite can

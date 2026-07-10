@@ -1,0 +1,102 @@
+# Object-identifier injection examples.
+#
+# The object whose ownership is being tested is not always a path parameter.
+# `ownership.injections` writes the accessed object's id wherever the API
+# actually carries it — a query string, a header, a cookie, a form field, a JSON
+# body, GraphQL variables, or an MCP tool argument. In each case overstep fills
+# it with the caller's own object (SELF, a positive test) or a victim's (OTHER,
+# the BOLA probe).
+#
+#   overstep validate examples/injections/matrix.yaml
+#   overstep plan     examples/injections/matrix.yaml
+
+base_url: http://127.0.0.1:8000
+
+roles: [anonymous, user, admin]
+
+servers:
+  - name: docs
+    url: http://127.0.0.1:9000/mcp
+
+subjects:
+  - name: alice
+    role: user
+    token: alice-token
+    marker: alice@corp.example
+    attributes: { tenant: t1 }
+    # The real, owned object ids for each resource are given per-resource below.
+  - name: bob
+    role: user
+    token: bob-token
+    marker: bob@corp.example
+    attributes: { tenant: t2 }
+
+resources:
+  # 1. Object id in the QUERY string:  GET /orders?order_id=...
+  - name: get_order
+    request: { method: GET, path: /orders }
+    type: object
+    objects: { alice: order-a1, bob: order-b1 }
+    ownership:
+      injections:
+        - location: query
+          selector: order_id
+
+  # 2. Object id in a HEADER, plus the tenant in a second header (two injections).
+  - name: get_account
+    request: { method: GET, path: /account }
+    type: object
+    objects: { alice: acct-a, bob: acct-b }
+    ownership:
+      injections:
+        - location: header
+          selector: X-Account-ID
+        - location: header
+          selector: X-Tenant
+          owner_attr: tenant
+
+  # 3. Object id nested in a JSON body:  {"order": {"id": "..."}}
+  - name: update_order
+    request:
+      method: POST
+      path: /orders/update
+      body: { order: { note: "touch" } }
+    type: object
+    objects: { alice: order-a1, bob: order-b1 }
+    ownership:
+      injections:
+        - location: json
+          selector: $.order.id
+
+  # 4. Object id in GraphQL variables.
+  - name: read_document_gql
+    request:
+      method: POST
+      path: /graphql
+      body:
+        query: "query($documentId: ID!) { document(id: $documentId) { id owner } }"
+        variables: {}
+    type: object
+    objects: { alice: doc-a, bob: doc-b }
+    ownership:
+      injections:
+        - location: graphql_variables
+          selector: documentId
+
+  # 5. Object id as an MCP tool argument.
+  - name: read_document_mcp
+    transport: mcp
+    call: { server: docs, tool: read_document }
+    type: object
+    objects: { alice: doc-a, bob: doc-b }
+    ownership:
+      injections:
+        - location: mcp_argument
+          selector: doc_id
+
+policy:
+  get_order:         { allow: [ { role: user, scope: own }, { role: admin, scope: any } ] }
+  get_account:       { allow: [ { role: user, scope: own }, { role: admin, scope: any } ] }
+  update_order:      { allow: [ { role: user, scope: own }, { role: admin, scope: any } ] }
+  read_document_gql: { allow: [ { role: user, scope: own }, { role: admin, scope: any } ] }
+  read_document_mcp: { allow: [ { role: user, scope: own }, { role: admin, scope: any } ] }

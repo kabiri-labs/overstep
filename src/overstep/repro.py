@@ -90,12 +90,15 @@ def request_record(base_url: str, subject: Subject, case: TestCase) -> Dict[str,
             "arguments": case.mcp.arguments,
             "headers": mask_headers(_mcp_headers(case, subject)),
         }
-    return {
+    record = {
         "method": case.method,
         "url": _full_url(base_url, case.path, case.query),
         "headers": mask_headers(build_headers(subject, case)),
         "body": case.body,
     }
+    if case.form:
+        record["form"] = case.form
+    return record
 
 
 def to_curl(base_url: str, subject: Subject, case: TestCase) -> str:
@@ -124,7 +127,10 @@ def to_curl(base_url: str, subject: Subject, case: TestCase) -> str:
     parts = ["curl", "-sS", "-X", case.method]
     for key, value in mask_headers(build_headers(subject, case)).items():
         parts += ["-H", shlex.quote(f"{key}: {value}")]
-    if case.body is not None:
+    if case.form:
+        for key, value in case.form.items():
+            parts += ["--data-urlencode", shlex.quote(f"{key}={value}")]
+    elif case.body is not None:
         payload = case.body if isinstance(case.body, str) else json.dumps(case.body)
         parts += ["--data", shlex.quote(payload)]
         if not any(p.lower().startswith("content-type") for p in parts):

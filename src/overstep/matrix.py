@@ -7,6 +7,7 @@ generation, classification, drift — is derived from it.
 """
 from __future__ import annotations
 
+import re
 from typing import Dict, List, Optional
 
 import yaml
@@ -17,6 +18,7 @@ from overstep.models import (
     AuthConfig,
     McpMatcher,
     McpServer,
+    OwnershipLocation,
     Resource,
     ResourcePolicy,
     ResourceType,
@@ -27,6 +29,8 @@ from overstep.models import (
 
 # Default privilege ordering (least -> most) when a matrix doesn't declare one.
 DEFAULT_ROLE_ORDER = ["anonymous", "user", "admin"]
+
+_PATH_PARAM_RE = re.compile(r"{([^}]+)}")
 
 
 class MatrixError(ValueError):
@@ -74,6 +78,52 @@ class Matrix(BaseModel):
             return []
         return sorted({rule.role for rule in pol.allow})
 
+    def _validate_injections(self, res: Resource) -> List[str]:
+        """Check a resource's object-identifier injections for coherence.
+
+        Ensures MCP resources use ``mcp_argument`` (and HTTP resources don't),
+        that path injections name a real path parameter, and that ownership can
+        actually be resolved — an unresolvable default object would make the probe
+        silently skip rather than fall back to a placeholder.
+        """
+        problems: List[str] = []
+        injections = res.effective_injections()
+        path_params = (
+            set(_PATH_PARAM_RE.findall(res.request.path)) if res.request else set()
+        )
+        for inj in injections:
+            is_mcp = inj.location == OwnershipLocation.MCP_ARGUMENT
+            if res.transport == "mcp" and not is_mcp:
+                problems.append(
+                    f"mcp resource '{res.name}' injection must use location "
+                    f"'mcp_argument', not '{inj.location.value}'"
+                )
+            elif res.transport != "mcp" and is_mcp:
+                problems.append(
+                    f"http resource '{res.name}' cannot use an 'mcp_argument' injection"
+                )
+            if inj.location == OwnershipLocation.PATH and res.request and inj.selector not in path_params:
+                problems.append(
+                    f"resource '{res.name}' path injection '{inj.selector}' is not a "
+                    f"parameter in path '{res.request.path}'"
+                )
+
+        # No placeholder for ownership: warn when a default-attribute injection has
+        # no subject that can supply a value.
+        if injections and any(inj.owner_attr is None for inj in injections):
+            resolvable = [
+                s
+                for s in self.subjects
+                if s.name in res.objects or s.attributes.get(res.owner_attr) is not None
+            ]
+            if not resolvable:
+                problems.append(
+                    f"object resource '{res.name}' has no subject with a resolvable "
+                    f"object (add an 'objects:' entry or an '{res.owner_attr}' "
+                    f"attribute); ownership probes will be skipped"
+                )
+        return problems
+
     def validate_refs(self) -> List[str]:
         """Return a list of human-readable problems; empty means the matrix is ok."""
         problems: List[str] = []
@@ -109,15 +159,20 @@ class Matrix(BaseModel):
                         f"mcp resource '{res.name}' references unknown server "
                         f"'{res.call.server}'"
                     )
-                if res.type == ResourceType.OBJECT and not res.owner_arg:
-                    problems.append(f"mcp object resource '{res.name}' must set owner_arg")
+                if res.type == ResourceType.OBJECT and not res.is_object_locatable:
+                    problems.append(
+                        f"mcp object resource '{res.name}' must set owner_arg or "
+                        f"ownership.injections"
+                    )
             else:
                 if res.request is None:
                     problems.append(f"http resource '{res.name}' must set a 'request'")
-                if res.type == ResourceType.OBJECT and not res.owner_param:
+                if res.type == ResourceType.OBJECT and not res.is_object_locatable:
                     problems.append(
-                        f"object resource '{res.name}' must set owner_param"
+                        f"object resource '{res.name}' must set owner_param or "
+                        f"ownership.injections"
                     )
+            problems.extend(self._validate_injections(res))
             if res.name not in self.policy:
                 problems.append(
                     f"resource '{res.name}' has no policy entry (everything will be denied)"

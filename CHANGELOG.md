@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.18.0] - 2026-07-10
+
+### Added
+- **Generalized object-identifier injection.** The identifier of the object a
+  subject reaches for — the BOLA/BOPLA surface — can now live anywhere in a
+  request, not just a path parameter. A resource declares
+  `ownership.injections`, each with a `location` (`path`, `query`, `header`,
+  `cookie`, `form`, `json`, `graphql_variables`, or `mcp_argument`) and a
+  `selector`; overstep writes the caller's own object id (SELF) or a victim's
+  (OTHER) into every declared location:
+  - `json` selectors are JSONPaths into the request body (`$.order.id`), with
+    nested object and array creation.
+  - `graphql_variables` writes a GraphQL variable (by name or `$.path` under
+    `variables`), giving first-class GraphQL BOLA coverage.
+  - `form` sends an `application/x-www-form-urlencoded` body (new `request.form`).
+  - `mcp_argument` writes a tool argument (by key or JSONPath into the arguments).
+  - Multiple injections are written together (e.g. object id in a header and
+    tenant in another), and a per-injection `owner_attr` sources a value from a
+    different subject attribute than the object id.
+- **Example & validation.** `examples/injections/matrix.yaml` demonstrates every
+  location. `validate` now flags an injection whose location doesn't match the
+  transport, a `path` selector that isn't a parameter of the path, and an object
+  no subject can resolve (so ownership is never faked with a placeholder id).
+
+### Changed
+- `owner_param` and `owner_arg` are now thin shortcuts over the injection model
+  (a single `path` / `mcp_argument` injection respectively). Existing matrices,
+  snapshots and test IDs are unaffected — this is fully backward compatible.
+
 ## [0.17.0] - 2026-07-10
 
 ### Changed

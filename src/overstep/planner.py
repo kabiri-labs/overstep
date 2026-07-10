@@ -19,9 +19,12 @@ import re
 from typing import Dict, List, Optional, Tuple
 
 from overstep.expressions import safe_eval
+from overstep.jsonpath import set_at
 from overstep.matrix import Matrix
 from overstep.models import (
     Effect,
+    OwnershipInjection,
+    OwnershipLocation,
     Resource,
     ResourceType,
     Subject,
@@ -54,6 +57,45 @@ def _object_id(resource: Resource, subject: Subject, context: Dict[str, str]) ->
     return None if value is None else str(value)
 
 
+def _injection_value(
+    resource: Resource,
+    subject: Subject,
+    injection: OwnershipInjection,
+    context: Dict[str, str],
+) -> Optional[str]:
+    """The value to write for one injection, for a given subject.
+
+    An injection may override which attribute identifies the object (e.g. a tenant
+    header); otherwise it uses the resource's default object id (``objects`` map or
+    ``owner_attr``). Returns ``None`` when the subject has no such value — the
+    caller skips the injection rather than inventing a placeholder.
+    """
+    if injection.owner_attr:
+        value = subject.attributes.get(injection.owner_attr)
+        return None if value is None else str(value)
+    return _object_id(resource, subject, context)
+
+
+def _injections_by_location(
+    resource: Resource, src: Optional[Subject], context: Dict[str, str]
+) -> Dict[OwnershipLocation, List[Tuple[str, str]]]:
+    """Group this resource's injections by location for the source subject.
+
+    ``src`` is the subject whose object is being reached (the caller for SELF, the
+    victim for OTHER). Injections whose value can't be resolved are dropped, so a
+    placeholder is never written for ownership.
+    """
+    out: Dict[OwnershipLocation, List[Tuple[str, str]]] = {}
+    if src is None:
+        return out
+    for inj in resource.effective_injections():
+        value = _injection_value(resource, src, inj, context)
+        if value is None:
+            continue
+        out.setdefault(inj.location, []).append((inj.selector, value))
+    return out
+
+
 def _has_object(resource: Resource, subject: Subject) -> bool:
     return subject.name in resource.objects or subject.attributes.get(resource.owner_attr) is not None
 
@@ -68,29 +110,99 @@ def _pick_other(resource: Resource, subject: Subject, subjects: List[Subject]) -
     return None
 
 
+def _merge_cookies(existing: str, pairs: List[Tuple[str, str]]) -> str:
+    """Merge cookie name=value pairs into an existing Cookie header value."""
+    jar: Dict[str, str] = {}
+    for part in existing.split(";"):
+        part = part.strip()
+        if not part:
+            continue
+        key, _, value = part.partition("=")
+        jar[key.strip()] = value.strip()
+    for key, value in pairs:
+        jar[key] = value
+    return "; ".join(f"{k}={v}" for k, v in jar.items())
+
+
+def _set_graphql_var(body, selector: str, value: str):
+    """Write a GraphQL variable, creating the ``variables`` object if needed."""
+    if not isinstance(body, dict):
+        if body is not None:
+            return body  # a non-object GraphQL body is left untouched
+        body = {}
+    variables = body.get("variables")
+    if not isinstance(variables, dict):
+        variables = {}
+        body["variables"] = variables
+    if selector.startswith("$"):
+        set_at(variables, selector, value)
+    else:
+        variables[selector] = value
+    return body
+
+
 def _render_path(
+    resource: Resource,
+    subject: Subject,
+    path_injections: List[Tuple[str, str]],
+    context: Dict[str, str],
+) -> str:
+    """Fill in every {param} in the resource path.
+
+    A path-location ownership injection drives its parameter; any other params
+    fall back to the subject's own attributes, then to "1". Ownership params are
+    never "1" — an unresolved injection is dropped upstream, and the SELF/OTHER
+    generation already gates on the subject actually owning an object.
+    """
+    injected = dict(path_injections)
+    path = resource.request.path
+    for param in _path_params(path):
+        if param in injected:
+            value = injected[param]
+        else:
+            value = subject.attributes.get(param)
+            if value is None:
+                value = "1"
+        path = path.replace("{%s}" % param, str(value))
+    return path
+
+
+def _build_http_request(
     resource: Resource,
     subject: Subject,
     variant: Variant,
     target: Optional[Subject],
     context: Dict[str, str],
-) -> str:
-    """Fill in every {param} in the resource path.
+) -> Dict:
+    """Render an HTTP request and write every object-identifier injection into it.
 
-    The owner_param is driven by the variant (own object id vs. another subject's);
-    any other params fall back to the subject's own attributes, then to "1".
+    Returns a dict of the resolved path/query/body/form/headers, so both the main
+    case and any cross-method probes share exactly the same injected request.
     """
-    path = resource.request.path
-    for param in _path_params(path):
-        if resource.owner_param and param == resource.owner_param and variant != Variant.NA:
-            src = subject if variant == Variant.SELF else target
-            value = _object_id(resource, src, context) if src else None
-        else:
-            value = subject.attributes.get(param)
-        if value is None:
-            value = "1"
-        path = path.replace("{%s}" % param, str(value))
-    return path
+    src = None if variant == Variant.NA else (subject if variant == Variant.SELF else target)
+    injections = _injections_by_location(resource, src, context)
+
+    path = _render_path(resource, subject, injections.get(OwnershipLocation.PATH, []), context)
+    query = render(dict(resource.request.query), context)
+    form = render(dict(resource.request.form), context)
+    headers = render(dict(resource.request.headers), context)
+    body = render(resource.request.body, context)
+
+    for selector, value in injections.get(OwnershipLocation.QUERY, []):
+        query[selector] = value
+    for selector, value in injections.get(OwnershipLocation.HEADER, []):
+        headers[selector] = value
+    for selector, value in injections.get(OwnershipLocation.FORM, []):
+        form[selector] = value
+    cookies = injections.get(OwnershipLocation.COOKIE, [])
+    if cookies:
+        headers["Cookie"] = _merge_cookies(headers.get("Cookie", ""), cookies)
+    for selector, value in injections.get(OwnershipLocation.JSON, []):
+        body = set_at({} if body is None else body, selector, value)
+    for selector, value in injections.get(OwnershipLocation.GRAPHQL_VARIABLES, []):
+        body = _set_graphql_var(body, selector, value)
+
+    return {"path": path, "query": query, "form": form, "headers": headers, "body": body}
 
 
 def _expected_effect(
@@ -128,14 +240,9 @@ def _expected_effect(
     return Effect.DENY
 
 
-def _owner_key(resource: Resource) -> Optional[str]:
-    """The path param (http) or tool argument (mcp) that identifies the object."""
-    return resource.owner_param or resource.owner_arg
-
-
 def _variants(resource: Resource, subject: Subject, subjects: List[Subject]) -> List[Tuple[Variant, Optional[Subject]]]:
     """Which (variant, target) pairs to generate for this subject/resource."""
-    if resource.type != ResourceType.OBJECT or not _owner_key(resource):
+    if resource.type != ResourceType.OBJECT or not resource.is_object_locatable:
         return [(Variant.NA, None)]
 
     out: List[Tuple[Variant, Optional[Subject]]] = []
@@ -160,11 +267,14 @@ def _build_mcp_invocation(matrix, resource, subject, variant, target, context):
     call = resource.call
     server = matrix.server_map().get(call.server)
     arguments = render(dict(call.arguments), context)
-    if resource.owner_arg and variant != Variant.NA:
-        src = subject if variant == Variant.SELF else target
-        oid = _object_id(resource, src, context) if src else None
-        if oid is not None:
-            arguments[resource.owner_arg] = oid
+    src = None if variant == Variant.NA else (subject if variant == Variant.SELF else target)
+    for selector, value in _injections_by_location(resource, src, context).get(
+        OwnershipLocation.MCP_ARGUMENT, []
+    ):
+        if selector.startswith("$"):
+            set_at(arguments, selector, value)
+        else:
+            arguments[selector] = value
     matcher = resource.mcp_access or matrix.mcp_access
 
     kind = server.kind if server else "http"
@@ -241,23 +351,25 @@ def plan(matrix: Matrix, context: Optional[Dict[str, str]] = None) -> List[TestC
                     # Cross-method probing is HTTP-specific; MCP has no verb.
                     continue
 
-                path = _render_path(resource, subject, variant, target, context)
+                req = _build_http_request(resource, subject, variant, target, context)
                 cases.append(
                     TestCase(
                         **common,
                         method=resource.request.method,
                         path_template=resource.request.path,
-                        path=path,
-                        query=render(dict(resource.request.query), context),
-                        body=render(resource.request.body, context),
-                        headers=render(dict(resource.request.headers), context),
+                        path=req["path"],
+                        query=req["query"],
+                        body=req["body"],
+                        form=req["form"],
+                        headers=req["headers"],
                         matcher=matcher,
                     )
                 )
 
                 # Cross-method probing: fire other verbs at the SAME (other)
                 # object. Each is a negative test — succeeding means the endpoint
-                # authorizes a method the subject was never granted.
+                # authorizes a method the subject was never granted. The request
+                # carries the same injected object identifier as the base case.
                 if variant == Variant.OTHER and target is not None:
                     for probe in resource.probe_methods:
                         method = probe.upper()
@@ -272,14 +384,15 @@ def plan(matrix: Matrix, context: Optional[Dict[str, str]] = None) -> List[TestC
                                 transport=resource.transport,
                                 method=method,
                                 path_template=resource.request.path,
-                                path=path,
+                                path=req["path"],
                                 variant=variant,
                                 expected=Effect.DENY,
                                 resource_type=resource.type,
                                 required_roles=required,
-                                query=render(dict(resource.request.query), context),
-                                body=render(resource.request.body, context),
-                                headers=render(dict(resource.request.headers), context),
+                                query=req["query"],
+                                body=req["body"],
+                                form=req["form"],
+                                headers=req["headers"],
                                 matcher=matcher,
                                 expect_markers=expect_markers,
                             )
