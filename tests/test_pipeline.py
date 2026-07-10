@@ -4,7 +4,14 @@ import json
 import pytest
 
 from overstep.models import Effect, Observation, RunResult, VulnClass
-from overstep.pipeline import PipelineError, resolve_base_url, run_pipeline, write_reports
+from overstep.pipeline import (
+    PipelineError,
+    resolve_base_url,
+    run_pipeline,
+    snapshot_pipeline,
+    write_reports,
+)
+from overstep.planner import plan
 from overstep.report import all_reporters
 
 
@@ -60,6 +67,60 @@ def test_pipeline_applies_baseline_drift(matrix):
     result = run_pipeline(matrix, baseline=baseline, executor=executor)
     assert result.drift
     assert result.vulnerabilities
+
+
+def test_snapshot_pipeline_records_every_decision(matrix):
+    """snapshot shares the run orchestration: every planned case gets a decision."""
+    snap = snapshot_pipeline(matrix, executor=_fake_executor())
+    assert set(snap["decisions"]) == {c.id for c in plan(matrix)}
+    assert snap["tool"] == "overstep"
+
+
+def test_snapshot_pipeline_goes_through_the_injected_executor(matrix):
+    """The snapshot must observe what the (dispatched) executor returns, so an
+    override on the shared executor flows into the recorded decision."""
+    executor = _fake_executor(overrides={"get_user::alice::other": 200})
+    snap = snapshot_pipeline(matrix, executor=executor)
+    assert snap["decisions"]["get_user::alice::other"]["observed"] == Effect.ALLOW.value
+
+
+def test_run_teardown_runs_even_when_the_executor_raises(matrix):
+    """Teardown must execute in a finally, so a crash mid-run still cleans up."""
+    calls = []
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("executor exploded")
+
+    def spy_teardown(*args, **kwargs):
+        calls.append("teardown")
+        return []
+
+    with pytest.raises(RuntimeError, match="executor exploded"):
+        run_pipeline(matrix, executor=boom, teardown_runner=spy_teardown)
+    assert calls == ["teardown"]
+
+
+def test_snapshot_teardown_runs_even_when_the_executor_raises(matrix):
+    calls = []
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("executor exploded")
+
+    def spy_teardown(*args, **kwargs):
+        calls.append("teardown")
+        return []
+
+    with pytest.raises(RuntimeError, match="executor exploded"):
+        snapshot_pipeline(matrix, executor=boom, teardown_runner=spy_teardown)
+    assert calls == ["teardown"]
+
+
+def test_teardown_warnings_surface_on_a_clean_run(matrix):
+    def noisy_teardown(*args, **kwargs):
+        return ["could not delete fixture order-1"]
+
+    result = run_pipeline(matrix, executor=_fake_executor(), teardown_runner=noisy_teardown)
+    assert "could not delete fixture order-1" in result.warnings
 
 
 def test_write_reports_emits_every_registered_format(matrix, tmp_path):

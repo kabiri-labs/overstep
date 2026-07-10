@@ -22,16 +22,24 @@ from rich.console import Console
 from rich.table import Table
 
 from overstep import __version__
-from overstep.auth import AuthError, authenticate
-from overstep.drift import build_snapshot, load_snapshot, save_snapshot
-from overstep.executor import run as run_executor
-from overstep.fixtures import SetupError, run_setup
+from overstep.auth import AuthError
+from overstep.drift import load_snapshot, save_snapshot
+from overstep.fixtures import SetupError
 from overstep.matrix import MatrixError, load_matrix
 from overstep.models import Effect, RunResult
-from overstep.pipeline import PipelineError, resolve_base_url, run_pipeline, write_reports
+from overstep.pipeline import (
+    PipelineError,
+    resolve_base_url,
+    run_pipeline,
+    snapshot_pipeline,
+    write_reports,
+)
 from overstep.planner import plan
 from overstep.report import summarize
 from overstep.waivers import WaiverError, load_waivers
+
+# The accepted values for --fail-on, in the order they appear in help text.
+FAIL_ON_CHOICES = ("vuln", "drift", "vuln-or-drift", "any", "never")
 
 app = typer.Typer(
     help="overstep — matrix-driven authorization testing for HTTP APIs.",
@@ -81,7 +89,10 @@ def run(
     out: str = typer.Option("out", help="Output directory for reports."),
     baseline: Optional[str] = typer.Option(None, help="Snapshot to compare against for drift."),
     waivers: Optional[str] = typer.Option(None, help="Waivers file of accepted findings."),
-    fail_on: str = typer.Option("vuln", help="Exit non-zero on: vuln | drift | any | never."),
+    fail_on: str = typer.Option(
+        "vuln",
+        help="Exit non-zero on: vuln | drift | vuln-or-drift | any | never.",
+    ),
     concurrency: int = typer.Option(10, help="Max concurrent requests."),
     read_only: bool = typer.Option(False, help="Skip mutating verbs (POST/PUT/PATCH/DELETE)."),
     max_retries: int = typer.Option(2, help="Retries on 429/503 with backoff."),
@@ -89,6 +100,7 @@ def run(
     env_file: Optional[str] = typer.Option(None, help="dotenv file with ${VAR} values."),
 ):
     """Run the matrix against a live target and write reports."""
+    _validate_fail_on(fail_on)
     spec = _load(matrix, env_file)
     for problem in spec.validate_refs():
         console.print(f"[yellow]warning:[/] {problem}")
@@ -136,24 +148,32 @@ def snapshot(
     base: Optional[str] = typer.Option(None, help="Base URL override."),
     out: str = typer.Option("baseline.json", help="Where to write the snapshot."),
     concurrency: int = typer.Option(10, help="Max concurrent requests."),
+    read_only: bool = typer.Option(False, help="Skip mutating verbs (POST/PUT/PATCH/DELETE)."),
+    max_retries: int = typer.Option(2, help="Retries on 429/503 with backoff."),
     insecure: bool = typer.Option(False, help="Disable TLS verification."),
     env_file: Optional[str] = typer.Option(None, help="dotenv file with ${VAR} values."),
 ):
-    """Record the current authorization decisions as a drift baseline."""
+    """Record the current authorization decisions as a drift baseline.
+
+    Uses the same orchestration as ``run`` (transport dispatch + teardown), so
+    HTTP, MCP and mixed matrices all snapshot correctly.
+    """
     spec = _load(matrix, env_file)
     base_url = _resolve(spec, base)
     try:
-        authenticate(spec, base_url=base_url, verify_tls=not insecure)
-        context = run_setup(spec, base_url=base_url, verify_tls=not insecure)
+        snap = snapshot_pipeline(
+            spec,
+            base_url,
+            concurrency=concurrency,
+            verify_tls=not insecure,
+            read_only=read_only,
+            max_retries=max_retries,
+        )
     except (AuthError, SetupError) as exc:
         console.print(f"[bold red]setup error:[/] {exc}")
         raise typer.Exit(code=2)
-    cases = plan(spec, context)
-    observations = run_executor(
-        base_url, spec.subjects, cases, concurrency=concurrency, verify_tls=not insecure
-    )
-    save_snapshot(build_snapshot(cases, observations), out)
-    console.print(f"Snapshot of {len(cases)} decisions written to [bold]{out}[/]")
+    save_snapshot(snap, out)
+    console.print(f"Snapshot of {len(snap['decisions'])} decisions written to [bold]{out}[/]")
 
 
 @app.command(name="plan")
@@ -276,14 +296,34 @@ def _print_summary(result: RunResult) -> None:
     console.print(table)
 
 
+def _validate_fail_on(fail_on: str) -> None:
+    """Reject an unknown --fail-on value up front, before any network work."""
+    if fail_on.lower() not in FAIL_ON_CHOICES:
+        console.print(
+            f"[bold red]error:[/] invalid --fail-on '{fail_on}' "
+            f"(choose one of: {', '.join(FAIL_ON_CHOICES)})"
+        )
+        raise typer.Exit(code=2)
+
+
 def _exit_code(result: RunResult, fail_on: str) -> int:
+    """Map findings to a process exit code per the selected gate.
+
+    * ``vuln``          — active, non-waived vulnerabilities only (default).
+    * ``drift``         — authorization drift vs. the baseline only.
+    * ``vuln-or-drift`` — either of the above.
+    * ``any``           — any active finding (includes unexpected-deny).
+    * ``never``         — always exit zero.
+    """
     fail_on = fail_on.lower()
     if fail_on == "never":
         return 0
     if fail_on == "any":
         return 1 if result.findings else 0
-    if fail_on == "drift":
+    if fail_on == "vuln-or-drift":
         return 1 if (result.vulnerabilities or result.drift) else 0
+    if fail_on == "drift":
+        return 1 if result.drift else 0
     # default: "vuln"
     return 1 if result.vulnerabilities else 0
 

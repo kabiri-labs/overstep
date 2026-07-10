@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.17.0] - 2026-07-10
+
+### Changed
+- **`--fail-on drift` now gates on drift only.** Previously `--fail-on drift`
+  also exited non-zero on any active vulnerability, so a baseline full of
+  already-triaged findings could never go green — contradicting the documented
+  "fail only when authorization *changes*" contract. `drift` now fails solely on
+  authorization drift versus the baseline. A new **`vuln-or-drift`** value keeps
+  the old combined behaviour for anyone who wants it. The accepted values are now
+  `vuln | drift | vuln-or-drift | any | never`, and an unrecognized `--fail-on`
+  value now fails fast with exit code 2 (with a clear message) instead of being
+  silently treated as `vuln`.
+
+### Fixed
+- **`snapshot` now uses the same orchestration as `run`.** The `snapshot` command
+  used to call the HTTP executor directly, bypassing the transport dispatcher and
+  never running `teardown:` steps — so baselines for MCP, stdio-MCP and mixed
+  HTTP/MCP matrices were wrong or empty, and setup fixtures leaked. Both commands
+  now share one pipeline (authenticate → setup → plan → dispatch → teardown), so
+  every transport snapshots correctly. `snapshot` also gains `--read-only` and
+  `--max-retries` for parity with `run`.
+- **Teardown runs even when a run fails.** Fixture cleanup now executes in a
+  `finally`, so a crash or interrupt during planning or dispatch no longer leaks
+  the objects that setup steps created. A teardown failure is still only a
+  warning and never masks the original error.
+
 ## [0.16.0] - 2026-07-10
 
 ### Added
