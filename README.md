@@ -543,6 +543,34 @@ python -m uvicorn examples.mcp_api.server:app --port 9000
 overstep run examples/mcp_api/matrix.yaml --out out
 ```
 
+### OAuth-protected MCP servers
+
+For a remote MCP server behind OAuth 2.1, an auth provider can **discover** where
+to authenticate instead of hardcoding a token endpoint. overstep reads the
+server's Protected Resource Metadata (RFC 9728) to find its authorization server,
+then the Authorization Server Metadata (RFC 8414) to find the token endpoint,
+obtains a token with a machine grant, and sends the resource indicator (RFC 8707)
+so the token is bound to that server:
+
+```yaml
+auth:
+  providers:
+    - name: mcp_oauth
+      type: oauth2_client_credentials
+      discover_from: docs            # the MCP server name (or a URL)
+      client_id: "{{client_id}}"     # per-subject via auth.vars
+      client_secret: "${CLIENT_SECRET}"
+
+subjects:
+  - name: svc-a
+    role: user
+    auth: { provider: mcp_oauth, vars: { client_id: svc-a } }
+```
+
+The discovered, audience-bound token is set on the subject and used for its
+tool-calls. (The interactive authorization-code flow needs a browser and is out
+of scope for an automated tool.)
+
 ### Local (stdio) MCP servers
 
 For a server that runs as a local process, declare a `command` instead of a

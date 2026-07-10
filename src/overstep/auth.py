@@ -16,6 +16,7 @@ import httpx
 
 from overstep.jsonpath import extract
 from overstep.matrix import Matrix
+from overstep.mcp_auth import DiscoveryError, DiscoveryResult, discover_token_endpoint
 from overstep.models import AuthProvider, Subject
 from overstep.templating import render
 
@@ -30,8 +31,20 @@ def extract_token(path: str, data: Any) -> Optional[str]:
     return value if value is None or isinstance(value, str) else str(value)
 
 
-def _login_call(provider: AuthProvider, variables: Dict[str, str], base_url: Optional[str]):
-    """Build (method, url, kwargs) for a provider's login request."""
+def _login_call(
+    provider: AuthProvider,
+    variables: Dict[str, str],
+    base_url: Optional[str],
+    *,
+    token_url: Optional[str] = None,
+    resource: Optional[str] = None,
+):
+    """Build (method, url, kwargs) for a provider's login request.
+
+    ``token_url`` / ``resource`` override the provider's own values — used when the
+    token endpoint was discovered from an MCP server (RFC 9728/8414) and the token
+    must carry a resource indicator (RFC 8707).
+    """
     provider_base = provider.base_url or base_url or ""
 
     if provider.type == "http":
@@ -47,9 +60,11 @@ def _login_call(provider: AuthProvider, variables: Dict[str, str], base_url: Opt
         return req.method, url, kwargs
 
     # OAuth2 token endpoints: standard form-encoded body.
-    if not provider.token_url:
-        raise AuthError(f"auth provider '{provider.name}' needs a token_url")
-    url = urljoin(_slash(provider_base), provider.token_url.lstrip("/"))
+    effective_token_url = token_url or provider.token_url
+    if not effective_token_url:
+        raise AuthError(f"auth provider '{provider.name}' needs a token_url or discover_from")
+    # A discovered endpoint is absolute; only join a relative one against the base.
+    url = effective_token_url if "://" in effective_token_url else urljoin(_slash(provider_base), effective_token_url.lstrip("/"))
     form: Dict[str, str] = {}
     if provider.type == "oauth2_client_credentials":
         form["grant_type"] = "client_credentials"
@@ -61,6 +76,9 @@ def _login_call(provider: AuthProvider, variables: Dict[str, str], base_url: Opt
         val = render(getattr(provider, key) or "", variables)
         if val:
             form[key] = val
+    effective_resource = resource or provider.resource
+    if effective_resource:
+        form["resource"] = effective_resource       # RFC 8707 resource indicator
     return "POST", url, {"data": form}
 
 
@@ -73,8 +91,13 @@ def _obtain_token(
     provider: AuthProvider,
     variables: Dict[str, str],
     base_url: Optional[str],
+    *,
+    token_url: Optional[str] = None,
+    resource: Optional[str] = None,
 ) -> str:
-    method, url, kwargs = _login_call(provider, variables, base_url)
+    method, url, kwargs = _login_call(
+        provider, variables, base_url, token_url=token_url, resource=resource
+    )
     try:
         resp = client.request(method, url, **kwargs)
     except httpx.HTTPError as exc:
@@ -117,6 +140,9 @@ def authenticate(
     if not providers or not subjects_with_auth:
         return
 
+    server_map = matrix.server_map()
+    discovery_cache: Dict[str, "DiscoveryResult"] = {}
+
     owns_client = client is None
     client = client or httpx.Client(timeout=15.0, verify=verify_tls, follow_redirects=True)
     try:
@@ -127,7 +153,32 @@ def authenticate(
                     f"subject '{subject.name}' references unknown auth provider "
                     f"'{subject.auth.provider}'"
                 )
-            token = _obtain_token(client, provider, subject.auth.vars, base_url)
+
+            token_url: Optional[str] = None
+            resource: Optional[str] = None
+            if provider.discover_from:
+                if provider.name not in discovery_cache:
+                    server = server_map.get(provider.discover_from)
+                    server_url = server.url if server and server.url else provider.discover_from
+                    if not server_url or "://" not in server_url:
+                        raise AuthError(
+                            f"provider '{provider.name}' discover_from '{provider.discover_from}' "
+                            f"is not a known HTTP server or URL"
+                        )
+                    try:
+                        discovery_cache[provider.name] = discover_token_endpoint(
+                            server_url, client=client
+                        )
+                    except DiscoveryError as exc:
+                        raise AuthError(str(exc)) from exc
+                disc = discovery_cache[provider.name]
+                token_url = disc.token_endpoint
+                resource = provider.resource or disc.resource
+
+            token = _obtain_token(
+                client, provider, subject.auth.vars, base_url,
+                token_url=token_url, resource=resource,
+            )
             header_value = provider.token_format.format(token=token)
             subject.headers = {**subject.headers, provider.token_header: header_value}
     finally:

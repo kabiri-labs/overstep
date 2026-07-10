@@ -132,6 +132,17 @@ class Matrix(BaseModel):
                     )
 
         provider_names = {p.name for p in self.auth.providers}
+        for provider in self.auth.providers:
+            if provider.type.startswith("oauth2") and not provider.token_url and not provider.discover_from:
+                problems.append(
+                    f"auth provider '{provider.name}' needs a token_url or discover_from"
+                )
+            if provider.discover_from and "://" not in provider.discover_from \
+                    and provider.discover_from not in server_names:
+                problems.append(
+                    f"auth provider '{provider.name}' discover_from references unknown "
+                    f"server '{provider.discover_from}'"
+                )
         for subject in self.subjects:
             if subject.auth and subject.auth.provider not in provider_names:
                 problems.append(

@@ -218,6 +218,13 @@ class AuthProvider(BaseModel):
     username: Optional[str] = None
     password: Optional[str] = None
     scope: Optional[str] = None
+    # MCP OAuth 2.1: discover the token endpoint from an MCP server (by server name
+    # or URL) via Protected Resource Metadata (RFC 9728) + Authorization Server
+    # Metadata (RFC 8414), instead of hardcoding token_url.
+    discover_from: Optional[str] = None
+    # RFC 8707 resource indicator sent with the token request so the token is
+    # audience-bound to the MCP server. Defaults to the discovered resource.
+    resource: Optional[str] = None
 
     # How to read and place the resulting token.
     token_path: str = "$.access_token"       # dotted path into the JSON response

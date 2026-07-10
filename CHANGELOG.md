@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.16.0] - 2026-07-10
+
+### Added
+- **MCP OAuth 2.1 discovery.** An auth provider can now `discover_from` an MCP
+  server (by name or URL) instead of hardcoding a `token_url`: overstep fetches the
+  server's **Protected Resource Metadata** (RFC 9728,
+  `/.well-known/oauth-protected-resource`) to find its authorization server, then
+  the **Authorization Server Metadata** (RFC 8414 / OIDC discovery) to find the
+  `token_endpoint`. It obtains a token with the machine grants
+  (`oauth2_client_credentials` / `oauth2_password`) and includes the **resource
+  indicator** (RFC 8707) so the token is audience-bound to the MCP server. The
+  discovered token flows into the subject's headers, so remote MCP servers behind
+  OAuth work with no manual endpoint wiring. `validate` flags an OAuth provider
+  with neither `token_url` nor `discover_from`, and a `discover_from` that names an
+  unknown server. (The interactive authorization-code flow is out of scope for an
+  automated tool.)
+
 ## [0.15.0] - 2026-07-10
 
 ### Added
