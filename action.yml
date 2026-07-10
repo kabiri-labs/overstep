@@ -18,7 +18,7 @@ inputs:
     required: false
     default: "overstep-out"
   fail-on:
-    description: "Exit non-zero on: vuln | drift | any | never."
+    description: "Exit non-zero on: vuln | drift | vuln-or-drift | any | never."
     required: false
     default: "vuln"
   waivers:

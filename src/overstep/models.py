@@ -408,6 +408,11 @@ class RunResult(BaseModel):
     """
 
     base_url: str
+    # The matrix file this run came from, if known. Used to anchor SARIF findings
+    # to a physical location (GitHub code scanning requires one); authorization
+    # findings have no source line of their own, so they point at the matrix that
+    # declares the policy.
+    source: Optional[str] = None
     cases: List[TestCase] = Field(default_factory=list)
     observations: List[Observation] = Field(default_factory=list)
     findings: List[Finding] = Field(default_factory=list)

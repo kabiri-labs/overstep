@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "overstep"
-version = "0.16.0"
+version = "0.17.0"
 description = "Matrix-driven authorization testing for HTTP APIs (BOLA/BFLA/privilege escalation/auth drift)."
 authors = [{name = "Ahmad Kabiri"}]
 readme = "README.md"

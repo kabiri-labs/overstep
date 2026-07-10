@@ -409,9 +409,30 @@ which keeps waivers distinct from a drift baseline.
 | `overstep validate MATRIX` | lint a matrix for structural problems |
 | `overstep scaffold SPEC` | draft a `resources:` block (or a full matrix) from OpenAPI/HAR |
 
+`run` and `snapshot` share one pipeline — authenticate → setup → plan → dispatch
+→ teardown — so every transport (HTTP, MCP, stdio-MCP, mixed) behaves identically
+and setup fixtures are always cleaned up, even if a run is interrupted.
+
 `run` flags: `--base`, `--out`, `--baseline`, `--waivers`, `--concurrency`,
-`--read-only`, `--max-retries`, `--insecure`, `--env-file`, and
-`--fail-on {vuln,drift,any,never}`.
+`--read-only`, `--max-retries`, `--insecure`, `--env-file`, and `--fail-on`
+(see below). `snapshot` accepts `--base`, `--out`, `--concurrency`,
+`--read-only`, `--max-retries`, `--insecure` and `--env-file`.
+
+### Gating CI with `--fail-on`
+
+`--fail-on` decides when `overstep run` exits non-zero:
+
+| Value | Exits non-zero when… |
+|---|---|
+| `vuln` (default) | there is an active, non-waived vulnerability (BOLA/BFLA/BOPLA/privilege escalation) |
+| `drift` | a decision changed versus the `--baseline` — **only** drift, ignoring pre-existing findings |
+| `vuln-or-drift` | either a vulnerability **or** drift is present |
+| `any` | any active finding exists (including functional `unexpected-deny` regressions) |
+| `never` | always exits zero (report-only) |
+
+An unrecognized value fails immediately with exit code 2. Use `vuln` on a fresh
+target to block new holes, and `drift` once you have a triaged baseline so CI
+gates on *change* rather than on the backlog of accepted risk.
 
 ## Bootstrapping a matrix from a spec
 
@@ -464,9 +485,18 @@ overstep snapshot examples/mock_api/matrix.yaml --out baseline.json
 overstep run examples/mock_api/matrix.yaml --baseline baseline.json --fail-on drift
 ```
 
-A cell that flips from **deny → allow** is a newly opened hole; **allow → deny**
-is a new restriction. Keep `matrix.yaml` and `baseline.json` in version control
-and authorization gets reviewed like any other code.
+With `--fail-on drift` the build blocks purely on *movement*: a cell that flips
+from **deny → allow** is a newly opened hole; **allow → deny** is a new
+restriction. Findings that were already present when you took the baseline don't
+fail the build — that's what lets a legacy target adopt overstep without an
+impossible green-from-day-one requirement. When you also want the build to fail
+on any vulnerability regardless of the baseline, use `--fail-on vuln-or-drift`.
+Keep `matrix.yaml` and `baseline.json` in version control and authorization gets
+reviewed like any other code.
+
+Because `snapshot` runs through the same pipeline as `run`, baselines are
+accurate for MCP and mixed HTTP/MCP matrices too, and any `teardown:` fixtures
+are cleaned up after the snapshot is taken.
 
 ## Finding taxonomy
 
