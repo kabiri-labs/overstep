@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.22.2] - 2026-07-28
+
+### Fixed
+- **The release checklist described steps the workflow already performs and
+  omitted the one that matters.** It told maintainers to create the GitHub
+  Release by hand (the workflow does it), never mentioned PyPI publishing or the
+  `workflow_dispatch` path that creates the tag — the only usable path where
+  pushing tags is blocked — and left out a hard requirement: release notes are
+  extracted by matching a `## [X.Y.Z]` heading in this file exactly, so a
+  mismatched heading ships an empty release body.
+- **The project layout in CONTRIBUTING listed nine modules of the twenty-odd that
+  exist**, under paths missing the `src/` prefix, and omitted every pluggable
+  seam (`transports/`, `loaders/`) plus `health.py`. Rewritten around what a
+  contributor is looking for: the core path of a run, the seams to extend, and
+  the supporting modules.
+- **Package metadata undersold half the tool.** The PyPI description covered only
+  HTTP APIs and omitted BOPLA; keywords named neither MCP nor BOPLA. Both now
+  match the repository description.
+
+### Added
+- `action.yml` exposes `read-only`, `env-file`, `concurrency`, `max-retries` and
+  `allow-inconclusive`. Five of the eleven CLI flags had no Action equivalent, so
+  a workflow could not run read-only against a sensitive target or supply
+  `${VAR}` values from a dotenv file. A test now asserts every declared input is
+  actually passed through to the CLI — an input nobody forwards is a lie in the
+  interface.
+- Two principles in the contributing standards that this release cycle
+  established: never fail open, and never generate a test that proves nothing.
+
 ## [0.22.1] - 2026-07-28
 
 ### Changed

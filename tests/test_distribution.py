@@ -42,8 +42,25 @@ def test_action_yml_declares_matrix_input_and_runs():
 
 def test_action_exposes_documented_inputs():
     action = yaml.safe_load(_read("action.yml"))
-    for name in ("matrix", "base-url", "out", "fail-on", "waivers", "baseline"):
+    for name in (
+        "matrix", "base-url", "out", "fail-on", "waivers", "baseline",
+        "read-only", "env-file", "concurrency", "max-retries",
+        "allow-inconclusive", "version",
+    ):
         assert name in action["inputs"], f"action.yml missing input {name}"
+
+
+def test_every_action_input_reaches_the_cli():
+    """An input nobody passes on is a lie in the interface — it silently does
+    nothing. Every optional input must appear in the step that builds the argv."""
+    action = yaml.safe_load(_read("action.yml"))
+    run_step = next(
+        s for s in action["runs"]["steps"] if "overstep run" in (s.get("run") or "")
+    )
+    for name in action["inputs"]:
+        if name == "version":  # consumed by the install step, not the run step
+            continue
+        assert f"inputs.{name}" in run_step["run"], f"action.yml input {name} is never used"
 
 
 def test_precommit_hooks_call_validate():

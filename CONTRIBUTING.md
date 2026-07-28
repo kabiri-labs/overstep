@@ -16,23 +16,55 @@ Thanks for considering a contribution!
 - `overstep run examples/mock_api/matrix.yaml --out out`
 
 ## Project layout
-- `overstep/matrix.py` — the matrix model, loading and validation.
+
+The package uses a `src/` layout, so everything below lives under `src/`.
+
+Core path of a run — matrix in, findings out:
+
+- `overstep/matrix.py` — the matrix model, loading and validation (`validate_refs`).
+- `overstep/models.py` — every shared pydantic model (subjects, cases, findings).
 - `overstep/planner.py` — matrix → positive/negative test cases.
-- `overstep/executor.py` — fire requests, record observations.
+- `overstep/executor.py` — fire HTTP requests, record observations.
 - `overstep/classifier.py` — observations → classified findings.
+- `overstep/health.py` — decides whether a run proved anything at all; a run that
+  never reached its target must never report clean (see *Coding standards*).
 - `overstep/drift.py` — snapshot + baseline comparison.
-- `overstep/pipeline.py` — orchestration seam (`run_pipeline`, `write_reports`).
-- `overstep/report/` — pluggable reporters; add one with `@register(...)` in
-  `report/base.py`.
+- `overstep/pipeline.py` — orchestration seam (`run_pipeline`, `snapshot_pipeline`,
+  `write_reports`).
 - `overstep/cli.py` — thin argument parsing / rendering over the pipeline.
+
+Pluggable seams — add capability here, not in the core:
+
+- `overstep/transports/` — how a case is delivered (`http`, `mcp`); register one
+  with `register(...)` in `transports/base.py`.
+- `overstep/report/` — output formats; add one with `@register(...)` in
+  `report/base.py`.
+- `overstep/loaders/` — scaffolding a matrix from OpenAPI, HAR or a live MCP
+  server's `tools/list`.
+
+Supporting:
+
+- `overstep/auth.py`, `fixtures.py` — obtaining tokens; setup/teardown steps.
+- `overstep/repro.py` — the `curl` / tool-call reproduction on each finding.
+- `overstep/waivers.py`, `taxonomy.py` — accepted risk; CWE/OWASP mapping.
+- `overstep/expressions.py` — the restricted evaluator behind policy conditions.
 
 ## Coding standards
 - Keep it simple and composable; the planner/executor/classifier split should
   stay clean (generation, transport and judgement are separate concerns), and
   the CLI should stay a thin wrapper over `run_pipeline`.
+- **Never fail open.** A gate that reports "no vulnerabilities" because nothing
+  was actually tested is worse than no gate. If you add a way for a run to
+  produce no findings, make sure `overstep.health` can still tell "clean" from
+  "never ran" — and add the test that proves it.
+- **Never generate a test that proves nothing.** A probe whose request is
+  identical to another, or whose object nobody owns, is not coverage; drop it and
+  say why in `validate`.
 - No network-aggressive defaults. Respect `--concurrency`.
 - Keep the expression evaluator **safe** — if you add an AST node or operator,
   add tests that also prove the dangerous cases are still rejected.
+- Credentials never appear in a report. `repro.py` writes a named shell variable
+  instead, so the output stays shareable *and* runnable.
 - New finding types or classification rules need tests in `tests/`.
 
 ## Pull Requests
@@ -41,8 +73,26 @@ Thanks for considering a contribution!
 - Update the README and CHANGELOG.
 
 ## Release checklist (maintainers)
-- Bump the version in `pyproject.toml`, `overstep/__init__.py` and the README
-  version badge — `tests/test_distribution.py` asserts the three agree.
-- Update the CHANGELOG.
-- Tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
-- Create a GitHub Release with notes and screenshots.
+
+Releasing is automated by [`.github/workflows/release.yml`](.github/workflows/release.yml):
+it re-runs the tests, verifies the version, builds the sdist and wheel, creates
+the GitHub Release, and publishes to PyPI through trusted publishing. You only
+need to prepare the commit.
+
+**Before releasing, on `main`:**
+
+1. Bump the version in `pyproject.toml`, `src/overstep/__init__.py` **and** the
+   README version badge — `tests/test_distribution.py` asserts the three agree,
+   and the release fails if the package version doesn't match what you request.
+2. Add a `## [X.Y.Z] - YYYY-MM-DD` section to `CHANGELOG.md`. The workflow
+   extracts the release notes by matching that heading exactly, so a typo
+   produces an empty release body.
+
+**Then pick one:**
+
+- **Manual (works when pushing tags is blocked):** Actions → Release → Run
+  workflow → `version = X.Y.Z`. This creates the tag for you.
+- **Tag push:** `git tag vX.Y.Z && git push origin vX.Y.Z`.
+
+The PyPI publish runs in a dedicated `pypi` environment, so protection rules can
+require an approval before anything is uploaded.

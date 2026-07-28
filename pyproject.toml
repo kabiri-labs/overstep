@@ -4,13 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "overstep"
-version = "0.22.1"
-description = "Matrix-driven authorization testing for HTTP APIs (BOLA/BFLA/privilege escalation/auth drift)."
+version = "0.22.2"
+description = "Matrix-driven authorization testing for HTTP APIs and MCP tool-calls (BOLA/BFLA/BOPLA/privilege escalation/auth drift)."
 authors = [{name = "Ahmad Kabiri"}]
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
-keywords = ["security", "authorization", "bola", "bfla", "api-security", "dast", "ci"]
+keywords = [
+    "security", "appsec", "devsecops", "authorization", "access-control",
+    "api-security", "dast", "bola", "bfla", "bopla", "privilege-escalation",
+    "mcp", "model-context-protocol", "agent-security", "owasp", "sarif", "ci",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
