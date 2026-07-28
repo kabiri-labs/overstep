@@ -10,6 +10,8 @@ the wheel metadata and the README badge — are asserted to agree.
 import os
 import re
 
+import pytest
+
 import yaml
 
 from overstep import __version__
@@ -77,11 +79,36 @@ def test_dockerignore_excludes_git():
     assert ".git" in di
 
 
+def toml_strings(document: str, name: str) -> list:
+    """Read a TOML array of strings without tomllib, which is Python 3.11+.
+
+    Scans character by character tracking whether it is inside a quoted string,
+    because both obvious shortcuts are wrong for real dependency specifiers:
+    splitting on commas breaks ``urllib3>=1.26,<3``, and stopping at the first
+    ``]`` breaks ``pydantic[email]>=2.6``. Getting this wrong would fail the
+    sync check on a perfectly valid dependency and block CI.
+    """
+    start = re.search(rf'(?m)^{name}\s*=\s*\[', document)
+    assert start, f"no {name} array found"
+
+    items: list = []
+    buffer: list = []
+    in_string = False
+    for char in document[start.end():]:
+        if char == '"':
+            if in_string:
+                items.append("".join(buffer))
+                buffer = []
+            in_string = not in_string
+        elif in_string:
+            buffer.append(char)
+        elif char == "]":
+            return items
+    raise AssertionError(f"unterminated {name} array")
+
+
 def _pyproject_list(name: str) -> list:
-    """Read a simple TOML array of strings without needing tomllib (3.11+)."""
-    match = re.search(rf'(?m)^{name}\s*=\s*\[(.*?)\]', _read("pyproject.toml"), re.S)
-    assert match, f"pyproject.toml has no {name} array"
-    return [item.strip().strip('"') for item in match.group(1).split(",") if item.strip().strip('"')]
+    return toml_strings(_read("pyproject.toml"), name)
 
 
 def test_requirements_txt_matches_pyproject():
@@ -120,3 +147,36 @@ def test_readme_version_badge_matches_package_version():
     assert match.group(1) == __version__, (
         f"README badge says {match.group(1)}, __version__ says {__version__}"
     )
+
+
+def test_toml_parser_keeps_a_comma_inside_a_version_specifier():
+    """`urllib3>=1.26,<3` is one dependency. Splitting on commas would make it
+    two, and the sync check would then fail on a perfectly valid pyproject."""
+    document = 'dependencies = [\n    "httpx>=0.27",\n    "urllib3>=1.26,<3",\n]\n'
+
+    assert toml_strings(document, "dependencies") == ["httpx>=0.27", "urllib3>=1.26,<3"]
+
+
+def test_toml_parser_keeps_a_bracket_inside_an_extra():
+    """`pydantic[email]` closes a bracket mid-string; stopping at the first `]`
+    would truncate the array and silently drop every later dependency."""
+    document = 'dependencies = [\n    "pydantic[email]>=2.6",\n    "rich>=13.7",\n]\n'
+
+    assert toml_strings(document, "dependencies") == ["pydantic[email]>=2.6", "rich>=13.7"]
+
+
+def test_toml_parser_reads_an_empty_array():
+    assert toml_strings('dev = [\n]\n', "dev") == []
+
+
+def test_toml_parser_stops_at_its_own_array():
+    """Two arrays in one document must not bleed into each other."""
+    document = 'dependencies = [\n    "httpx>=0.27",\n]\ndev = [\n    "pytest>=8.0",\n]\n'
+
+    assert toml_strings(document, "dependencies") == ["httpx>=0.27"]
+    assert toml_strings(document, "dev") == ["pytest>=8.0"]
+
+
+def test_toml_parser_rejects_an_unterminated_array():
+    with pytest.raises(AssertionError, match="unterminated"):
+        toml_strings('dependencies = [\n    "httpx>=0.27",\n', "dependencies")
