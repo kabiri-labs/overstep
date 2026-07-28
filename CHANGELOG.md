@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.19.0] - 2026-07-28
+
+### Added
+- **Inconclusive-run detection — the gate no longer fails open.** A run whose
+  requests never reached the target, or whose credentials were rejected, used to
+  report `Vulnerabilities 0` and exit zero: a green CI build because the API
+  never started. Such a run is now called *inconclusive* and exits **3**, a code
+  distinct from 1 (findings) and 2 (bad input) so a pipeline can tell "you have
+  an authorization hole" apart from "the scan never ran". Two conditions trigger
+  it — at least half the requests failing at the transport layer, or not one of
+  the expected-*allow* tests being allowed (expired tokens, a bad `--env-file`,
+  or a scaffolded matrix still carrying its `PASTE_..._TOKEN` placeholders).
+- `--allow-inconclusive` on `run` and `snapshot` restores the previous exit
+  code. The verdict is still printed, so the escape hatch cannot hide the cause.
+- `summary.inconclusive` and `summary.inconclusive_reasons` in `findings.json`,
+  so a dashboard never reads an empty run as a clean one.
+- `RunResult.health` (a `RunHealth` with the counts behind the verdict) for
+  embedding applications.
+
+### Changed
+- `snapshot` **refuses to write a baseline** from an inconclusive run. Such a
+  baseline records "everything is denied" and would report the next healthy run
+  as wholesale authorization drift. `snapshot_pipeline` raises the new
+  `InconclusiveRunError` unless `allow_inconclusive=True` is passed.
+
+### Upgrading
+Pipelines that were silently green because their target was unreachable will now
+fail with exit 3 — that is the point of the change, and the message names the
+cause. A job that must keep its old exit code can pass `--allow-inconclusive`.
+The `--fail-on` values are unchanged, but they no longer decide this case: they
+govern findings, and cannot vouch for a run that never happened.
+
 ## [0.18.1] - 2026-07-28
 
 ### Added
