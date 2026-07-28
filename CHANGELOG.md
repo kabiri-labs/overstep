@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.19.2] - 2026-07-28
+
+### Fixed
+- **A custom transport was judged as part of the HTTP target.** 0.19.1 grouped
+  the health verdict by MCP server but folded everything else into HTTP, so a
+  transport registered through the public `transports.register()` seam inherited
+  HTTP's reachability — six healthy HTTP requests beside four failed custom ones
+  stayed under the threshold and reported clean, the same masking the per-target
+  split was meant to end. Targets are now grouped by `case.transport` first
+  (with MCP still refined per server), and an unregistered or unreachable
+  transport is named in the verdict as `the 'name' transport`.
+
 ## [0.19.1] - 2026-07-28
 
 ### Fixed

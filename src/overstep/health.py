@@ -22,14 +22,17 @@ A run is inconclusive when, **for any one target**, either
 The judgement is per target rather than over the whole run because a matrix may
 span several: a busy, healthy HTTP API would otherwise mask an MCP server that
 answered nothing, and the MCP half of the run would report clean while never
-having executed. A target with no expected-allow tests at all is not condemned —
-an intentionally all-negative matrix has no positive control to lose.
+having executed. Targets are the units that can fail independently — each
+transport, and within MCP each server. A target with no expected-allow tests at
+all is not condemned — an intentionally all-negative matrix has no positive
+control to lose.
 """
 from __future__ import annotations
 
 from typing import Dict, List, Sequence, Tuple
 
 from overstep.models import Effect, Observation, RunHealth, TestCase
+from overstep.transports.base import DEFAULT_TRANSPORT
 
 # The share of a target's requests that must fail at the transport layer before
 # it is called unreachable. High enough that one flaky timeout is not fatal, low
@@ -54,14 +57,19 @@ def _target(case: TestCase) -> str:
     """A label for the endpoint a case is delivered to.
 
     Reachability is a property of a target, not of a run, so cases are judged in
-    the groups that can independently fail: the HTTP base URL, and each MCP
-    server (by URL, or by argv for a local stdio process).
+    the groups that can independently fail. The transport is the coarse grouping
+    — the registry accepts any name, and a transport nobody registered in this
+    process fails as a unit — and MCP is refined further, since one matrix can
+    address several servers (by URL, or by argv for a local stdio process).
     """
-    if case.transport == "mcp" and case.mcp is not None:
+    transport = case.transport or DEFAULT_TRANSPORT
+    if transport == "mcp" and case.mcp is not None:
         if case.mcp.kind == "stdio":
             return f"MCP server '{' '.join(case.mcp.command)}'"
         return f"MCP server {case.mcp.url}"
-    return "the HTTP target"
+    if transport == DEFAULT_TRANSPORT:
+        return "the HTTP target"
+    return f"the '{transport}' transport"
 
 
 def _group(
