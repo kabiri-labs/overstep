@@ -2,7 +2,7 @@
 
 **Matrix-driven authorization testing for HTTP APIs and MCP tool-calls.**
 
-![Version](https://img.shields.io/badge/version-0.19.2-blue)
+![Version](https://img.shields.io/badge/version-0.20.0-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -548,10 +548,24 @@ overstep scaffold traffic.har  --fmt har     > resources.snippet.yaml
 overstep scaffold openapi.yaml --with-policy > matrix.yaml
 ```
 
-`--with-policy` turns each declared scope into a privilege-ordered role, gives
-every secured endpoint an allow rule per required scope (object resources default
-to owner-scope for non-admin roles), and marks unsecured endpoints public. Review
-and tighten the result — it's a starting point, not a source of truth.
+`--with-policy` turns each declared scope into a privilege-ordered role and reads
+the spec's own `security` to draft the policy:
+
+| What the spec says about an operation | What you get |
+|---|---|
+| requires named scopes | an allow rule per scope; object resources default to owner-scope for non-admin roles |
+| requires a credential but **no** scope (plain bearer, api key) | allowed to any authenticated role — anonymous is what the spec rules out |
+| deliberately unprotected, in a spec that secures other operations | public (allow `anonymous`) |
+| **nothing at all** — no `security`, no `securitySchemes` | a **deny-by-default guess**, behind a warning header and a stderr warning |
+
+That last row matters: reading an authorization-silent spec as "everything is
+public" produces a matrix with **zero negative tests**, which reports a clean run
+against a broken API. Guessing tight instead means an unmodified scaffold
+over-reports (expect `unexpected-deny` findings for access that is genuinely
+allowed) — loosen the rules as you confirm them.
+
+Review and tighten the result either way — it's a starting point, not a source of
+truth.
 
 For MCP, scaffold straight from a live server's `tools/list`:
 

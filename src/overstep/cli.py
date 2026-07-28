@@ -52,6 +52,8 @@ app = typer.Typer(
     add_completion=False,
 )
 console = Console()
+# Warnings that must not pollute a redirected stdout (scaffold writes YAML there).
+err_console = Console(stderr=True)
 
 
 def _apply_env_file(path: Optional[str]) -> None:
@@ -291,7 +293,12 @@ def scaffold(
             raise typer.Exit(code=2)
         from overstep.loaders.openapi import scaffold_matrix
 
-        typer.echo(scaffold_matrix(spec_file, only_get=only_get))
+        # Warn on stderr as well as in the document: stdout is usually
+        # redirected into a file the user may not read before running.
+        def _warn(message: str) -> None:
+            err_console.print(f"[yellow]warning:[/] {message}")
+
+        typer.echo(scaffold_matrix(spec_file, only_get=only_get, warn=_warn))
         return
 
     if fmt == "openapi":
