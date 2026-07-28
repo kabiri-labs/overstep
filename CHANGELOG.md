@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.19.1] - 2026-07-28
+
+### Fixed
+Three ways an inconclusive run could still slip through as clean, all found by
+review of 0.19.0:
+
+- **A dead stdio MCP server counted as healthy.** The stdio transport turns a
+  timeout or premature EOF into `status = 0` with **no** error string, so
+  requiring a non-empty `error` missed it entirely: a hung local server produced
+  zero transport errors and the run exited clean. `status == 0` is reserved for
+  a delivery failure by every transport and skipped tests are excluded
+  separately, so the status alone is now the signal.
+- **A healthy target could mask an unreachable one.** The verdict aggregated the
+  whole run, so a busy HTTP API outvoted an MCP server that answered nothing —
+  6 delivered HTTP requests plus 4 failed MCP ones stayed under the threshold,
+  and the HTTP positives satisfied the credential check, while the entire MCP
+  surface never executed. Reachability and positive controls are now judged
+  **per target** (the HTTP base URL, and each MCP server by URL or stdio argv),
+  and the verdict names the target that failed.
+- **`--read-only` could remove the last positive control.** Skipped
+  expected-allow tests were dropped before the credential check, so a matrix
+  whose allow-rules all sit on mutating verbs left no positive control and
+  passed silently. A run whose planned positive controls were *all* skipped is
+  now inconclusive, while an intentionally all-negative matrix — which never had
+  one — is still not condemned.
+
+### Changed
+- An unreachable target no longer also reports its positive-control failure:
+  that is the same fact told twice, since a target nothing reaches denies
+  everything by definition.
+
 ## [0.19.0] - 2026-07-28
 
 ### Added

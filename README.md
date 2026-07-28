@@ -2,7 +2,7 @@
 
 **Matrix-driven authorization testing for HTTP APIs and MCP tool-calls.**
 
-![Version](https://img.shields.io/badge/version-0.19.0-blue)
+![Version](https://img.shields.io/badge/version-0.19.1-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -499,13 +499,29 @@ inconclusive run — a clean result here would be meaningless:
     about authorization
 ```
 
-Two conditions trigger it:
+A run is inconclusive when, **for any one target**, either
 
-- **unreachable** — at least half the requests failed at the transport layer
-  (target down, wrong `--base`, DNS or TLS failure);
-- **rejected** — requests arrived, but not one of the expected-*allow* tests was
-  allowed, which is what expired tokens, a bad `--env-file` or a scaffolded
-  matrix with its `PASTE_..._TOKEN` placeholders still in it look like.
+- **unreachable** — at least half its requests failed at the transport layer
+  (target down, wrong `--base`, a dead stdio server, DNS or TLS failure);
+- **unverified** — nothing proves the credentials work: every expected-*allow*
+  test was skipped (`--read-only` on an all-mutating surface), or none of the
+  ones that ran was allowed — which is what expired tokens, a bad `--env-file`
+  or a scaffolded matrix still holding its `PASTE_..._TOKEN` placeholders look
+  like.
+
+The judgement is **per target**, not over the run as a whole. A matrix can span
+an HTTP API and several MCP servers, and aggregating them lets a busy healthy
+target outvote a small one that answered nothing — the verdict names the target
+that failed:
+
+```
+inconclusive run — a clean result here would be meaningless:
+  • MCP server http://127.0.0.1:9999/mcp: 4 of 4 requests never reached the
+    target (first failure: All connection attempts failed) — it is unreachable
+```
+
+A target with no expected-allow tests at all is not condemned: an intentionally
+all-negative matrix has no positive control to lose.
 
 Exit code 3 is distinct from 1 (findings) and 2 (bad input), so CI can tell "your
 API has an authorization hole" apart from "the scan never ran". The verdict does
