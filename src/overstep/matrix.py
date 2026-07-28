@@ -8,7 +8,7 @@ generation, classification, drift — is derived from it.
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
 import yaml
 from pydantic import BaseModel, Field
@@ -57,6 +57,17 @@ class Matrix(BaseModel):
     # Requests run once after the suite (best-effort) to clean up fixtures the
     # setup steps created. Can reference {{captures}} from setup.
     teardown: List[SetupStep] = Field(default_factory=list)
+    # How many victims each subject probes on an object resource. "one" (the
+    # default) sends a single cross-owner probe per subject — cheap, and enough
+    # to catch a check that is missing outright. "all" probes every distinct
+    # object, which is what finds a check that holds for some owners and not
+    # others, at a cost that grows with the number of subjects. A resource may
+    # override it.
+    probe_victims: Literal["one", "all"] = "one"
+
+    def victims_for(self, resource: Resource) -> str:
+        """The effective probe_victims setting for one resource."""
+        return resource.probe_victims or self.probe_victims
 
     def resource_map(self) -> Dict[str, Resource]:
         return {r.name: r for r in self.resources}

@@ -357,6 +357,9 @@ class Resource(BaseModel):
     # (e.g. a GET resource also probed with PUT/DELETE). Each becomes a negative
     # test — if it succeeds the endpoint is missing method-level authorization.
     probe_methods: List[str] = Field(default_factory=list)
+    # Per-resource override of the matrix-level probe_victims: how many distinct
+    # objects each subject reaches for. Unset inherits the matrix default.
+    probe_victims: Optional[Literal["one", "all"]] = None
 
     def effective_injections(self) -> List["OwnershipInjection"]:
         """The object-identifier injections for this resource.
