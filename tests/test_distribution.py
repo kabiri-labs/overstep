@@ -77,6 +77,31 @@ def test_dockerignore_excludes_git():
     assert ".git" in di
 
 
+def _pyproject_list(name: str) -> list:
+    """Read a simple TOML array of strings without needing tomllib (3.11+)."""
+    match = re.search(rf'(?m)^{name}\s*=\s*\[(.*?)\]', _read("pyproject.toml"), re.S)
+    assert match, f"pyproject.toml has no {name} array"
+    return [item.strip().strip('"') for item in match.group(1).split(",") if item.strip().strip('"')]
+
+
+def test_requirements_txt_matches_pyproject():
+    """requirements.txt is a second source of truth — CI installs from it, while
+    the package installs from pyproject. Nothing but this test stops a dependency
+    added to one from silently missing in the other."""
+    declared = set(_pyproject_list("dependencies")) | set(_pyproject_list("dev"))
+    pinned = {
+        line.strip()
+        for line in _read("requirements.txt").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+
+    assert declared == pinned, (
+        f"requirements.txt and pyproject.toml disagree; "
+        f"missing from requirements.txt: {sorted(declared - pinned)}, "
+        f"absent from pyproject: {sorted(pinned - declared)}"
+    )
+
+
 def test_pyproject_version_matches_package_version():
     # Parsed with a regex rather than tomllib so the test still runs on 3.10.
     match = re.search(r'(?m)^version\s*=\s*"([^"]+)"', _read("pyproject.toml"))
