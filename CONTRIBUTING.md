@@ -8,7 +8,10 @@ Thanks for considering a contribution!
 - `pip install -e ".[dev]"`
 
 ## Dev loop
-- `pytest -q`
+- `pytest -q` — the canonical test command. The suite is written as pytest
+  functions and uses pytest fixtures, so `unittest` discovery collects none of
+  it; `tests/test_runner.py` fails loudly if you reach for the wrong runner.
+  No test touches the network, but they do need the `dev` extras installed.
 - `python -m uvicorn examples.mock_api.server:app --port 8000`
 - `overstep run examples/mock_api/matrix.yaml --out out`
 
@@ -38,7 +41,8 @@ Thanks for considering a contribution!
 - Update the README and CHANGELOG.
 
 ## Release checklist (maintainers)
-- Bump the version in `pyproject.toml` and `overstep/__init__.py`.
+- Bump the version in `pyproject.toml`, `overstep/__init__.py` and the README
+  version badge — `tests/test_distribution.py` asserts the three agree.
 - Update the CHANGELOG.
 - Tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 - Create a GitHub Release with notes and screenshots.

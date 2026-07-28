@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.18.1] - 2026-07-28
+
+### Added
+- **Version badge in the README**, asserted by `tests/test_distribution.py` to
+  match `__version__` and the `pyproject.toml` version, so a release can no
+  longer ship with the three drifting apart.
+
+### Fixed
+- **A false green from the wrong test runner.** The suite is pytest-based, so
+  `python -m unittest discover -s tests` collected zero tests and still exited
+  `OK`. `tests/test_runner.py` now fails under any non-pytest runner, and
+  CONTRIBUTING names `pytest -q` as the canonical command.
+
 ## [0.18.0] - 2026-07-10
 
 ### Added
