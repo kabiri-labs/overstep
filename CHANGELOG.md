@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.20.0] - 2026-07-28
+
+### Fixed
+- **`scaffold --with-policy` no longer declares a whole API public.** Two common
+  spec shapes produced a policy of `allow: [{role: anonymous, scope: any}]` for
+  every endpoint — a matrix with **zero negative tests**, which then reported
+  `Vulnerabilities 0` against an API with real holes:
+  - a spec that protects everything with a plain bearer token or api key
+    (`security: [{bearerAuth: []}]`). The requirement names no *scope*, and only
+    scopes were being read, so "requires a credential" was misread as "public".
+    Such an operation is now allowed to any authenticated role — anonymous being
+    precisely what the document rules out — with object resources still
+    defaulting to owner-scope.
+  - a spec that never mentions authorization at all (no `security`, no
+    `securitySchemes`), which is what most generated documents look like. Nothing
+    can be inferred from silence, so the policy is now a **deny-by-default
+    guess** carried behind a warning header in the emitted YAML and a warning on
+    stderr, instead of an inverted policy presented as fact.
+
+  An operation a *documented* spec deliberately leaves unprotected is still
+  public — that reading is unchanged.
+
+### Changed
+- `scaffold_matrix()` takes an optional `warn` callback, invoked when the policy
+  had to be guessed, so a caller can surface it outside the emitted document.
+
+### Upgrading
+A matrix scaffolded from an authorization-silent spec now denies by default, so
+an unmodified scaffold over-reports (`unexpected-deny` findings for access that
+is genuinely allowed) where it previously under-reported to zero. That is the
+intended direction: loosen the rules as you confirm them.
+
 ## [0.19.2] - 2026-07-28
 
 ### Fixed

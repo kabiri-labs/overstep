@@ -8,11 +8,14 @@ you can paste into a matrix and then annotate with a policy.
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 import yaml
 
 from overstep.models import Request, Resource, ResourceType
+
+# The operation keys of a path item that are actual HTTP operations.
+_HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 
 # Path parameters whose name suggests they identify an owned object.
 _OWNER_HINTS = {
@@ -149,41 +152,148 @@ def _allow_rules(scopes: List[str], is_object: bool) -> List[dict]:
     return rules
 
 
-def scaffold_matrix(path: str, *, only_get: bool = False) -> str:
+# Roles invented when the spec requires authentication without naming scopes.
+# A requirement needs someone to require it *of*, and "anonymous" is precisely
+# who it excludes.
+_AUTHENTICATED_ROLE = "user"
+_PRIVILEGED_ROLE = "admin"
+
+_UNDOCUMENTED_WARNING = (
+    "the spec declares no authorization at all (no security requirements, no "
+    "security schemes), so the policy is a deny-by-default guess rather than "
+    "something read from the document — review every rule before trusting a run"
+)
+
+_UNDOCUMENTED_HEADER = """\
+# WARNING: this spec declares no authorization at all — no security
+# requirements and no security schemes. The policy below was therefore GUESSED,
+# not read from the document: it denies by default so that a run over-reports
+# rather than passing an API whose access control was never described.
+#
+# Review every rule before trusting a result, and replace the PASTE_..._TOKEN
+# placeholders. Anything absent from `policy` is denied outright.
+"""
+
+
+def _authenticated_rules(is_object: bool) -> List[dict]:
+    """Rules for an endpoint the spec protects without naming a scope.
+
+    The document says a credential is required and nothing more, so every
+    authenticated role may call it — an object still defaults to its owner.
+    """
+    if is_object:
+        return [
+            {"role": _AUTHENTICATED_ROLE, "scope": "own"},
+            {"role": _PRIVILEGED_ROLE, "scope": "any"},
+        ]
+    return [{"role": _AUTHENTICATED_ROLE}, {"role": _PRIVILEGED_ROLE}]
+
+
+def _guessed_rules(is_object: bool) -> List[dict]:
+    """Rules for a spec that says nothing about authorization at all.
+
+    Nothing can be inferred, so this guesses in the safe direction — the tightest
+    plausible policy — which over-reports rather than reporting a clean run for
+    an API whose access control was never described.
+    """
+    if is_object:
+        return [
+            {"role": _AUTHENTICATED_ROLE, "scope": "own"},
+            {"role": _PRIVILEGED_ROLE, "scope": "any"},
+        ]
+    return [{"role": _PRIVILEGED_ROLE}]
+
+
+def _describes_authorization(doc: Dict[str, Any]) -> bool:
+    """True when the document says anything about who may call what.
+
+    Distinguishes "this operation is deliberately public" from "this spec never
+    mentions authorization". Both reach the policy builder with no requirement,
+    but only the first one means anonymous access.
+    """
+    if _collect_scopes(doc) or doc.get("security") or (
+        (doc.get("components") or {}).get("securitySchemes")
+    ):
+        return True
+    for item in (doc.get("paths") or {}).values():
+        if not isinstance(item, dict):
+            continue
+        for method, op in item.items():
+            if method.lower() in _HTTP_METHODS and isinstance(op, dict) and op.get("security"):
+                return True
+    return False
+
+
+def scaffold_matrix(
+    path: str,
+    *,
+    only_get: bool = False,
+    warn: Optional[Callable[[str], None]] = None,
+) -> str:
     """Emit a full starter matrix — roles, subjects, resources and a policy —
-    inferred from an OpenAPI document's security schemes and per-operation scopes.
+    inferred from an OpenAPI document's security declarations.
 
     The boring part of adopting overstep is the policy; this reads the spec's own
-    ``security`` declarations to draft it. Endpoints with no security become public
-    (allow ``anonymous``); endpoints requiring a scope get an allow rule per scope,
-    with object resources defaulting to owner-scope for non-admin roles. Review and
-    tighten the result — it is a starting point, not a source of truth.
+    ``security`` to draft it:
+
+    * an operation requiring named scopes gets an allow rule per scope, with
+      object resources defaulting to owner-scope for non-admin roles;
+    * an operation requiring a credential but *no* scope — the shape of every
+      plain bearer or api-key spec — is allowed to any authenticated role, since
+      the one thing the document does say is that anonymous callers are excluded;
+    * an operation the document deliberately leaves unprotected is public.
+
+    A spec that never mentions authorization supports none of those readings, so
+    the policy is guessed in the safe direction (deny by default) behind a
+    warning header rather than declaring every endpoint public — the latter emits
+    zero negative tests and reports a clean run for a broken API.
+
+    ``warn`` is called with a one-line explanation when the policy had to be
+    guessed, so a caller can surface it outside the emitted document.
+
+    Review and tighten the result — it is a starting point, not a source of truth.
     """
     with open(path, "r", encoding="utf-8") as f:
         doc = yaml.safe_load(f) or {}
 
-    roles = _ordered_roles(_collect_scopes(doc))
+    documented = _describes_authorization(doc)
     resources = load_resources(path, only_get=only_get)
     resource_by_name = {r.name: r for r in resources}
 
+    invented: set = set()
     policy: Dict[str, Any] = {}
     for raw_path, item in (doc.get("paths") or {}).items():
         if not isinstance(item, dict):
             continue
         for method, op in item.items():
-            if method.lower() not in {"get", "post", "put", "patch", "delete"}:
+            if method.lower() not in _HTTP_METHODS:
                 continue
             if only_get and method.upper() != "GET":
                 continue
             name = _resource_name(method, raw_path)
             resource = resource_by_name.get(name)
             is_object = resource is not None and resource.type == ResourceType.OBJECT
-            required = _required_scopes(_effective_security(op if isinstance(op, dict) else {}, doc))
+            security = _effective_security(op if isinstance(op, dict) else {}, doc)
+            required = _required_scopes(security)
+
             if required:
                 policy[name] = {"allow": _allow_rules(required, is_object)}
+            elif not documented:
+                policy[name] = {"allow": _guessed_rules(is_object)}
+                invented.update({_AUTHENTICATED_ROLE, _PRIVILEGED_ROLE})
+            elif security:
+                # Protected, but the scheme names no scopes (plain bearer or an
+                # api key). Anonymous is the one role the spec rules out.
+                policy[name] = {"allow": _authenticated_rules(is_object)}
+                invented.update({_AUTHENTICATED_ROLE, _PRIVILEGED_ROLE})
             else:
-                # No declared security -> a public endpoint.
+                # The document protects other operations but deliberately not
+                # this one, so it really is public.
                 policy[name] = {"allow": [{"role": "anonymous", "scope": "any"}]}
+
+    roles = _ordered_roles(_collect_scopes(doc) | invented)
+    if warn is not None and not documented:
+        warn(_UNDOCUMENTED_WARNING)
 
     servers = doc.get("servers")
     base_url = (
@@ -212,4 +322,7 @@ def scaffold_matrix(path: str, *, only_get: bool = False) -> str:
         "resources": _resource_payload(resources),
         "policy": policy,
     }
-    return yaml.safe_dump(matrix, sort_keys=False, allow_unicode=True)
+    body = yaml.safe_dump(matrix, sort_keys=False, allow_unicode=True)
+    # The warning rides in the document itself: stdout is usually redirected
+    # straight into matrix.yaml, and this is the file the user will edit.
+    return (_UNDOCUMENTED_HEADER + body) if not documented else body
