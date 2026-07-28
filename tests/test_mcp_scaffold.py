@@ -123,3 +123,17 @@ def test_fetch_tools_over_http():
         mcpld.httpx.Client = orig
 
     assert [t["name"] for t in tools] == [t["name"] for t in _TOOLS]
+
+
+def test_scaffold_emits_two_distinct_user_subjects():
+    """A cross-owner probe needs two subjects owning different objects, so a
+    single placeholder user would scaffold a matrix that cannot test BOLA."""
+    doc = yaml.safe_load(
+        scaffold_matrix_from_tools(_TOOLS, server_name="docs", server_url="http://mcp.test/mcp")
+    )
+
+    users = [s for s in doc["subjects"] if s["role"] == "user"]
+    assert len(users) == 2
+    ids = [tuple(sorted(s.get("attributes", {}).items())) for s in users]
+    assert ids[0] != ids[1], "both users carry the same placeholder object id"
+    assert len({s["token"] for s in users}) == 2

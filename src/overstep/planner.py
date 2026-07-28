@@ -96,6 +96,28 @@ def _injections_by_location(
     return out
 
 
+def _ownership_values(
+    resource: Resource, subject: Subject, context: Dict[str, str]
+) -> Optional[Tuple[str, ...]]:
+    """Everything this subject writes into the request to identify its object.
+
+    ``None`` when the subject cannot supply one of the values — ownership is
+    never half-populated. Two subjects with equal tuples address the *same*
+    object, so a probe from one at the other's object is not a cross-owner probe
+    at all.
+    """
+    injections = resource.effective_injections()
+    if not injections:
+        return None
+    values = []
+    for inj in injections:
+        value = _injection_value(resource, subject, inj, context)
+        if value is None:
+            return None
+        values.append(value)
+    return tuple(values)
+
+
 def _locates_object(resource: Resource, subject: Subject, context: Dict[str, str]) -> bool:
     """Whether this subject can supply a value for every ownership injection.
 
@@ -104,22 +126,26 @@ def _locates_object(resource: Resource, subject: Subject, context: Dict[str, str
     a header — still drives SELF/OTHER generation for subjects that have that
     attribute.
     """
-    injections = resource.effective_injections()
-    if not injections:
-        return False
-    return all(
-        _injection_value(resource, subject, inj, context) is not None for inj in injections
-    )
+    return _ownership_values(resource, subject, context) is not None
 
 
 def _pick_other(
     resource: Resource, subject: Subject, subjects: List[Subject], context: Dict[str, str]
 ) -> Optional[Subject]:
-    """Find another subject that actually owns an object for this resource."""
+    """Find another subject that owns a *different* object for this resource.
+
+    Subjects can legitimately share an object — two members of one tenant, a
+    service account and the user it acts for — and pairing a subject with such a
+    peer produced an OTHER probe byte-identical to its own SELF probe: a test
+    that exercised nothing while counting as BOLA coverage. Only a victim whose
+    object actually differs makes the probe a cross-owner one.
+    """
+    mine = _ownership_values(resource, subject, context)
     for other in subjects:
         if other.name == subject.name:
             continue
-        if _locates_object(resource, other, context):
+        theirs = _ownership_values(resource, other, context)
+        if theirs is not None and theirs != mine:
             return other
     return None
 

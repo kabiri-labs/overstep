@@ -111,22 +111,40 @@ class Matrix(BaseModel):
         # No placeholder for ownership: warn when no subject can supply a value for
         # every injection (whether it reads the default object or an override
         # attribute), so probes are never silently skipped or half-populated.
-        def _resolves(subject) -> bool:
+        def _object_values(subject) -> Optional[tuple]:
+            """What this subject writes to identify its object, or None."""
+            values = []
             for inj in injections:
                 if inj.owner_attr is not None:
-                    if subject.attributes.get(inj.owner_attr) is None:
-                        return False
-                elif subject.name not in res.objects and subject.attributes.get(res.owner_attr) is None:
-                    return False
-            return True
+                    value = subject.attributes.get(inj.owner_attr)
+                else:
+                    value = res.objects.get(
+                        subject.name, subject.attributes.get(res.owner_attr)
+                    )
+                if value is None:
+                    return None
+                values.append(str(value))
+            return tuple(values)
 
-        if injections and not any(_resolves(s) for s in self.subjects):
-            attrs = sorted({inj.owner_attr or res.owner_attr for inj in injections})
-            problems.append(
-                f"object resource '{res.name}' has no subject with a resolvable "
-                f"object (add an 'objects:' entry or attribute(s): {', '.join(attrs)}); "
-                f"ownership probes will be skipped"
-            )
+        if injections:
+            resolved = [v for v in map(_object_values, self.subjects) if v is not None]
+            if not resolved:
+                attrs = sorted({inj.owner_attr or res.owner_attr for inj in injections})
+                problems.append(
+                    f"object resource '{res.name}' has no subject with a resolvable "
+                    f"object (add an 'objects:' entry or attribute(s): {', '.join(attrs)}); "
+                    f"ownership probes will be skipped"
+                )
+            elif len(set(resolved)) < 2:
+                # Every subject that can reach this resource points at the same
+                # object, so an "other" probe would re-send the subject's own
+                # request and prove nothing. The planner drops it; say why.
+                shared = ", ".join(resolved[0])
+                problems.append(
+                    f"object resource '{res.name}' has no two subjects with different "
+                    f"objects (all resolve to {shared}), so no cross-owner BOLA probe "
+                    f"can be generated; give at least two subjects distinct objects"
+                )
         return problems
 
     def validate_refs(self) -> List[str]:

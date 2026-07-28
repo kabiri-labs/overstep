@@ -57,3 +57,92 @@ def test_condition_narrows_allow(matrix):
     assert cases["get_user::alice::other"].expected == Effect.DENY
     # alice reaching her own object -> condition true -> allow
     assert cases["get_user::alice::self"].expected == Effect.ALLOW
+
+
+def _shared_object_matrix(same_id: str = "p-1"):
+    """Two peers pointing at one object, plus an outsider with a different one."""
+    from overstep.matrix import Matrix
+
+    return Matrix(
+        base_url="http://testserver",
+        roles=["user"],
+        subjects=[
+            {"name": "alice", "role": "user", "token": "a", "attributes": {"pid": same_id}},
+            {"name": "carol", "role": "user", "token": "c", "attributes": {"pid": same_id}},
+            {"name": "bob", "role": "user", "token": "b", "attributes": {"pid": "p-2"}},
+        ],
+        resources=[
+            {
+                "name": "get_project",
+                "request": {"method": "GET", "path": "/projects/{pid}"},
+                "type": "object",
+                "owner_param": "pid",
+                "owner_attr": "pid",
+            }
+        ],
+        policy={"get_project": {"allow": [{"role": "user", "scope": "own"}]}},
+    )
+
+
+def test_other_probe_never_targets_the_subjects_own_object():
+    """Peers can share an object; pairing a subject with one produced an OTHER
+    probe identical to its own SELF probe, testing nothing."""
+    cases = plan(_shared_object_matrix())
+
+    for case in cases:
+        if case.variant == Variant.OTHER:
+            twin = [
+                c for c in cases
+                if c.subject == case.subject and c.resource == case.resource
+                and c.variant == Variant.SELF
+            ]
+            assert not twin or twin[0].path != case.path, (
+                f"{case.subject}'s other-probe re-sends its own request: {case.path}"
+            )
+
+
+def test_a_shared_object_peer_is_skipped_for_a_real_victim():
+    """alice and carol share p-1, so bob's p-2 is the only true cross-owner target."""
+    cases = plan(_shared_object_matrix())
+
+    others = {c.subject: c.path for c in cases if c.variant == Variant.OTHER}
+
+    assert others["alice"] == "/projects/p-2"
+    assert others["carol"] == "/projects/p-2"
+    assert others["bob"] in ("/projects/p-1",)
+
+
+def test_no_other_probe_when_every_subject_shares_one_object():
+    """With nothing to compare against, the probe is dropped rather than faked."""
+    from overstep.matrix import Matrix
+
+    matrix = Matrix(
+        base_url="http://testserver",
+        roles=["user"],
+        subjects=[
+            {"name": "alice", "role": "user", "token": "a", "attributes": {"pid": "p-1"}},
+            {"name": "carol", "role": "user", "token": "c", "attributes": {"pid": "p-1"}},
+        ],
+        resources=[
+            {
+                "name": "get_project",
+                "request": {"method": "GET", "path": "/projects/{pid}"},
+                "type": "object",
+                "owner_param": "pid",
+                "owner_attr": "pid",
+            }
+        ],
+        policy={"get_project": {"allow": [{"role": "user", "scope": "own"}]}},
+    )
+
+    cases = plan(matrix)
+
+    assert {c.variant for c in cases} == {Variant.SELF}
+    assert len(cases) == 2
+
+
+def test_distinct_objects_still_pair_normally(matrix):
+    """The ordinary case is untouched: alice probes bob's object."""
+    others = [c for c in plan(matrix) if c.variant == Variant.OTHER and c.subject == "alice"]
+
+    assert others and all(c.path == "/users/u2" for c in others)

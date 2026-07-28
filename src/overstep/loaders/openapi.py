@@ -302,18 +302,26 @@ def scaffold_matrix(
         else "http://localhost:8000"
     )
 
+    # The least-privileged non-anonymous role gets two subjects: a cross-owner
+    # (BOLA) probe only exists when two subjects own *different* objects, so one
+    # placeholder per role would scaffold a matrix that cannot exercise the
+    # tool's headline check. Suffixed placeholders say they must differ.
+    peer_role = next((r for r in roles if r != "anonymous"), None)
     subjects = [{"name": "anon", "role": "anonymous", "token": None}]
     for role in roles:
         if role == "anonymous":
             continue
-        subjects.append(
-            {
-                "name": f"{role}1",
-                "role": role,
-                "token": f"PASTE_{role.upper()}_TOKEN",
-                "attributes": {"user_id": "REPLACE_ME"},
-            }
-        )
+        count = 2 if role == peer_role else 1
+        for index in range(1, count + 1):
+            suffix = f"_{index}" if count > 1 else ""
+            subjects.append(
+                {
+                    "name": f"{role}{index}",
+                    "role": role,
+                    "token": f"PASTE_{role.upper()}{suffix.upper()}_TOKEN",
+                    "attributes": {"user_id": f"REPLACE_ME{suffix}"},
+                }
+            )
 
     matrix = {
         "base_url": base_url,

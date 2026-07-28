@@ -69,3 +69,57 @@ def test_har_scaffold(tmp_path):
     assert "get_users_id" in names        # the two /users/N calls collapsed
     assert "get_health" in names
     assert len(resources) == 2
+
+
+def test_validate_warns_when_no_two_subjects_own_different_objects():
+    """The planner drops an other-probe it cannot make meaningful; validate says why."""
+    from overstep.matrix import Matrix
+
+    matrix = Matrix(
+        base_url="http://t",
+        roles=["user"],
+        subjects=[
+            {"name": "alice", "role": "user", "token": "a", "attributes": {"pid": "p-1"}},
+            {"name": "carol", "role": "user", "token": "c", "attributes": {"pid": "p-1"}},
+        ],
+        resources=[
+            {
+                "name": "get_project",
+                "request": {"method": "GET", "path": "/projects/{pid}"},
+                "type": "object",
+                "owner_param": "pid",
+                "owner_attr": "pid",
+            }
+        ],
+        policy={"get_project": {"allow": [{"role": "user", "scope": "own"}]}},
+    )
+
+    problems = matrix.validate_refs()
+
+    assert any("no two subjects with different objects" in p for p in problems)
+    assert any("p-1" in p for p in problems)
+
+
+def test_validate_is_quiet_when_objects_differ():
+    from overstep.matrix import Matrix
+
+    matrix = Matrix(
+        base_url="http://t",
+        roles=["user"],
+        subjects=[
+            {"name": "alice", "role": "user", "token": "a", "attributes": {"pid": "p-1"}},
+            {"name": "bob", "role": "user", "token": "b", "attributes": {"pid": "p-2"}},
+        ],
+        resources=[
+            {
+                "name": "get_project",
+                "request": {"method": "GET", "path": "/projects/{pid}"},
+                "type": "object",
+                "owner_param": "pid",
+                "owner_attr": "pid",
+            }
+        ],
+        policy={"get_project": {"allow": [{"role": "user", "scope": "own"}]}},
+    )
+
+    assert not any("different objects" in p for p in matrix.validate_refs())

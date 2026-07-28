@@ -178,9 +178,19 @@ def scaffold_matrix_from_tools(
         else:
             policy[name] = {"allow": [{"role": "admin"}]}
 
-    user_subject: Dict[str, Any] = {"name": "user1", "role": "user", "token": "PASTE_USER_TOKEN"}
-    if owner_attrs:
-        user_subject["attributes"] = {a: "REPLACE_ME" for a in sorted(owner_attrs)}
+    # Two user subjects, not one: a cross-owner (BOLA) probe only exists when two
+    # subjects own *different* objects, so a single placeholder user would
+    # scaffold a matrix that cannot exercise the tool's headline check. The
+    # suffixed placeholders say the two must not be filled in with the same id.
+    def _user(index: int) -> Dict[str, Any]:
+        subject: Dict[str, Any] = {
+            "name": f"user{index}",
+            "role": "user",
+            "token": f"PASTE_USER{index}_TOKEN",
+        }
+        if owner_attrs:
+            subject["attributes"] = {a: f"REPLACE_ME_{index}" for a in sorted(owner_attrs)}
+        return subject
 
     matrix = {
         "roles": ["anonymous", "user", "admin"],
@@ -188,7 +198,8 @@ def scaffold_matrix_from_tools(
         "mcp_access": {"is_error_is_deny": True, "jsonrpc_error_is_deny": True},
         "subjects": [
             {"name": "anon", "role": "anonymous", "token": None},
-            user_subject,
+            _user(1),
+            _user(2),
             {"name": "admin1", "role": "admin", "token": "PASTE_ADMIN_TOKEN"},
         ],
         "resources": resources,
