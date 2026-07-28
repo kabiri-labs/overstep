@@ -2,7 +2,7 @@
 
 **Matrix-driven authorization testing for HTTP APIs and MCP tool-calls.**
 
-![Version](https://img.shields.io/badge/version-0.18.1-blue)
+![Version](https://img.shields.io/badge/version-0.19.0-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -462,9 +462,10 @@ which keeps waivers distinct from a drift baseline.
 and setup fixtures are always cleaned up, even if a run is interrupted.
 
 `run` flags: `--base`, `--out`, `--baseline`, `--waivers`, `--concurrency`,
-`--read-only`, `--max-retries`, `--insecure`, `--env-file`, and `--fail-on`
-(see below). `snapshot` accepts `--base`, `--out`, `--concurrency`,
-`--read-only`, `--max-retries`, `--insecure` and `--env-file`.
+`--read-only`, `--max-retries`, `--insecure`, `--env-file`,
+`--allow-inconclusive` (see below) and `--fail-on`. `snapshot` accepts `--base`,
+`--out`, `--concurrency`, `--read-only`, `--max-retries`, `--insecure`,
+`--env-file` and `--allow-inconclusive`.
 
 ### Gating CI with `--fail-on`
 
@@ -481,6 +482,41 @@ and setup fixtures are always cleaned up, even if a run is interrupted.
 An unrecognized value fails immediately with exit code 2. Use `vuln` on a fresh
 target to block new holes, and `drift` once you have a triaged baseline so CI
 gates on *change* rather than on the backlog of accepted risk.
+
+### Inconclusive runs: the gate refuses to fail open
+
+A run only means something if the requests reached the target and the credentials
+were accepted. When they didn't, every negative test "passes" for the wrong
+reason — nothing was allowed because nothing got through — and a naive summary
+reads `Vulnerabilities 0`. A security gate that goes green because the API never
+started is worse than no gate at all, so overstep calls that run **inconclusive**
+and exits **3**:
+
+```
+inconclusive run — a clean result here would be meaningless:
+  • 55 of 55 requests never reached the target (first error: All connection
+    attempts failed) — the target is unreachable, so these results say nothing
+    about authorization
+```
+
+Two conditions trigger it:
+
+- **unreachable** — at least half the requests failed at the transport layer
+  (target down, wrong `--base`, DNS or TLS failure);
+- **rejected** — requests arrived, but not one of the expected-*allow* tests was
+  allowed, which is what expired tokens, a bad `--env-file` or a scaffolded
+  matrix with its `PASTE_..._TOKEN` placeholders still in it look like.
+
+Exit code 3 is distinct from 1 (findings) and 2 (bad input), so CI can tell "your
+API has an authorization hole" apart from "the scan never ran". The verdict does
+**not** depend on `--fail-on` — that flag governs findings, and it cannot vouch
+for a run that never happened — and it also travels in `findings.json` under
+`summary.inconclusive` so a dashboard doesn't read an empty run as a clean one.
+Pass `--allow-inconclusive` to report anyway and keep the old exit code.
+
+`snapshot` applies the same check and **refuses to write the baseline**: a
+baseline recorded against a dead target says "everything is denied", which would
+report the next healthy run as wholesale authorization drift.
 
 ## Bootstrapping a matrix from a spec
 

@@ -15,11 +15,12 @@ from typing import Callable, List, Optional, Tuple
 from overstep.auth import authenticate as default_authenticator
 from overstep.classifier import classify
 from overstep.drift import build_snapshot, diff
+from overstep.health import assess as assess_health
 from overstep.transports import dispatch as default_executor
 from overstep.fixtures import run_setup as default_setup_runner
 from overstep.fixtures import run_teardown as default_teardown_runner
 from overstep.matrix import Matrix
-from overstep.models import Observation, RunResult, Subject, TestCase
+from overstep.models import Observation, RunHealth, RunResult, Subject, TestCase
 from overstep.planner import plan
 from overstep.report import all_reporters
 from overstep.waivers import Waiver, apply_waivers
@@ -36,6 +37,18 @@ TeardownFn = Callable[..., List[str]]
 
 class PipelineError(RuntimeError):
     """Raised when a run cannot proceed (e.g. no base URL)."""
+
+
+class InconclusiveRunError(PipelineError):
+    """Raised when a run proved nothing, so its result must not be used.
+
+    Carries the :class:`RunHealth` verdict so a caller can explain *why* — the
+    target was unreachable, or nothing the matrix expected to be allowed was.
+    """
+
+    def __init__(self, health: RunHealth) -> None:
+        super().__init__("; ".join(health.reasons) or "the run tested nothing")
+        self.health = health
 
 
 def resolve_base_url(matrix: Matrix, override: Optional[str] = None) -> str:
@@ -148,6 +161,7 @@ def run_pipeline(
         findings=findings,
         waived=waived,
         warnings=warnings,
+        health=assess_health(cases, observations),
     )
 
 
@@ -164,6 +178,7 @@ def snapshot_pipeline(
     authenticator: AuthenticatorFn = default_authenticator,
     setup_runner: SetupFn = default_setup_runner,
     teardown_runner: TeardownFn = default_teardown_runner,
+    allow_inconclusive: bool = False,
 ) -> Tuple[dict, List[str]]:
     """Record the current authorization decisions as a drift baseline.
 
@@ -173,6 +188,11 @@ def snapshot_pipeline(
 
     Returns the snapshot alongside any teardown warnings so the caller can surface
     a fixture-cleanup failure instead of writing the baseline silently.
+
+    Raises :class:`InconclusiveRunError` when the run never reached the target or
+    was never authenticated: such a baseline records "everything is denied" and
+    would report the next healthy run as wholesale authorization drift. Pass
+    ``allow_inconclusive=True`` to write it anyway.
     """
     resolved = resolve_base_url(matrix, base_url)
     cases, observations, teardown_warnings = _execute_stages(
@@ -188,6 +208,9 @@ def snapshot_pipeline(
         setup_runner=setup_runner,
         teardown_runner=teardown_runner,
     )
+    health = assess_health(cases, observations)
+    if health.inconclusive and not allow_inconclusive:
+        raise InconclusiveRunError(health)
     return build_snapshot(cases, observations), teardown_warnings
 
 

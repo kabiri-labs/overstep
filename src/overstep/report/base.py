@@ -55,4 +55,8 @@ def summarize(result: RunResult) -> Dict[str, object]:
         "drift": len(result.drift),
         "waived": len(result.waived),
         "by_class": dict(by_class),
+        # A consumer must not read "vulnerabilities: 0" as "none exist" when the
+        # run never reached the target, so the verdict travels with the counts.
+        "inconclusive": result.health.inconclusive,
+        "inconclusive_reasons": list(result.health.reasons),
     }

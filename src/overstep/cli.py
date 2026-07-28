@@ -26,8 +26,9 @@ from overstep.auth import AuthError
 from overstep.drift import load_snapshot, save_snapshot
 from overstep.fixtures import SetupError
 from overstep.matrix import MatrixError, load_matrix
-from overstep.models import Effect, RunResult
+from overstep.models import Effect, RunHealth, RunResult
 from overstep.pipeline import (
+    InconclusiveRunError,
     PipelineError,
     resolve_base_url,
     run_pipeline,
@@ -40,6 +41,11 @@ from overstep.waivers import WaiverError, load_waivers
 
 # The accepted values for --fail-on, in the order they appear in help text.
 FAIL_ON_CHOICES = ("vuln", "drift", "vuln-or-drift", "any", "never")
+
+# Exit code for a run that proved nothing (unreachable target, rejected
+# credentials). Distinct from 1 (findings) and 2 (bad input / setup failure) so
+# CI can tell "your API is broken" apart from "the scan never ran".
+EXIT_INCONCLUSIVE = 3
 
 app = typer.Typer(
     help="overstep — matrix-driven authorization testing for HTTP APIs.",
@@ -98,6 +104,10 @@ def run(
     max_retries: int = typer.Option(2, help="Retries on 429/503 with backoff."),
     insecure: bool = typer.Option(False, help="Disable TLS verification."),
     env_file: Optional[str] = typer.Option(None, help="dotenv file with ${VAR} values."),
+    allow_inconclusive: bool = typer.Option(
+        False,
+        help="Report a run that never reached the target instead of exiting 3.",
+    ),
 ):
     """Run the matrix against a live target and write reports."""
     _validate_fail_on(fail_on)
@@ -142,6 +152,14 @@ def run(
     _print_summary(result)
     console.print(f"Reports written to [bold]{out}/[/]")
 
+    # An inconclusive run has no findings for the wrong reason, so its exit code
+    # must not depend on --fail-on: reporting "clean" here is exactly the
+    # fail-open a security gate cannot afford.
+    if result.health.inconclusive:
+        _print_inconclusive(result.health)
+        if not allow_inconclusive:
+            raise typer.Exit(code=EXIT_INCONCLUSIVE)
+
     raise typer.Exit(code=_exit_code(result, fail_on))
 
 
@@ -155,6 +173,10 @@ def snapshot(
     max_retries: int = typer.Option(2, help="Retries on 429/503 with backoff."),
     insecure: bool = typer.Option(False, help="Disable TLS verification."),
     env_file: Optional[str] = typer.Option(None, help="dotenv file with ${VAR} values."),
+    allow_inconclusive: bool = typer.Option(
+        False,
+        help="Write the baseline even if the run never reached the target.",
+    ),
 ):
     """Record the current authorization decisions as a drift baseline.
 
@@ -171,7 +193,12 @@ def snapshot(
             verify_tls=not insecure,
             read_only=read_only,
             max_retries=max_retries,
+            allow_inconclusive=allow_inconclusive,
         )
+    except InconclusiveRunError as exc:
+        _print_inconclusive(exc.health)
+        console.print("[bold red]baseline not written[/] — it would record a false 'all denied'")
+        raise typer.Exit(code=EXIT_INCONCLUSIVE)
     except (AuthError, SetupError) as exc:
         console.print(f"[bold red]setup error:[/] {exc}")
         raise typer.Exit(code=2)
@@ -299,6 +326,19 @@ def _print_summary(result: RunResult) -> None:
     for cls, count in sorted(s["by_class"].items()):
         table.add_row(f"  {cls}", str(count))
     console.print(table)
+
+
+def _print_inconclusive(health: RunHealth) -> None:
+    """Explain why a run proved nothing, so "0 vulnerabilities" is not believed."""
+    console.print(
+        "[bold red]inconclusive run[/] — a clean result here would be meaningless:"
+    )
+    for reason in health.reasons:
+        console.print(f"  [red]•[/] {reason}")
+    console.print(
+        f"  [dim]{health.executed} requests sent, {health.transport_errors} never delivered; "
+        f"{health.positive_allowed}/{health.positive_tests} expected-allow tests were allowed[/]"
+    )
 
 
 def _validate_fail_on(fail_on: str) -> None:

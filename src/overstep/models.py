@@ -491,6 +491,27 @@ class Finding(BaseModel):
     confidence: Literal["confirmed", "suspected", "unverified"] = "confirmed"
 
 
+class RunHealth(BaseModel):
+    """Whether a run's results are worth drawing conclusions from.
+
+    A run only means something if the requests reached the target and the
+    credentials were accepted; see :mod:`overstep.health` for how the verdict is
+    reached. The defaults describe an empty but trustworthy run, so a
+    ``RunResult`` built without health data behaves exactly as before.
+    """
+
+    executed: int = 0
+    transport_errors: int = 0
+    positive_tests: int = 0
+    positive_allowed: int = 0
+    # Human-readable explanations; non-empty means the run proved nothing.
+    reasons: List[str] = Field(default_factory=list)
+
+    @property
+    def inconclusive(self) -> bool:
+        return bool(self.reasons)
+
+
 class RunResult(BaseModel):
     """The full outcome of a run: what we planned, what we saw, what was wrong.
 
@@ -512,6 +533,11 @@ class RunResult(BaseModel):
     waived: List[Finding] = Field(default_factory=list)
     # Non-fatal warnings raised during the run (e.g. an expired waiver).
     warnings: List[str] = Field(default_factory=list)
+    # Whether the run reached the target and was authenticated at all. An
+    # inconclusive run has no findings for the wrong reason, so callers must not
+    # read "no vulnerabilities" as "no vulnerabilities exist". Defaults to a
+    # healthy, empty verdict so existing callers are unaffected.
+    health: RunHealth = Field(default_factory=RunHealth)
 
     @property
     def vulnerabilities(self) -> List[Finding]:
