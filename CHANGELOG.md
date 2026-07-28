@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.22.4] - 2026-07-28
+
+### Fixed
+- **The requirements/pyproject sync check would have failed on a valid
+  dependency.** Its TOML reader split the array on commas and stopped at the
+  first `]`, so `urllib3>=1.26,<3` became two entries and
+  `pydantic[email]>=2.6` truncated the array — silently dropping every
+  dependency declared after it. Either would have blocked CI on a perfectly
+  correct `pyproject.toml`, and the second would have done so while *under*
+  -reporting what needed to match. The reader now scans with quote awareness,
+  and five tests cover both specifier shapes plus empty, adjacent and
+  unterminated arrays.
+
 ## [0.22.3] - 2026-07-28
 
 ### Added
