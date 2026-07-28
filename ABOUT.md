@@ -31,6 +31,11 @@ moment the authorization surface drifts between releases.
 - Findings classified as BOLA / BFLA / BOPLA / privilege escalation, **content-
   verified** (confidence grading via markers) and mapped to CWE / OWASP API Top 10.
 - Drift baselines and waivers so CI fails on *changes*, not on known accepted risk.
+- **A gate that refuses to fail open** — a run whose target was unreachable or
+  whose credentials were rejected is reported as *inconclusive* (exit 3), never
+  as a clean bill of health.
+- Findings rolled up into the **distinct defects** behind them, so triage tracks
+  the number of bugs rather than the number of identities that hit them.
 - JSON, HTML, SARIF (code scanning) and JUnit reports; non-zero exit for gating.
 - Scaffold a matrix straight from OpenAPI, a HAR capture, or a live MCP server's
   `tools/list`.

@@ -1,5 +1,5 @@
 name: "overstep authorization testing"
-description: "Run a matrix-driven authorization test (BOLA/BFLA/privilege escalation/drift) and upload SARIF to code scanning."
+description: "Run a matrix-driven authorization test over an HTTP API or MCP server (BOLA/BFLA/BOPLA/privilege escalation/drift) and produce SARIF for code scanning."
 author: "Ahmad Kabiri"
 branding:
   icon: "shield"
@@ -29,6 +29,28 @@ inputs:
     description: "Path to a drift baseline snapshot to compare against."
     required: false
     default: ""
+  read-only:
+    description: "Skip mutating verbs and tools, for a sensitive target. 'true' to enable."
+    required: false
+    default: "false"
+  env-file:
+    description: "Path to a dotenv file supplying ${VAR} values used by the matrix."
+    required: false
+    default: ""
+  concurrency:
+    description: "Maximum in-flight requests."
+    required: false
+    default: ""
+  max-retries:
+    description: "Retries on 429/503 with backoff."
+    required: false
+    default: ""
+  allow-inconclusive:
+    description: >-
+      Report a run that never reached its target instead of failing with exit 3.
+      Leave off: a clean result from an unreachable target is meaningless.
+    required: false
+    default: "false"
   version:
     description: "overstep version to install (PEP 440 specifier), e.g. '==0.6.0'. Empty installs the latest."
     required: false
@@ -51,6 +73,8 @@ runs:
       shell: bash
       run: python -m pip install --disable-pip-version-check "overstep${{ inputs.version }}"
 
+    # Exit codes: 0 clean, 1 findings (per fail-on), 2 bad input, 3 the run never
+    # reached its target — all of which correctly fail the step.
     - name: Run overstep
       shell: bash
       run: |
@@ -58,4 +82,9 @@ runs:
         [ -n "${{ inputs.base-url }}" ] && args+=(--base "${{ inputs.base-url }}")
         [ -n "${{ inputs.waivers }}" ] && args+=(--waivers "${{ inputs.waivers }}")
         [ -n "${{ inputs.baseline }}" ] && args+=(--baseline "${{ inputs.baseline }}")
+        [ -n "${{ inputs.env-file }}" ] && args+=(--env-file "${{ inputs.env-file }}")
+        [ -n "${{ inputs.concurrency }}" ] && args+=(--concurrency "${{ inputs.concurrency }}")
+        [ -n "${{ inputs.max-retries }}" ] && args+=(--max-retries "${{ inputs.max-retries }}")
+        [ "${{ inputs.read-only }}" = "true" ] && args+=(--read-only)
+        [ "${{ inputs.allow-inconclusive }}" = "true" ] && args+=(--allow-inconclusive)
         overstep run "${args[@]}"
