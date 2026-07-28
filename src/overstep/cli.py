@@ -325,7 +325,12 @@ def _print_summary(result: RunResult) -> None:
     table.add_column("Value", justify="right")
     table.add_row("Tests run", str(s["total_tests"]))
     table.add_row("Positive / negative", f"{s['positive_tests']} / {s['negative_tests']}")
-    table.add_row("[bold red]Vulnerabilities[/]", str(s["vulnerabilities"]))
+    # One broken endpoint is reported once per identity that reaches it, so the
+    # finding count answers "how many probes got through" and the defect count
+    # answers "how many things do I have to fix".
+    vulns, distinct = s["vulnerabilities"], s["vulnerability_defects"]
+    vuln_cell = str(vulns) if vulns == distinct else f"{vulns} ({distinct} defects)"
+    table.add_row("[bold red]Vulnerabilities[/]", vuln_cell)
     if s["drift"]:
         table.add_row("Authorization drift", str(s["drift"]))
     if s.get("waived"):

@@ -5,7 +5,7 @@ import html
 import os
 
 from overstep.models import Finding, RunResult
-from overstep.report.base import register, summarize
+from overstep.report.base import defects, register, summarize
 
 _SEVERITY_COLOR = {"high": "#d64545", "medium": "#d98a29", "low": "#3a7bd5"}
 
@@ -55,6 +55,21 @@ def _row(f: Finding) -> str:
     )
 
 
+def _defect_row(defect: dict) -> str:
+    color = _SEVERITY_COLOR.get(defect["severity"], "#888")
+    subjects = ", ".join(defect["subjects"])
+    return (
+        "<tr>"
+        f"<td><span class='badge' style='background:{color}'>"
+        f"{html.escape(defect['vuln_class'])}</span></td>"
+        f"<td><code>{html.escape(defect['method'])} "
+        f"{html.escape(defect['resource'])}</code></td>"
+        f"<td>{html.escape(subjects)}</td>"
+        f"<td>{defect['findings']}</td>"
+        "</tr>"
+    )
+
+
 @register("html", "report.html")
 def write(result: RunResult, path: str) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -67,12 +82,24 @@ def write(result: RunResult, path: str) -> None:
             _card(s["positive_tests"], "positive"),
             _card(s["negative_tests"], "negative"),
             _card(s["vulnerabilities"], "vulnerabilities"),
+            _card(s["defects"], "distinct defects"),
             _card(s["findings"], "total findings"),
         ]
     )
 
     if findings:
+        # The defect table is the work list; the findings table below is the
+        # evidence. Reading them the other way round makes one missing check
+        # look like a dozen separate problems.
         body = (
+            "<h2>Defects</h2>"
+            "<p class='sub'>One row per thing to fix. A defect surfaces once per "
+            "identity that reaches it — those findings are listed below.</p>"
+            "<table><thead><tr><th>Class</th><th>Endpoint</th><th>Seen by</th>"
+            "<th>Findings</th></tr></thead><tbody>"
+            + "".join(_defect_row(d) for d in defects(findings))
+            + "</tbody></table>"
+            "<h2>Findings</h2>"
             "<table><thead><tr><th>Class</th><th>Endpoint / subject</th>"
             "<th>Decision</th><th>Detail</th></tr></thead><tbody>"
             + "".join(_row(f) for f in findings)

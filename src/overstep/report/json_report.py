@@ -5,7 +5,7 @@ import json
 import os
 
 from overstep.models import Finding, RunResult
-from overstep.report.base import register, summarize
+from overstep.report.base import defects, register, summarize
 from overstep.taxonomy import TAXONOMY
 
 
@@ -23,6 +23,9 @@ def write(result: RunResult, path: str) -> None:
     payload = {
         "base_url": result.base_url,
         "summary": summarize(result),
+        # One entry per distinct defect, worst first — the work list. Every
+        # finding is still below, so nothing is lost by collapsing here.
+        "defects": defects(result.findings),
         "findings": [_dump(f) for f in result.findings],
         "waived": [_dump(f) for f in result.waived],
         "warnings": result.warnings,

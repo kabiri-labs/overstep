@@ -189,3 +189,112 @@ def test_write_reports_emits_every_registered_format(matrix, tmp_path):
     assert (tmp_path / "report.html").exists()
     assert (tmp_path / "overstep.sarif").exists()
     assert (tmp_path / "junit.xml").exists()
+
+
+def _finding(**overrides):
+    """A minimal finding; overrides pick what the grouping should key on."""
+    from overstep.models import Finding, Variant, VulnClass
+
+    fields = {
+        "test_id": "t",
+        "vuln_class": VulnClass.BOPLA,
+        "severity": "high",
+        "resource": "get_user",
+        "subject": "alice",
+        "role": "user",
+        "method": "GET",
+        "path": "/users/u1",
+        "expected": Effect.ALLOW,
+        "observed": Effect.ALLOW,
+        "status": 200,
+        "variant": Variant.SELF,
+        "detail": "d",
+        "evidence": Observation(test_id="t", status=200, effect=Effect.ALLOW),
+    }
+    fields.update(overrides)
+    return Finding(**fields)
+
+
+def test_one_defect_seen_by_many_subjects_is_one_group():
+    """The regression this guards: triage cost scaled with the number of
+    subjects rather than the number of bugs."""
+    from overstep.report.base import defects
+
+    findings = [_finding(subject=name, test_id=name) for name in ("alice", "bob", "carol")]
+
+    rollup = defects(findings)
+
+    assert len(rollup) == 1
+    assert rollup[0]["findings"] == 3
+    assert rollup[0]["subjects"] == ["alice", "bob", "carol"]
+
+
+def test_the_same_resource_on_another_method_is_a_separate_defect():
+    """A resource can be sound on GET and broken on DELETE — two bugs, not one."""
+    from overstep.report.base import defects
+
+    rollup = defects([_finding(method="GET"), _finding(method="DELETE")])
+
+    assert len(rollup) == 2
+
+
+def test_different_vuln_classes_do_not_merge():
+    from overstep.models import VulnClass
+    from overstep.report.base import defects
+
+    rollup = defects([_finding(vuln_class=VulnClass.BOPLA), _finding(vuln_class=VulnClass.BOLA)])
+
+    assert len(rollup) == 2
+
+
+def test_a_defect_takes_the_worst_grade_of_its_findings():
+    """One confirmed leak makes the defect confirmed, however many probes were
+    merely suspected."""
+    from overstep.report.base import defects
+
+    rollup = defects([
+        _finding(subject="alice", severity="medium", confidence="suspected"),
+        _finding(subject="bob", severity="high", confidence="confirmed"),
+    ])
+
+    assert rollup[0]["severity"] == "high"
+    assert rollup[0]["confidence"] == "confirmed"
+
+
+def test_defects_are_ordered_worst_first():
+    from overstep.report.base import defects
+
+    rollup = defects([
+        _finding(resource="low_one", severity="low"),
+        _finding(resource="high_one", severity="high"),
+        _finding(resource="medium_one", severity="medium"),
+    ])
+
+    assert [d["resource"] for d in rollup] == ["high_one", "medium_one", "low_one"]
+
+
+def test_summary_counts_defects_alongside_findings(matrix):
+    from overstep.report.base import summarize
+
+    result = run_pipeline(matrix, executor=_fake_executor(overrides={
+        "get_user::alice::other": 200,
+        "get_user::bob::other": 200,
+    }))
+    s = summarize(result)
+
+    # Two subjects walked through the same missing check: two findings, one bug.
+    assert s["vulnerabilities"] == 2
+    assert s["vulnerability_defects"] == 1
+
+
+def test_grouping_never_drops_a_finding(matrix):
+    """The roll-up is a view, not a filter — every finding stays reachable."""
+    from overstep.report.base import defects
+
+    result = run_pipeline(matrix, executor=_fake_executor(overrides={
+        "get_user::alice::other": 200,
+        "get_user::bob::other": 200,
+        "admin_list::alice::na": 200,
+    }))
+
+    assert sum(d["findings"] for d in defects(result.findings)) == len(result.findings)

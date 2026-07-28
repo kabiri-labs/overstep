@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.21.0] - 2026-07-28
+
+### Changed
+- **The `curl` repro is runnable again.** Credentials were replaced by a bare
+  `***`, which made the documented "copy-pasteable repro" a command that answers
+  `401` — safe to share and useless to act on. The secret is now a shell variable
+  named after the subject that owns it, so exporting one value reproduces the
+  exact request:
+
+  ```bash
+  curl -sS -X GET -H "Authorization: Bearer $OVERSTEP_TOKEN_ALICE" http://…/users/u2
+  ```
+
+  Each subject gets its own variable (`OVERSTEP_TOKEN_<SUBJECT>`, or
+  `OVERSTEP_<HEADER>_<SUBJECT>` for a non-bearer secret) so a repro can never
+  authenticate as the wrong identity, and the same applies to the stdio MCP
+  token environment. No credential is written to any report. `mask_headers()`
+  called without a subject name still redacts to `***` as before.
+
+### Added
+- **A defect roll-up, so triage tracks bugs instead of identities.** One missing
+  check is reported once per subject that reaches it: on the evaluation matrix a
+  single over-sharing endpoint produced 7 findings. Reports now group findings
+  into the distinct defects behind them (`resource` + `method` + class), keeping
+  every finding intact:
+  - the summary reads `Vulnerabilities  11 (3 defects)`;
+  - `findings.json` gains a `defects` array — worst first, each with its
+    `subjects`, `findings` count and an `example_test_id`;
+  - the HTML report leads with a **Defects** table above the findings;
+  - every finding carries a `group` key so a dashboard can collapse them too.
+
+  Gating is unchanged: `--fail-on` still counts findings, so no run changes its
+  exit code because of this.
+
 ## [0.20.1] - 2026-07-28
 
 ### Fixed
