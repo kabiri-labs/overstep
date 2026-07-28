@@ -2,7 +2,7 @@
 
 **Matrix-driven authorization testing for HTTP APIs and MCP tool-calls.**
 
-![Version](https://img.shields.io/badge/version-0.20.0-blue)
+![Version](https://img.shields.io/badge/version-0.20.1-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -142,6 +142,19 @@ From this, overstep generates (`overstep plan examples/mock_api/matrix.yaml`):
 | allow | `GET /users/u1` | root | other |
 | **deny** | `GET /admin/users` | alice | na  ← BFLA / privesc probe |
 | allow | `GET /admin/users` | root | na |
+
+The **other** variant always targets a subject whose object genuinely differs.
+Subjects can legitimately share one — two members of a tenant, a service account
+and the user it acts for — and pairing a subject with such a peer would re-send
+its own request under a different name: a probe that proves nothing while
+counting as BOLA coverage. When no subject owns a different object, the probe is
+dropped rather than faked, and `overstep validate` says so:
+
+```
+• object resource 'get_project' has no two subjects with different objects
+  (all resolve to p-1), so no cross-owner BOLA probe can be generated;
+  give at least two subjects distinct objects
+```
 
 ## Sharper findings
 

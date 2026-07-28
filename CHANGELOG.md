@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.20.1] - 2026-07-28
+
+### Fixed
+- **An "other" probe could re-send the subject's own request.** The victim for a
+  cross-owner probe was the first *other* subject that owned an object, without
+  checking it was a **different** object. Subjects legitimately share one — two
+  members of a tenant, a service account and the user it acts for — so the probe
+  was byte-identical to that subject's own SELF request: it exercised nothing
+  while counting as BOLA coverage, and could report the subject's own data as a
+  cross-owner leak. On a two-tenant evaluation matrix, 12 of 55 planned cases
+  were such probes, silently.
+
+  The victim is now the first subject whose ownership values actually differ.
+  Where a real victim exists the probe is redirected to them rather than
+  dropped, so coverage *improves*: the same matrix went from 1 to 3 confirmed
+  BOLA findings, because cross-tenant reads that were never attempted now are.
+- **Both scaffolds emitted a matrix that could not test BOLA.** A single
+  placeholder user subject means no two subjects own different objects, so no
+  cross-owner probe exists at all — the tool's headline check was unreachable
+  from its own starter matrix. `scaffold --with-policy` and `scaffold --fmt mcp`
+  now emit two peer subjects with suffixed placeholders (`REPLACE_ME_1` /
+  `REPLACE_ME_2`) that say the two must not be filled in with the same id.
+
+### Added
+- `validate` reports an object resource whose subjects all resolve to the same
+  object, naming the shared value — otherwise the missing probe is invisible.
+
+### Upgrading
+A baseline recorded before this version may report one-off drift on `::other`
+test ids whose victim changed: the test id is stable but the object it targets
+is not the same one. Re-snapshot after reviewing. Cases that disappear entirely
+(no distinct victim exists) are skipped by the drift comparison rather than
+reported as changes.
+
 ## [0.20.0] - 2026-07-28
 
 ### Fixed
