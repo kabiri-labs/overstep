@@ -7,10 +7,17 @@ as "0 vulnerabilities".
 import pytest
 
 from overstep.health import assess
-from overstep.models import Effect, Observation, ResourceType, TestCase, Variant
+from overstep.models import (
+    Effect,
+    McpInvocation,
+    Observation,
+    ResourceType,
+    TestCase,
+    Variant,
+)
 
 
-def _case(case_id: str, expected: Effect) -> TestCase:
+def _case(case_id: str, expected: Effect, mcp: McpInvocation = None) -> TestCase:
     return TestCase(
         id=case_id,
         resource="r",
@@ -22,6 +29,18 @@ def _case(case_id: str, expected: Effect) -> TestCase:
         variant=Variant.NA,
         expected=expected,
         resource_type=ResourceType.FUNCTION,
+        transport="mcp" if mcp else "http",
+        mcp=mcp,
+    )
+
+
+def _mcp(url: str = "http://127.0.0.1:9000/mcp") -> McpInvocation:
+    return McpInvocation(kind="http", url=url, tool="t")
+
+
+def _skipped(case_id: str) -> Observation:
+    return Observation(
+        test_id=case_id, status=0, effect=Effect.DENY, skipped=True, error="skipped"
     )
 
 
@@ -148,6 +167,98 @@ def test_mcp_jsonrpc_error_is_a_denial_not_a_delivery_failure():
 
     assert not health.inconclusive
     assert health.transport_errors == 0
+
+
+def test_a_dead_stdio_server_is_a_delivery_failure():
+    """A stdio call that times out or hits EOF yields status 0 with *no* error
+    string (transports/mcp.py turns the empty message into status 0), so the
+    status alone has to be the signal."""
+    cases = [_case("a", Effect.DENY), _case("b", Effect.DENY)]
+    obs = [
+        Observation(test_id="a", status=0, effect=Effect.DENY),
+        Observation(test_id="b", status=0, effect=Effect.DENY),
+    ]
+
+    health = assess(cases, obs)
+
+    assert health.inconclusive
+    assert health.transport_errors == 2
+    assert any("never reached the target" in r for r in health.reasons)
+
+
+def test_positive_controls_all_skipped_is_inconclusive():
+    """--read-only can skip every expected-allow test, leaving no positive
+    control: the negative results are then unverified, not clean."""
+    cases = [_case("post", Effect.ALLOW), _case("get", Effect.DENY)]
+    obs = [_skipped("post"), _delivered("get", Effect.DENY)]
+
+    health = assess(cases, obs)
+
+    assert health.inconclusive
+    assert any("every expected-allow test was skipped" in r for r in health.reasons)
+
+
+def test_an_all_negative_matrix_is_still_not_condemned():
+    """No positive control was *planned*, so none can be missing — unchanged."""
+    cases = [_case("a", Effect.DENY), _case("b", Effect.DENY)]
+    obs = [_delivered("a", Effect.DENY), _delivered("b", Effect.DENY)]
+
+    assert not assess(cases, obs).inconclusive
+
+
+def test_a_healthy_target_cannot_mask_an_unreachable_one():
+    """The regression this guards: aggregating over a mixed matrix let a busy
+    HTTP target outvote an MCP server that answered nothing."""
+    http_cases = [_case(f"h{i}", Effect.ALLOW) for i in range(6)]
+    mcp_cases = [_case(f"m{i}", Effect.DENY, mcp=_mcp()) for i in range(4)]
+    obs = [_delivered(f"h{i}", Effect.ALLOW) for i in range(6)]
+    obs += [_undelivered(f"m{i}") for i in range(4)]
+
+    health = assess(http_cases + mcp_cases, obs)
+
+    # Globally only 4 of 10 failed — under the threshold — and the HTTP
+    # positives passed, so the whole run used to read as conclusive.
+    assert health.transport_errors / health.executed < 0.5
+    assert health.inconclusive
+    assert any("MCP server http://127.0.0.1:9000/mcp" in r for r in health.reasons)
+
+
+def test_each_mcp_server_is_judged_on_its_own():
+    up, down = _mcp("http://up:9000/mcp"), _mcp("http://down:9001/mcp")
+    cases = [
+        _case("u1", Effect.ALLOW, mcp=up),
+        _case("u2", Effect.DENY, mcp=up),
+        _case("d1", Effect.ALLOW, mcp=down),
+    ]
+    obs = [_delivered("u1", Effect.ALLOW), _delivered("u2", Effect.DENY), _undelivered("d1")]
+
+    health = assess(cases, obs)
+
+    assert health.inconclusive
+    assert any("http://down:9001/mcp" in r for r in health.reasons)
+    assert not any("http://up:9000/mcp" in r for r in health.reasons)
+
+
+def test_a_stdio_server_is_named_by_its_command():
+    """A local process has no URL, so the argv identifies it in the verdict."""
+    stdio = McpInvocation(kind="stdio", command=["python", "server.py"], tool="t")
+    cases = [_case("http-ok", Effect.ALLOW), _case("stdio-dead", Effect.ALLOW, mcp=stdio)]
+    obs = [_delivered("http-ok", Effect.ALLOW), Observation(test_id="stdio-dead", status=0, effect=Effect.DENY)]
+
+    health = assess(cases, obs)
+
+    assert health.inconclusive
+    assert any("MCP server 'python server.py'" in r for r in health.reasons)
+
+
+def test_a_single_target_verdict_is_not_prefixed():
+    """The common case stays readable — no target label when there is only one."""
+    cases = [_case("a", Effect.ALLOW)]
+    obs = [_undelivered("a")]
+
+    reason = assess(cases, obs).reasons[0]
+
+    assert reason.startswith(("1 of 1", "none of"))
 
 
 @pytest.mark.parametrize("ratio", [0.25, 0.75])
