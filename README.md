@@ -2,7 +2,7 @@
 
 **Matrix-driven authorization testing for HTTP APIs and MCP tool-calls.**
 
-![Version](https://img.shields.io/badge/version-0.21.0-blue)
+![Version](https://img.shields.io/badge/version-0.22.0-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -142,6 +142,31 @@ From this, overstep generates (`overstep plan examples/mock_api/matrix.yaml`):
 | allow | `GET /users/u1` | root | other |
 | **deny** | `GET /admin/users` | alice | na  ← BFLA / privesc probe |
 | allow | `GET /admin/users` | root | na |
+
+### How many victims each subject probes
+
+By default every subject sends **one** cross-owner probe. That catches a check
+that is missing outright, cheaply. It does not catch a check that holds for some
+owners and not others — a tenant whose ACL rows were never backfilled, a legacy
+record with no owner column — because the one object a subject happens to reach
+for may be the one that *is* protected.
+
+```yaml
+probe_victims: all          # matrix-wide
+
+resources:
+  - name: get_report
+    probe_victims: all      # or per resource
+```
+
+`all` sends one probe per **distinct** object instead. Victims holding the same
+object still count once, so this is not a blind N², and it costs nothing extra on
+a matrix where subjects share objects. On a matrix where they don't, expect the
+probe count to grow with the number of subjects.
+
+Test ids are unchanged wherever a subject still probes a single object, so
+existing drift baselines stay comparable; only the ids that genuinely multiply
+gain a `@victim` suffix.
 
 The **other** variant always targets a subject whose object genuinely differs.
 Subjects can legitimately share one — two members of a tenant, a service account

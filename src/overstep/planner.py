@@ -40,9 +40,17 @@ def _path_params(path: str) -> List[str]:
     return _PARAM_RE.findall(path)
 
 
-def make_test_id(resource: str, subject: str, variant: Variant) -> str:
-    """A stable identifier used for reporting and drift snapshots."""
-    return f"{resource}::{subject}::{variant.value}"
+def make_test_id(
+    resource: str, subject: str, variant: Variant, victim: Optional[str] = None
+) -> str:
+    """A stable identifier used for reporting and drift snapshots.
+
+    ``victim`` is appended only when one subject probes more than one object, so
+    every id a matrix produced before ``probe_victims: all`` keeps its exact
+    spelling and existing drift baselines stay comparable.
+    """
+    base = f"{resource}::{subject}::{variant.value}"
+    return f"{base}@{victim}" if victim else base
 
 
 def _object_id(resource: Resource, subject: Subject, context: Dict[str, str]) -> Optional[str]:
@@ -129,25 +137,30 @@ def _locates_object(resource: Resource, subject: Subject, context: Dict[str, str
     return _ownership_values(resource, subject, context) is not None
 
 
-def _pick_other(
+def _victims(
     resource: Resource, subject: Subject, subjects: List[Subject], context: Dict[str, str]
-) -> Optional[Subject]:
-    """Find another subject that owns a *different* object for this resource.
+) -> List[Subject]:
+    """Every subject this one could cross-owner probe, in declaration order.
 
+    Two exclusions, both to avoid generating a request that proves nothing.
     Subjects can legitimately share an object — two members of one tenant, a
-    service account and the user it acts for — and pairing a subject with such a
-    peer produced an OTHER probe byte-identical to its own SELF probe: a test
-    that exercised nothing while counting as BOLA coverage. Only a victim whose
-    object actually differs makes the probe a cross-owner one.
+    service account and the user it acts for — so a peer holding the *same*
+    object would produce a probe byte-identical to the subject's own SELF
+    request. And two victims sharing one object are one probe, not two, so only
+    the first of them is kept.
     """
     mine = _ownership_values(resource, subject, context)
+    out: List[Subject] = []
+    seen = set()
     for other in subjects:
         if other.name == subject.name:
             continue
         theirs = _ownership_values(resource, other, context)
-        if theirs is not None and theirs != mine:
-            return other
-    return None
+        if theirs is None or theirs == mine or theirs in seen:
+            continue
+        seen.add(theirs)
+        out.append(other)
+    return out
 
 
 def _merge_cookies(existing: str, pairs: List[Tuple[str, str]]) -> str:
@@ -285,6 +298,7 @@ def _variants(
     subject: Subject,
     subjects: List[Subject],
     context: Dict[str, str],
+    probe_victims: str = "one",
 ) -> List[Tuple[Variant, Optional[Subject]]]:
     """Which (variant, target) pairs to generate for this subject/resource."""
     if resource.type != ResourceType.OBJECT or not resource.is_object_locatable:
@@ -293,9 +307,10 @@ def _variants(
     out: List[Tuple[Variant, Optional[Subject]]] = []
     if _locates_object(resource, subject, context):
         out.append((Variant.SELF, subject))
-    other = _pick_other(resource, subject, subjects, context)
-    if other is not None:
-        out.append((Variant.OTHER, other))
+    victims = _victims(resource, subject, subjects, context)
+    if probe_victims != "all":
+        victims = victims[:1]
+    out.extend((Variant.OTHER, victim) for victim in victims)
     return out or [(Variant.OTHER, None)]
 
 
@@ -360,7 +375,13 @@ def plan(matrix: Matrix, context: Optional[Dict[str, str]] = None) -> List[TestC
         required = matrix.required_roles(resource.name)
         matcher = resource.access or matrix.access
         for subject in subjects:
-            for variant, target in _variants(resource, subject, subjects, context):
+            pairs = _variants(
+                resource, subject, subjects, context, matrix.victims_for(resource)
+            )
+            # Only disambiguate when this subject really does probe more than one
+            # object; a single probe keeps the id it has always had.
+            multi_victim = sum(1 for v, _ in pairs if v == Variant.OTHER) > 1
+            for variant, target in pairs:
                 expected = _expected_effect(matrix, resource, subject, variant, target)
                 # For an OTHER probe, a leak would expose the victim's data, so
                 # carry the victim's marker along for the content-aware oracle.
@@ -369,8 +390,9 @@ def plan(matrix: Matrix, context: Optional[Dict[str, str]] = None) -> List[TestC
                     if variant == Variant.OTHER and target and target.marker
                     else []
                 )
+                victim = target.name if (multi_victim and target is not None) else None
                 common = dict(
-                    id=make_test_id(resource.name, subject.name, variant),
+                    id=make_test_id(resource.name, subject.name, variant, victim),
                     resource=resource.name,
                     subject=subject.name,
                     role=subject.role,
@@ -422,7 +444,10 @@ def plan(matrix: Matrix, context: Optional[Dict[str, str]] = None) -> List[TestC
                             continue
                         cases.append(
                             TestCase(
-                                id=f"{make_test_id(resource.name, subject.name, variant)}::{method}",
+                                id=(
+                                    f"{make_test_id(resource.name, subject.name, variant, victim)}"
+                                    f"::{method}"
+                                ),
                                 resource=resource.name,
                                 subject=subject.name,
                                 role=subject.role,

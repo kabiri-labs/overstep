@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.22.0] - 2026-07-28
+
+### Added
+- **`probe_victims: one | all`** — how many distinct objects each subject reaches
+  for on an object resource, set matrix-wide or per resource. The default stays
+  `one`, which is what every existing matrix gets.
+
+  A single cross-owner probe per subject catches a check that is missing
+  outright, but not one that **holds for some owners and not others** — a tenant
+  whose ACL rows were never backfilled, a legacy record with no owner column —
+  because the one object a subject happens to reach for may be the protected one.
+  Measured against a target carrying exactly that bug (one tenant world-readable,
+  every other tenant correctly scoped):
+
+  | | `one` | `all` |
+  |---|---|---|
+  | Tests | 63 | 85 |
+  | Distinct defects found | 3 | **4** |
+
+  `one` missed it entirely; no subject's single probe happened to point at the
+  unprotected tenant.
+
+  Victims holding the same object count once, so `all` is not a blind N²: on a
+  matrix where subjects share objects it costs almost nothing, and it only grows
+  where there are genuinely distinct objects to reach.
+
+### Changed
+- A test id gains a `@victim` suffix **only** where a subject probes more than
+  one object. Every id a matrix produced before this release keeps its exact
+  spelling, so existing drift baselines stay comparable; turning on
+  `probe_victims: all` adds ids rather than rewriting them, and `drift.diff`
+  ignores ids missing on either side.
+
 ## [0.21.0] - 2026-07-28
 
 ### Changed

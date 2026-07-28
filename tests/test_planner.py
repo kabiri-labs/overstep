@@ -146,3 +146,119 @@ def test_distinct_objects_still_pair_normally(matrix):
     others = [c for c in plan(matrix) if c.variant == Variant.OTHER and c.subject == "alice"]
 
     assert others and all(c.path == "/users/u2" for c in others)
+
+
+def _three_owners(**matrix_kwargs):
+    """Three subjects, three distinct objects — every pair is a real probe."""
+    from overstep.matrix import Matrix
+
+    return Matrix(
+        base_url="http://testserver",
+        roles=["user"],
+        subjects=[
+            {"name": "alice", "role": "user", "token": "a", "attributes": {"pid": "p-1"}},
+            {"name": "bob", "role": "user", "token": "b", "attributes": {"pid": "p-2"}},
+            {"name": "carol", "role": "user", "token": "c", "attributes": {"pid": "p-3"}},
+        ],
+        resources=[
+            {
+                "name": "get_project",
+                "request": {"method": "GET", "path": "/projects/{pid}"},
+                "type": "object",
+                "owner_param": "pid",
+                "owner_attr": "pid",
+                **matrix_kwargs.pop("resource", {}),
+            }
+        ],
+        policy={"get_project": {"allow": [{"role": "user", "scope": "own"}]}},
+        **matrix_kwargs,
+    )
+
+
+def test_default_probes_a_single_victim():
+    others = [c for c in plan(_three_owners()) if c.variant == Variant.OTHER]
+
+    assert len(others) == 3  # one per subject
+    assert {c.subject for c in others} == {"alice", "bob", "carol"}
+
+
+def test_probe_victims_all_reaches_every_distinct_object():
+    """The gap this closes: a check that holds for some owners and not others is
+    invisible when each subject only ever probes one of them."""
+    others = [c for c in plan(_three_owners(probe_victims="all")) if c.variant == Variant.OTHER]
+
+    assert len(others) == 6  # every ordered pair of the three
+    by_subject = {}
+    for case in others:
+        by_subject.setdefault(case.subject, set()).add(case.path)
+    assert by_subject["alice"] == {"/projects/p-2", "/projects/p-3"}
+    assert by_subject["bob"] == {"/projects/p-1", "/projects/p-3"}
+
+
+def test_single_victim_ids_are_unchanged_by_the_new_option():
+    """Existing drift baselines must survive: an id only gains a victim suffix
+    where the subject really does probe more than one object."""
+    ids = {c.id for c in plan(_three_owners()) if c.variant == Variant.OTHER}
+
+    assert ids == {
+        "get_project::alice::other",
+        "get_project::bob::other",
+        "get_project::carol::other",
+    }
+
+
+def test_multiple_victims_get_disambiguated_ids():
+    ids = sorted(
+        c.id for c in plan(_three_owners(probe_victims="all"))
+        if c.variant == Variant.OTHER and c.subject == "alice"
+    )
+
+    assert ids == ["get_project::alice::other@bob", "get_project::alice::other@carol"]
+
+
+def test_victims_sharing_one_object_count_once():
+    """Two peers holding the same object are one probe, not two — probing both
+    would send the identical request twice."""
+    from overstep.matrix import Matrix
+
+    matrix = Matrix(
+        base_url="http://testserver",
+        roles=["user"],
+        probe_victims="all",
+        subjects=[
+            {"name": "alice", "role": "user", "token": "a", "attributes": {"pid": "p-1"}},
+            {"name": "bob", "role": "user", "token": "b", "attributes": {"pid": "p-2"}},
+            {"name": "dave", "role": "user", "token": "d", "attributes": {"pid": "p-2"}},
+        ],
+        resources=[
+            {
+                "name": "get_project",
+                "request": {"method": "GET", "path": "/projects/{pid}"},
+                "type": "object",
+                "owner_param": "pid",
+                "owner_attr": "pid",
+            }
+        ],
+        policy={"get_project": {"allow": [{"role": "user", "scope": "own"}]}},
+    )
+
+    alice_probes = [
+        c for c in plan(matrix) if c.subject == "alice" and c.variant == Variant.OTHER
+    ]
+
+    assert [c.path for c in alice_probes] == ["/projects/p-2"]
+
+
+def test_a_resource_can_override_the_matrix_default():
+    matrix = _three_owners(resource={"probe_victims": "all"})
+
+    others = [c for c in plan(matrix) if c.variant == Variant.OTHER]
+
+    assert len(others) == 6  # matrix default is "one"; the resource opted in
+
+
+def test_an_unknown_probe_victims_value_is_rejected():
+    import pytest as _pytest
+
+    with _pytest.raises(Exception):
+        _three_owners(probe_victims="some")
