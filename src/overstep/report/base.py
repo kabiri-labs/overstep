@@ -10,7 +10,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Callable, Dict, List
 
-from overstep.models import Effect, RunResult, VulnClass
+from overstep.models import Effect, Finding, RunResult, VulnClass
 
 WriteFn = Callable[[RunResult, str], None]
 
@@ -41,6 +41,45 @@ def get_reporter(name: str) -> ReporterSpec:
     return _REGISTRY[name]
 
 
+def defects(findings: List[Finding]) -> List[Dict[str, object]]:
+    """Roll findings up into the distinct defects behind them.
+
+    One missing check is reported once per identity that reaches it, so a single
+    bug can arrive as a dozen findings and triage cost tracks the size of the
+    matrix rather than the number of bugs. Grouping keeps every finding intact
+    while giving a caller the shorter list to work from — the subjects become
+    evidence of blast radius instead of separate work items.
+    """
+    grouped: Dict[str, List[Finding]] = {}
+    for finding in findings:
+        grouped.setdefault(finding.group, []).append(finding)
+
+    rollup: List[Dict[str, object]] = []
+    for group, items in grouped.items():
+        first = items[0]
+        rollup.append(
+            {
+                "group": group,
+                "vuln_class": first.vuln_class.value,
+                "resource": first.resource,
+                "method": first.method,
+                # The worst grade any identity saw: one confirmed leak makes the
+                # defect confirmed even if other probes were only suspected.
+                "severity": min((f.severity for f in items), key=_SEVERITY_ORDER.index),
+                "confidence": min((f.confidence for f in items), key=_CONFIDENCE_ORDER.index),
+                "findings": len(items),
+                "subjects": sorted({f.subject for f in items}),
+                "example_test_id": first.test_id,
+            }
+        )
+    rollup.sort(key=lambda d: (_SEVERITY_ORDER.index(d["severity"]), -d["findings"]))
+    return rollup
+
+
+_SEVERITY_ORDER = ["high", "medium", "low"]
+_CONFIDENCE_ORDER = ["confirmed", "suspected", "unverified"]
+
+
 def summarize(result: RunResult) -> Dict[str, object]:
     """A compact roll-up used by the CLI and the JSON/HTML reports."""
     positive = sum(1 for c in result.cases if c.expected == Effect.ALLOW)
@@ -52,6 +91,10 @@ def summarize(result: RunResult) -> Dict[str, object]:
         "negative_tests": negative,
         "findings": len(result.findings),
         "vulnerabilities": len(result.vulnerabilities),
+        # How many distinct defects those findings represent — the number of
+        # things somebody has to go and fix.
+        "defects": len({f.group for f in result.findings}),
+        "vulnerability_defects": len({f.group for f in result.vulnerabilities}),
         "drift": len(result.drift),
         "waived": len(result.waived),
         "by_class": dict(by_class),

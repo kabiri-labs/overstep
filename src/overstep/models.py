@@ -9,7 +9,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 HTTPMethod = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
 
@@ -489,6 +489,19 @@ class Finding(BaseModel):
     # "suspected" — access was granted but the expected victim data did not appear;
     # "unverified" — decided on status alone with no content check configured.
     confidence: Literal["confirmed", "suspected", "unverified"] = "confirmed"
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def group(self) -> str:
+        """Identifies the *defect*, as opposed to one probe that revealed it.
+
+        Every subject that reaches a broken endpoint produces its own finding, so
+        one missing check can surface a dozen times and triage cost scales with
+        the matrix rather than with the bug count. Findings sharing a group are
+        the same defect seen from different identities; the method is part of the
+        key because a resource can be sound on GET and broken on DELETE.
+        """
+        return f"{self.resource}::{self.method}::{self.vuln_class.value}"
 
 
 class RunHealth(BaseModel):

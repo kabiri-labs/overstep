@@ -2,7 +2,7 @@
 
 **Matrix-driven authorization testing for HTTP APIs and MCP tool-calls.**
 
-![Version](https://img.shields.io/badge/version-0.20.1-blue)
+![Version](https://img.shields.io/badge/version-0.21.0-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -180,12 +180,38 @@ Findings are then graded:
 
 ### Reproduction on every finding
 
-Each finding carries a copy-pasteable **`curl`** command and a structured request
-record, with credentials masked so reports are safe to share:
+Each finding carries a **`curl`** command and a structured request record. The
+credential is replaced by a shell variable named after the subject it belongs to,
+so the line is safe to paste into a ticket *and* still runs:
+
+```bash
+export OVERSTEP_TOKEN_ALICE=...     # only this one thing is missing
+curl -sS -X GET -H "Authorization: Bearer $OVERSTEP_TOKEN_ALICE" \
+    http://127.0.0.1:8000/users/u2
+```
+
+A bare `***` would be safe too, but it turns the "copy-pasteable repro" into a
+command that answers `401`. Each subject gets its own variable
+(`OVERSTEP_TOKEN_<SUBJECT>`, or `OVERSTEP_<HEADER>_<SUBJECT>` for a non-bearer
+secret) so one repro can never authenticate as the wrong identity. stdio MCP
+repros do the same with the server's token environment variable.
+
+### One defect, not one finding per user
+
+A missing check is reported once per identity that reaches it, so a single bug
+can arrive as a dozen findings — triage cost that scales with the size of the
+matrix instead of the number of bugs. Every report therefore carries a **defect**
+roll-up: one row per thing to fix, with the subjects as evidence of blast radius.
 
 ```
-curl -sS -X GET -H 'Authorization: Bearer ***' http://127.0.0.1:8000/users/u2
+Vulnerabilities   11 (3 defects)
 ```
+
+`findings.json` gains a `defects` array (worst first, each with its `subjects`,
+`findings` count and an `example_test_id`), the HTML report leads with a
+**Defects** table above the findings, and every finding carries its `group` key
+so a dashboard can collapse them the same way. Nothing is filtered — the full
+finding list is still there, and gating still counts findings.
 
 ### BOPLA: forbidden response fields
 
