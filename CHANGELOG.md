@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.22.1] - 2026-07-28
+
+### Changed
+- **README restructured around the reader's task.** It had grown to 852 lines
+  across 35 sections in the order features were added, with no contents list, and
+  the section that matters most — how to point the tool at *your own* API — sat at
+  line 601, after five hundred lines of tuning reference. It now runs: what it
+  finds → what it doesn't do → install → a two-minute demo → **a six-step
+  walkthrough from a spec to a trustworthy result** → the matrix → trustworthy
+  findings → modelling a real API → MCP → CI → reference.
+
+### Fixed
+- **Documentation that no longer matched the tool.** The quickstart summary
+  predated the defect roll-up (`Vulnerabilities 8` where the tool prints
+  `8 (3 defects)`), and the plan table was attributed to a command that actually
+  emits eighteen rows. Both are now the verified output.
+- **`Install` never said how to install the tool** — only `pip install -e .`,
+  which assumes you already cloned the repo, despite the package being published
+  on PyPI. `pip install overstep` is now first, with the editable clone kept for
+  contributors and the bundled demo.
+
+### Added
+- A **What it doesn't do** section: no endpoint discovery, no policy inference, no
+  authentication testing, no fuzzing, no natural-language agent driving, and a
+  reminder that runs send real requests. Previously these limits were scattered,
+  or present only as a footnote in the MCP section.
+- A contents list, and a flag reference table (which flags apply to `run` vs
+  `snapshot`, plus the exit-code meanings) in place of a prose list.
+
 ## [0.22.0] - 2026-07-28
 
 ### Added
