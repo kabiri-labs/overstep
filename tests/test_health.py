@@ -251,6 +251,36 @@ def test_a_stdio_server_is_named_by_its_command():
     assert any("MCP server 'python server.py'" in r for r in health.reasons)
 
 
+def test_a_custom_transport_is_its_own_target():
+    """The registry takes any transport name, and one that answers nothing must
+    not be folded into HTTP where a healthy majority would outvote it."""
+    http_cases = [_case(f"h{i}", Effect.ALLOW) for i in range(6)]
+    custom = [
+        TestCase(
+            id=f"c{i}",
+            resource="r",
+            subject="s",
+            role="user",
+            method="GET",
+            path_template="/x",
+            path="/x",
+            variant=Variant.NA,
+            expected=Effect.DENY,
+            resource_type=ResourceType.FUNCTION,
+            transport="grpc",
+        )
+        for i in range(4)
+    ]
+    obs = [_delivered(f"h{i}", Effect.ALLOW) for i in range(6)]
+    obs += [_undelivered(f"c{i}") for i in range(4)]
+
+    health = assess(http_cases + custom, obs)
+
+    assert health.transport_errors / health.executed < 0.5  # 40%, under the threshold
+    assert health.inconclusive
+    assert any("the 'grpc' transport" in r for r in health.reasons)
+
+
 def test_a_single_target_verdict_is_not_prefixed():
     """The common case stays readable — no target label when there is only one."""
     cases = [_case("a", Effect.ALLOW)]
