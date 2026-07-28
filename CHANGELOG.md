@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.22.3] - 2026-07-28
+
+### Added
+- **`SECURITY.md`.** A security tool had no way to report a vulnerability in
+  itself. Reports go through GitHub's private advisory form; the policy also
+  draws the line this project needs drawn — a finding overstep reports about
+  *your* API is a bug in your API, while leaking a credential into a report,
+  escaping the expression sandbox, attaching one subject's token to another
+  subject's request, or making a run exit `0` when its probes never executed are
+  vulnerabilities in overstep.
+- **A pull-request template**, matching what `CONTRIBUTING.md` asks for: tests,
+  the three-place version bump, changelog and README. It also asks explicitly
+  whether the change alters an exit code, the generated test set, or the shape of
+  a report — the three things that break other people's pipelines and baselines.
+- **A test that `requirements.txt` agrees with `pyproject.toml`.** CI installs
+  from one and the package from the other, so a dependency added to either could
+  silently be missing from the other. The two are in sync today; now they stay
+  that way.
+
+### Changed
+- `CODE_OF_CONDUCT.md` now routes reports to the same private channel. It
+  previously suggested opening a GitHub issue, which asks someone to make a
+  conduct complaint in public.
+
 ## [0.22.2] - 2026-07-28
 
 ### Fixed
