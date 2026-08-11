@@ -14,6 +14,7 @@ from typing import Callable, List, Optional, Tuple
 
 from overstep.auth import authenticate as default_authenticator
 from overstep.classifier import classify
+from overstep.coverage import assess as assess_coverage
 from overstep.drift import build_snapshot, diff
 from overstep.health import assess as assess_health
 from overstep.transports import dispatch as default_executor
@@ -162,6 +163,7 @@ def run_pipeline(
         waived=waived,
         warnings=warnings,
         health=assess_health(cases, observations),
+        coverage=assess_coverage(matrix, cases),
     )
 
 

@@ -2,7 +2,7 @@
 
 **Matrix-driven authorization testing for HTTP APIs and MCP tool-calls.**
 
-![Version](https://img.shields.io/badge/version-0.23.0-blue)
+![Version](https://img.shields.io/badge/version-0.24.0-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -124,6 +124,7 @@ overstep run examples/mock_api/matrix.yaml --out out
  Vulnerabilities            8 (3 defects)
    BOLA                                2
    privilege-escalation                6
+ Object resources probed             2/2
 ```
 
 Eight probes got through, and they trace back to **three** distinct bugs — one
@@ -808,6 +809,43 @@ Pass `--allow-inconclusive` to report anyway and keep the old exit code.
 `snapshot` applies the same check and **refuses to write the baseline**: one
 recorded against a dead target says "everything is denied", which would report the
 next healthy run as wholesale authorization drift.
+
+### Probe coverage: what a clean result is allowed to mean
+
+The inconclusive check answers "did this run happen at all". Coverage answers the
+question after it: **of the object surface you declared, how much could this run
+actually ask about?**
+
+A cross-owner probe — one subject reaching for another subject's object — is the
+only thing that tests BOLA. The planner generates one only when two subjects
+resolve to genuinely *different* objects; when they don't, it drops the probe
+rather than replaying the subject's own request under a different label, which
+would manufacture a pass. That is the right call, but it used to leave no trace:
+a resource nobody probed and a resource probed and found clean both contributed
+`0` to the finding count.
+
+So the run says so, in the summary, on the plan, and in `findings.json`:
+
+```
+ Object resources probed             2/3
+
+note: no cross-owner probe was generated for 1 object resource(s), so this run
+says nothing about BOLA on them:
+  • get_invoice
+  give at least two subjects different objects (an 'objects:' entry, or the
+  owner attribute)
+```
+
+`overstep plan` prints the same note without touching the network, which is where
+it is cheapest to act on. `validate` warns about the matrix-level cause.
+
+Only a probe with a real victim counts. When *nobody* can resolve an object for a
+resource, the planner still emits a request so the endpoint is exercised — but it
+reaches for a default id belonging to no subject, and coverage does not count it.
+
+This is the same principle as the inconclusive check, one level up: reporting the
+absence of a finding is worth something only if you can show the run could have
+seen it.
 
 ### Catching authorization drift
 
