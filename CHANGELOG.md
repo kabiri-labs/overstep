@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.23.0] - 2026-08-11
+
+### Added
+- **`validate` now refuses an untouched scaffold.** `overstep scaffold` writes
+  `PASTE_..._TOKEN` and `REPLACE_ME_1` where a credential and an object id go;
+  `validate` used to answer `ok — matrix is valid` and exit `0` for a file that
+  still contained every one of them. Left in, they do not half-configure a run —
+  they kill it: every credential is rejected, so every expected-allow test fails
+  and every expected-deny test "passes" for the wrong reason. The run was still
+  caught afterwards by the inconclusive guard, but only as "the credentials or
+  the matrix are wrong", after a full pass over the network. The new scan reads
+  the file, so it names the line and what to put there, and `run` prints the same
+  lines before sending its first request. Matching is anchored to the whole
+  value, so a real credential is never rejected for containing those letters, and
+  a `${ENV_VAR}` reference — the fix the message recommends — does not trip it.
+
+### Changed
+- **Validation problems now carry a severity.** Everything used to land in one
+  list, which forced both kinds to be mishandled: `validate` failed on all of
+  them, so a deliberate deny-by-default resource broke a build, while `run`
+  printed all of them as warnings, so a broken reference looked cosmetic. Errors
+  (broken references, undeliverable resources, unfilled placeholders) mean the
+  matrix cannot produce a trustworthy result and exit `1`. Warnings (no policy
+  entry, no two subjects with distinct objects) mean the run happens and its
+  findings are real, but it tests less than its size suggests — they exit `0`,
+  or `1` under the new `--strict`. Errors print first.
+- `Matrix.diagnose()` returns the new `Problem` records; `Matrix.validate_refs()`
+  is unchanged and still returns the same list of plain strings.
+
 ## [0.22.4] - 2026-07-28
 
 ### Fixed

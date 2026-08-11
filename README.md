@@ -2,7 +2,7 @@
 
 **Matrix-driven authorization testing for HTTP APIs and MCP tool-calls.**
 
-![Version](https://img.shields.io/badge/version-0.22.4-blue)
+![Version](https://img.shields.io/badge/version-0.23.0-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -187,10 +187,23 @@ cannot know the answer. Two things to get right:
 overstep validate matrix.yaml
 ```
 
-This catches the structural mistakes that would otherwise produce a confidently
-wrong run — a policy naming an unknown role, an object nobody can resolve, an
-injection pointing at a path parameter that doesn't exist, or subjects that all
-resolve to the same object so no BOLA probe can be generated.
+This catches the mistakes that would otherwise produce a confidently wrong run,
+and separates the two kinds:
+
+- **`error:`** — the matrix cannot produce a trustworthy result. A policy naming
+  an unknown role, an injection pointing at a path parameter that doesn't exist,
+  or a `PASTE_..._TOKEN` / `REPLACE_ME` placeholder left over from `scaffold`.
+  Each one is reported with the line number to edit and what to put there.
+  Exits `1`.
+- **`warning:`** — the run will happen and its findings will be real, but it
+  tests less than its size suggests: a resource with no policy entry (denied by
+  default), or subjects that all resolve to the same object so no BOLA probe can
+  be generated. Exits `0`; pass `--strict` to fail on these too.
+
+Placeholders are worth the loudest of those, because leaving one in does not
+half-configure a run — it kills it. Every credential is rejected, so every
+expected-allow test fails and every expected-deny test "passes" for the wrong
+reason. `run` prints the same lines before it sends its first request.
 
 ### 4. Read the plan before sending anything
 
@@ -860,7 +873,7 @@ which is what keeps waivers distinct from a drift baseline.
 | `overstep run MATRIX` | generate, execute and report; non-zero exit on findings |
 | `overstep snapshot MATRIX` | record current decisions as a drift baseline |
 | `overstep plan MATRIX` | print the generated test cases (no network) |
-| `overstep validate MATRIX` | lint a matrix for structural problems |
+| `overstep validate MATRIX` | lint a matrix for structural problems and unfilled placeholders (`--strict` to fail on warnings) |
 | `overstep scaffold SPEC` | draft a `resources:` block, or a full matrix, from OpenAPI/HAR/MCP |
 | `overstep version` | print the installed version |
 

@@ -17,10 +17,10 @@ The public API mirrors the pipeline stages, so an embedding application can do::
         raise SystemExit(1)
 """
 
-__version__ = "0.22.4"
+__version__ = "0.23.0"
 
 from overstep.auth import authenticate
-from overstep.matrix import Matrix, load_matrix
+from overstep.matrix import Matrix, Problem, Severity, load_matrix
 from overstep.models import Finding, RunResult, VulnClass
 from overstep.pipeline import run_pipeline, write_reports
 from overstep.planner import plan
@@ -28,6 +28,8 @@ from overstep.planner import plan
 __all__ = [
     "__version__",
     "Matrix",
+    "Problem",
+    "Severity",
     "load_matrix",
     "plan",
     "authenticate",
