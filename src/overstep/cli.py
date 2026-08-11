@@ -9,7 +9,7 @@ Commands:
 * ``run``       — generate tests from the matrix, execute them and report.
 * ``snapshot``  — record the current authorization decisions as a drift baseline.
 * ``plan``      — print the generated test cases without touching the network.
-* ``validate``  — check a matrix file for structural problems.
+* ``validate``  — check a matrix file for structural problems and placeholders.
 * ``scaffold``  — emit a starter resources block from an OpenAPI/HAR file.
 """
 from __future__ import annotations
@@ -25,8 +25,9 @@ from overstep import __version__
 from overstep.auth import AuthError
 from overstep.drift import load_snapshot, save_snapshot
 from overstep.fixtures import SetupError
-from overstep.matrix import MatrixError, load_matrix
+from overstep.matrix import Matrix, MatrixError, Problem, Severity, load_matrix
 from overstep.models import Effect, RunHealth, RunResult
+from overstep.placeholders import scan as scan_placeholders
 from overstep.pipeline import (
     InconclusiveRunError,
     PipelineError,
@@ -82,6 +83,17 @@ def _load(matrix_path: str, env_file: Optional[str] = None):
         raise typer.Exit(code=2)
 
 
+def _diagnose(matrix_path: str, spec: Matrix) -> list[Problem]:
+    """Everything wrong with a matrix, from the file and from the model.
+
+    The two scans see different things — only the file has line numbers and
+    unfilled placeholders, only the model has resolved references — so both run,
+    and placeholders lead because they are the ones that stop a run from meaning
+    anything.
+    """
+    return scan_placeholders(matrix_path) + spec.diagnose()
+
+
 def _resolve(spec, override: Optional[str]) -> str:
     try:
         return resolve_base_url(spec, override)
@@ -114,8 +126,13 @@ def run(
     """Run the matrix against a live target and write reports."""
     _validate_fail_on(fail_on)
     spec = _load(matrix, env_file)
-    for problem in spec.validate_refs():
-        console.print(f"[yellow]warning:[/] {problem}")
+    # Said before the first request goes out: an unfilled placeholder makes the
+    # whole run inconclusive, and the file is the only place that says which
+    # line to edit. The run still proceeds — the exit code stays the business of
+    # --fail-on and the health verdict.
+    for problem in _diagnose(matrix, spec):
+        level = "bold red" if problem.severity is Severity.ERROR else "yellow"
+        console.print(f"[{level}]{problem.severity.value}:[/] {problem}")
 
     base_url = _resolve(spec, base)
     snapshot_data = load_snapshot(baseline) if baseline else None
@@ -237,16 +254,34 @@ def plan_cmd(
 @app.command()
 def validate(
     matrix: str = typer.Argument(..., help="Path to the authorization matrix YAML."),
+    strict: bool = typer.Option(
+        False, help="Treat warnings as errors (exit 1 on any problem at all)."
+    ),
 ):
-    """Check a matrix file for structural problems."""
+    """Check a matrix file for structural problems and unfilled placeholders."""
     spec = _load(matrix)
-    problems = spec.validate_refs()
-    if not problems:
-        console.print("[bold green]ok[/] — matrix is valid")
-        raise typer.Exit(code=0)
-    for p in problems:
-        console.print(f"[red]•[/] {p}")
-    raise typer.Exit(code=1)
+    problems = _diagnose(matrix, spec)
+    errors = [p for p in problems if p.severity is Severity.ERROR]
+    warnings = [p for p in problems if p.severity is Severity.WARNING]
+
+    for problem in errors:
+        console.print(f"[bold red]error:[/] {problem}")
+    for problem in warnings:
+        console.print(f"[yellow]warning:[/] {problem}")
+
+    if errors:
+        raise typer.Exit(code=1)
+    if warnings:
+        # Warnings describe a matrix that runs and tests less than it looks
+        # like, not one that is wrong, so they do not fail the check by
+        # default — --strict is there for pipelines that want them to.
+        console.print(
+            f"[bold yellow]ok with {len(warnings)} warning(s)[/] — "
+            f"the matrix runs, but tests less than it appears to"
+        )
+        raise typer.Exit(code=1 if strict else 0)
+    console.print("[bold green]ok[/] — matrix is valid")
+    raise typer.Exit(code=0)
 
 
 @app.command()

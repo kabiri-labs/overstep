@@ -8,6 +8,8 @@ generation, classification, drift — is derived from it.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+from enum import Enum
 from typing import Dict, List, Literal, Optional
 
 import yaml
@@ -35,6 +37,42 @@ _PATH_PARAM_RE = re.compile(r"{([^}]+)}")
 
 class MatrixError(ValueError):
     """Raised when a matrix is structurally invalid."""
+
+
+class Severity(str, Enum):
+    """How much a validation problem matters.
+
+    The distinction exists because the two kinds need opposite handling. An
+    ``ERROR`` means the matrix cannot produce a trustworthy run — a reference
+    that goes nowhere, a resource the transport cannot deliver — so continuing
+    only buys a result nobody should read. A ``WARNING`` means the run will
+    happen and its findings will be real, but it tests less than its size
+    suggests: a dropped BOLA probe still leaves every other probe valid.
+
+    Without the split, one of the two has to be mishandled. Failing on
+    warnings turns a deliberate deny-by-default scaffold into a broken build;
+    passing on errors is the fail-open a security gate cannot have.
+    """
+
+    ERROR = "error"
+    WARNING = "warning"
+
+
+@dataclass(frozen=True)
+class Problem:
+    """One thing wrong with a matrix, and how much it matters.
+
+    ``line`` is set only for problems found by reading the matrix file itself
+    (see :mod:`overstep.placeholders`); the structural checks run against the
+    parsed model, which no longer knows where anything was written.
+    """
+
+    message: str
+    severity: Severity = Severity.ERROR
+    line: Optional[int] = None
+
+    def __str__(self) -> str:
+        return f"line {self.line}: {self.message}" if self.line else self.message
 
 
 class Matrix(BaseModel):
@@ -89,15 +127,20 @@ class Matrix(BaseModel):
             return []
         return sorted({rule.role for rule in pol.allow})
 
-    def _validate_injections(self, res: Resource) -> List[str]:
+    def _validate_injections(self, res: Resource) -> List[Problem]:
         """Check a resource's object-identifier injections for coherence.
 
         Ensures MCP resources use ``mcp_argument`` (and HTTP resources don't),
         that path injections name a real path parameter, and that ownership can
         actually be resolved — an unresolvable default object would make the probe
         silently skip rather than fall back to a placeholder.
+
+        The coherence checks are errors: an injection pointing at a path
+        parameter that does not exist cannot be delivered. The two ownership
+        checks are warnings — the resource is still tested, it just loses its
+        cross-owner probe, which is a smaller matrix rather than a wrong one.
         """
-        problems: List[str] = []
+        problems: List[Problem] = []
         injections = res.effective_injections()
         path_params = (
             set(_PATH_PARAM_RE.findall(res.request.path)) if res.request else set()
@@ -105,19 +148,19 @@ class Matrix(BaseModel):
         for inj in injections:
             is_mcp = inj.location == OwnershipLocation.MCP_ARGUMENT
             if res.transport == "mcp" and not is_mcp:
-                problems.append(
+                problems.append(Problem(
                     f"mcp resource '{res.name}' injection must use location "
                     f"'mcp_argument', not '{inj.location.value}'"
-                )
+                ))
             elif res.transport != "mcp" and is_mcp:
-                problems.append(
+                problems.append(Problem(
                     f"http resource '{res.name}' cannot use an 'mcp_argument' injection"
-                )
+                ))
             if inj.location == OwnershipLocation.PATH and res.request and inj.selector not in path_params:
-                problems.append(
+                problems.append(Problem(
                     f"resource '{res.name}' path injection '{inj.selector}' is not a "
                     f"parameter in path '{res.request.path}'"
-                )
+                ))
 
         # No placeholder for ownership: warn when no subject can supply a value for
         # every injection (whether it reads the default object or an override
@@ -141,74 +184,104 @@ class Matrix(BaseModel):
             resolved = [v for v in map(_object_values, self.subjects) if v is not None]
             if not resolved:
                 attrs = sorted({inj.owner_attr or res.owner_attr for inj in injections})
-                problems.append(
+                problems.append(Problem(
                     f"object resource '{res.name}' has no subject with a resolvable "
                     f"object (add an 'objects:' entry or attribute(s): {', '.join(attrs)}); "
-                    f"ownership probes will be skipped"
-                )
+                    f"ownership probes will be skipped",
+                    Severity.WARNING,
+                ))
             elif len(set(resolved)) < 2:
                 # Every subject that can reach this resource points at the same
                 # object, so an "other" probe would re-send the subject's own
                 # request and prove nothing. The planner drops it; say why.
                 shared = ", ".join(resolved[0])
-                problems.append(
+                problems.append(Problem(
                     f"object resource '{res.name}' has no two subjects with different "
                     f"objects (all resolve to {shared}), so no cross-owner BOLA probe "
-                    f"can be generated; give at least two subjects distinct objects"
-                )
+                    f"can be generated; give at least two subjects distinct objects",
+                    Severity.WARNING,
+                ))
         return problems
 
     def validate_refs(self) -> List[str]:
-        """Return a list of human-readable problems; empty means the matrix is ok."""
-        problems: List[str] = []
+        """Every problem as a plain string, worst first; empty means the matrix is ok.
+
+        Kept as the stable, severity-free view for callers that only want to
+        know whether anything is wrong. Use :meth:`diagnose` to tell an error
+        from a warning.
+        """
+        return [str(p) for p in self.diagnose()]
+
+    def diagnose(self) -> List[Problem]:
+        """Every structural problem with the matrix, errors first.
+
+        Ordering puts errors ahead of warnings so the thing that has to be
+        fixed is the first thing printed, however long the list is.
+        """
+        problems = self._collect_problems()
+        return sorted(problems, key=lambda p: p.severity is not Severity.ERROR)
+
+    def _collect_problems(self) -> List[Problem]:
+        problems: List[Problem] = []
+
+        def error(message: str) -> None:
+            problems.append(Problem(message, Severity.ERROR))
+
+        def warn(message: str) -> None:
+            problems.append(Problem(message, Severity.WARNING))
+
         rmap = self.resource_map()
         subject_names = [s.name for s in self.subjects]
 
         if len(subject_names) != len(set(subject_names)):
-            problems.append("duplicate subject names are not allowed")
+            error("duplicate subject names are not allowed")
         if len(rmap) != len(self.resources):
-            problems.append("duplicate resource names are not allowed")
+            error("duplicate resource names are not allowed")
 
         for name in self.policy:
             if name not in rmap:
-                problems.append(f"policy references unknown resource '{name}'")
+                error(f"policy references unknown resource '{name}'")
 
         from overstep.transports import transport_names
         known_transports = set(transport_names())
         server_names = {s.name for s in self.servers}
         for srv in self.servers:
             if not srv.url and not srv.command:
-                problems.append(f"server '{srv.name}' must set a url (http) or a command (stdio)")
+                error(f"server '{srv.name}' must set a url (http) or a command (stdio)")
         for res in self.resources:
             if res.transport not in known_transports:
-                problems.append(
+                error(
                     f"resource '{res.name}' uses unknown transport '{res.transport}' "
                     f"(known: {', '.join(sorted(known_transports))})"
                 )
             if res.transport == "mcp":
                 if res.call is None:
-                    problems.append(f"mcp resource '{res.name}' must set a 'call'")
+                    error(f"mcp resource '{res.name}' must set a 'call'")
                 elif res.call.server not in server_names:
-                    problems.append(
+                    error(
                         f"mcp resource '{res.name}' references unknown server "
                         f"'{res.call.server}'"
                     )
                 if res.type == ResourceType.OBJECT and not res.is_object_locatable:
-                    problems.append(
+                    error(
                         f"mcp object resource '{res.name}' must set owner_arg or "
                         f"ownership.injections"
                     )
             else:
                 if res.request is None:
-                    problems.append(f"http resource '{res.name}' must set a 'request'")
+                    error(f"http resource '{res.name}' must set a 'request'")
                 if res.type == ResourceType.OBJECT and not res.is_object_locatable:
-                    problems.append(
+                    error(
                         f"object resource '{res.name}' must set owner_param or "
                         f"ownership.injections"
                     )
             problems.extend(self._validate_injections(res))
             if res.name not in self.policy:
-                problems.append(
+                # Deny-by-default is a legitimate stance — the OpenAPI scaffold
+                # takes it deliberately for specs that describe no auth — so an
+                # absent entry over-reports rather than mistests. Worth saying,
+                # not worth failing on.
+                warn(
                     f"resource '{res.name}' has no policy entry (everything will be denied)"
                 )
 
@@ -216,25 +289,25 @@ class Matrix(BaseModel):
         for name, pol in self.policy.items():
             for rule in pol.allow:
                 if rule.role not in known_roles:
-                    problems.append(
+                    error(
                         f"policy for '{name}' allows unknown role '{rule.role}'"
                     )
 
         provider_names = {p.name for p in self.auth.providers}
         for provider in self.auth.providers:
             if provider.type.startswith("oauth2") and not provider.token_url and not provider.discover_from:
-                problems.append(
+                error(
                     f"auth provider '{provider.name}' needs a token_url or discover_from"
                 )
             if provider.discover_from and "://" not in provider.discover_from \
                     and provider.discover_from not in server_names:
-                problems.append(
+                error(
                     f"auth provider '{provider.name}' discover_from references unknown "
                     f"server '{provider.discover_from}'"
                 )
         for subject in self.subjects:
             if subject.auth and subject.auth.provider not in provider_names:
-                problems.append(
+                error(
                     f"subject '{subject.name}' uses unknown auth provider "
                     f"'{subject.auth.provider}'"
                 )
@@ -244,19 +317,19 @@ class Matrix(BaseModel):
             for step in steps:
                 label = step.name or (step.call.tool if step.call else (step.request.path if step.request else "?"))
                 if step.run_as and step.run_as not in subject_set:
-                    problems.append(
+                    error(
                         f"{phase} step '{label}' runs as unknown subject '{step.run_as}'"
                     )
                 if step.call is None and step.request is None:
-                    problems.append(f"{phase} step '{label}' must set a 'request' or a 'call'")
+                    error(f"{phase} step '{label}' must set a 'request' or a 'call'")
                 if step.call is not None and step.call.server not in server_names:
-                    problems.append(
+                    error(
                         f"{phase} step '{label}' references unknown server '{step.call.server}'"
                     )
         for res in self.resources:
             for sub_name in res.objects:
                 if sub_name not in subject_set:
-                    problems.append(
+                    error(
                         f"resource '{res.name}' declares an object for unknown "
                         f"subject '{sub_name}'"
                     )
