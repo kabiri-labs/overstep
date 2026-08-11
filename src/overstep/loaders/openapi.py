@@ -12,6 +12,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import yaml
 
+from overstep.documents import DocumentError, read_yaml
 from overstep.models import Request, Resource, ResourceType
 
 # The operation keys of a path item that are actual HTTP operations.
@@ -44,9 +45,26 @@ def _resource_name(method: str, path: str) -> str:
     return f"{method.lower()}_{slug}"
 
 
+def _read_spec(path: str) -> Dict[str, Any]:
+    """Load a spec as a mapping, or say why it is not one.
+
+    An empty file parses to ``None`` and a bare list parses to a list; both would
+    otherwise fail later with an ``AttributeError`` on ``.get``, blaming the
+    wrong thing.
+    """
+    doc = read_yaml(path, "OpenAPI spec")
+    if doc is None:
+        return {}
+    if not isinstance(doc, dict):
+        raise DocumentError(
+            f"OpenAPI spec '{path}' is not an OpenAPI document (expected a mapping "
+            f"at the top level, found {type(doc).__name__})"
+        )
+    return doc
+
+
 def load_resources(path: str, *, only_get: bool = False) -> List[Resource]:
-    with open(path, "r", encoding="utf-8") as f:
-        doc = yaml.safe_load(f) or {}
+    doc = _read_spec(path)
 
     resources: List[Resource] = []
     for raw_path, item in (doc.get("paths") or {}).items():
@@ -253,8 +271,7 @@ def scaffold_matrix(
 
     Review and tighten the result — it is a starting point, not a source of truth.
     """
-    with open(path, "r", encoding="utf-8") as f:
-        doc = yaml.safe_load(f) or {}
+    doc = _read_spec(path)
 
     documented = _describes_authorization(doc)
     resources = load_resources(path, only_get=only_get)

@@ -12,9 +12,9 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Literal, Optional
 
-import yaml
 from pydantic import BaseModel, Field
 
+from overstep.documents import DocumentError, read_yaml
 from overstep.interpolation import InterpolationError, interpolate
 from overstep.models import (
     AuthConfig,
@@ -337,8 +337,10 @@ class Matrix(BaseModel):
 
 
 def load_matrix(path: str, env=None) -> Matrix:
-    with open(path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
+    try:
+        data = read_yaml(path, "matrix") or {}
+    except DocumentError as exc:
+        raise MatrixError(str(exc)) from exc
     # Resolve ${ENV} references before building the model so secrets stay out of
     # the committed file.
     try:

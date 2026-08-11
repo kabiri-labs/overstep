@@ -18,13 +18,13 @@ admin only). Review and tighten it — it is a starting point, not a source of t
 """
 from __future__ import annotations
 
-import json
 import re
 from typing import Any, Dict, List, Optional
 
 import httpx
 import yaml
 
+from overstep.documents import read_json
 from overstep.transports.mcp import _parse_message
 
 # Argument names that identify an owned object.
@@ -81,8 +81,7 @@ def is_mutating(tool: Dict[str, Any]) -> bool:
 
 def load_tools_from_file(path: str) -> List[Dict[str, Any]]:
     """Read tools from a saved ``tools/list`` response (several shapes accepted)."""
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    data = read_json(path, "MCP tools file")
     if isinstance(data, list):
         return data
     if isinstance(data, dict):
