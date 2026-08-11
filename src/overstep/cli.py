@@ -63,6 +63,27 @@ console = Console()
 err_console = Console(stderr=True)
 
 
+# Set this to anything to silence the "next:" hints.
+NO_HINTS_ENV = "OVERSTEP_NO_HINTS"
+
+
+def _next_step(command: str, why: str) -> None:
+    """Point at the next command on the path from a spec to a first real run.
+
+    The commands are individually clear and collectively a sequence nobody is
+    told: scaffold, fill in, validate, check the target, read the plan, run. A
+    user who stops after any one of them has a file rather than a result, so
+    each step ends by naming the next.
+
+    Written to **stderr** so it never lands in a redirected ``scaffold`` file,
+    and skipped entirely when ``OVERSTEP_NO_HINTS`` is set — a pipeline knows
+    its own next step.
+    """
+    if os.environ.get(NO_HINTS_ENV):
+        return
+    err_console.print(f"[dim]next: {command} — {why}[/]")
+
+
 def _apply_env_file(path: Optional[str]) -> None:
     """Load KEY=VALUE lines from a dotenv file into the process environment."""
     if not path:
@@ -274,6 +295,10 @@ def plan_cmd(
     # The plan is where an unprobed resource is cheapest to fix — before the
     # run, not in the report afterwards.
     _print_unprobed(assess_coverage(spec, cases))
+    _next_step(
+        f"overstep run {matrix} --out out",
+        "send them and report what got through",
+    )
 
 
 @app.command()
@@ -304,7 +329,10 @@ def validate(
         console.print(f"[yellow]warning:[/] {problem}")
 
     if errors:
+        # No "next" here: the errors are the next step, and each already says
+        # what to do about it.
         raise typer.Exit(code=1)
+
     if warnings:
         # Warnings describe a matrix that runs and tests less than it looks
         # like, not one that is wrong, so they do not fail the check by
@@ -313,12 +341,32 @@ def validate(
             f"[bold yellow]ok with {len(warnings)} warning(s)[/] — "
             f"the matrix runs, but tests less than it appears to"
         )
-        raise typer.Exit(code=1 if strict else 0)
-    console.print(
-        "[bold green]ok[/] — matrix is valid"
-        + (" and the target accepted every subject" if live else "")
-    )
-    raise typer.Exit(code=0)
+    else:
+        console.print(
+            "[bold green]ok[/] — matrix is valid"
+            + (" and the target accepted every subject" if live else "")
+        )
+    # After the verdict, not before it: the hint is what to do next, which only
+    # makes sense once the reader knows where they are.
+    _validate_next_step(matrix, live)
+    raise typer.Exit(code=1 if (warnings and strict) else 0)
+
+
+def _validate_next_step(matrix: str, live: bool) -> None:
+    """Where to go once the file itself is no longer the problem.
+
+    A matrix that lints clean is not yet a matrix that will produce anything:
+    the target still has to answer and the credentials still have to work, and
+    ``--live`` is the only step that knows. Once that passes, the plan is the
+    last thing worth reading before requests go out.
+    """
+    if live:
+        _next_step(f"overstep plan {matrix}", "read what will be sent before sending it")
+    else:
+        _next_step(
+            f"overstep validate {matrix} --live",
+            "check the target answers and every credential still works",
+        )
 
 
 @app.command(name="coverage")
@@ -480,6 +528,7 @@ def scaffold(
             tools = load_tools_from_file(spec_file)
 
         typer.echo(scaffold_matrix_from_tools(tools, server_name=server_name, server_url=url))
+        _scaffold_next_step(full_matrix=True)
         return
 
     if with_policy:
@@ -494,6 +543,7 @@ def scaffold(
             err_console.print(f"[yellow]warning:[/] {message}")
 
         typer.echo(scaffold_matrix(spec_file, only_get=only_get, warn=_warn))
+        _scaffold_next_step(full_matrix=True)
         return
 
     if fmt == "openapi":
@@ -505,6 +555,26 @@ def scaffold(
         raise typer.Exit(code=2)
 
     typer.echo(resources_to_yaml(load_resources(spec_file, only_get=only_get)))
+    _scaffold_next_step(full_matrix=False)
+
+
+def _scaffold_next_step(*, full_matrix: bool) -> None:
+    """What to do with the document that just went to stdout.
+
+    A bare ``resources:`` block is not a matrix and cannot be validated on its
+    own, so the two outputs get different instructions — pointing at
+    ``validate`` for a fragment would send the user straight into a parse error.
+    """
+    if not full_matrix:
+        _next_step(
+            "paste this under 'resources:' in your matrix",
+            "it is a fragment: subjects and policy still have to be written",
+        )
+        return
+    _next_step(
+        "overstep validate <file> --strict",
+        "after filling in every PASTE_.../REPLACE_ME... placeholder it left",
+    )
 
 
 @app.command()

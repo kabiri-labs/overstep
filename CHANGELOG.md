@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.27.0] - 2026-08-11
+
+### Added
+- **Each command now names the next one.** `scaffold`, `validate`,
+  `validate --live` and `plan` are individually clear and collectively a
+  sequence nobody is told, so a user who stops after any one of them has a file
+  rather than a result. Each step now ends with a `next:` line pointing at the
+  one after it.
+
+  The hints go to **stderr**, so a redirected `overstep scaffold ... > matrix.yaml`
+  still produces a parseable file, and are suppressed entirely by setting
+  `OVERSTEP_NO_HINTS`.
+
+  Two cases deliberately print nothing. A `validate` that found *errors* names no
+  next step — the errors are the next step, and each already says what to do.
+  And a bare `resources:` block from `scaffold` without `--with-policy` is a
+  fragment, not a matrix, so it points at pasting it into one rather than at
+  `validate`, which would only fail to parse it.
+
+### Changed
+- `validate` prints its verdict before the hint rather than after, so the two
+  streams read in the order they happened. Exit codes are unchanged, including
+  `--strict`.
+
 ## [0.26.0] - 2026-08-11
 
 ### Added
