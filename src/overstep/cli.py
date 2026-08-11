@@ -9,7 +9,8 @@ Commands:
 * ``run``       — generate tests from the matrix, execute them and report.
 * ``snapshot``  — record the current authorization decisions as a drift baseline.
 * ``plan``      — print the generated test cases without touching the network.
-* ``validate``  — check a matrix file for structural problems and placeholders.
+* ``validate``  — check a matrix file for structural problems and placeholders,
+  and with ``--live`` probe the target for reachability and credential liveness.
 * ``scaffold``  — emit a starter resources block from an OpenAPI/HAR file.
 """
 from __future__ import annotations
@@ -29,6 +30,7 @@ from overstep.fixtures import SetupError
 from overstep.matrix import Matrix, MatrixError, Problem, Severity, load_matrix
 from overstep.models import Effect, ProbeCoverage, RunHealth, RunResult
 from overstep.placeholders import scan as scan_placeholders
+from overstep.preflight import check as preflight_check
 from overstep.pipeline import (
     InconclusiveRunError,
     PipelineError,
@@ -93,6 +95,21 @@ def _diagnose(matrix_path: str, spec: Matrix) -> list[Problem]:
     anything.
     """
     return scan_placeholders(matrix_path) + spec.diagnose()
+
+
+def _preflight(spec: Matrix, base: Optional[str], *, verify_tls: bool) -> list[Problem]:
+    """Ask the target the two questions the file cannot answer.
+
+    Setup steps are deliberately not run: they create fixtures and can change
+    state, which a check is not entitled to do. A matrix whose credentials only
+    exist after setup is reported as unverified rather than verified wrongly.
+    """
+    resolved = _resolve(spec, base)
+    try:
+        return preflight_check(spec, resolved, verify_tls=verify_tls)
+    except SetupError as exc:
+        console.print(f"[bold red]error:[/] {exc}")
+        raise typer.Exit(code=2)
 
 
 def _resolve(spec, override: Optional[str]) -> str:
@@ -262,10 +279,19 @@ def validate(
     strict: bool = typer.Option(
         False, help="Treat warnings as errors (exit 1 on any problem at all)."
     ),
+    live: bool = typer.Option(
+        False,
+        help="Also probe the target: is it reachable, and is each subject's credential accepted?",
+    ),
+    base: Optional[str] = typer.Option(None, help="Base URL override (with --live)."),
+    insecure: bool = typer.Option(False, help="Disable TLS verification (with --live)."),
+    env_file: Optional[str] = typer.Option(None, help="dotenv file with ${VAR} values."),
 ):
     """Check a matrix file for structural problems and unfilled placeholders."""
-    spec = _load(matrix)
+    spec = _load(matrix, env_file)
     problems = _diagnose(matrix, spec)
+    if live:
+        problems = problems + _preflight(spec, base, verify_tls=not insecure)
     errors = [p for p in problems if p.severity is Severity.ERROR]
     warnings = [p for p in problems if p.severity is Severity.WARNING]
 
@@ -285,7 +311,10 @@ def validate(
             f"the matrix runs, but tests less than it appears to"
         )
         raise typer.Exit(code=1 if strict else 0)
-    console.print("[bold green]ok[/] — matrix is valid")
+    console.print(
+        "[bold green]ok[/] — matrix is valid"
+        + (" and the target accepted every subject" if live else "")
+    )
     raise typer.Exit(code=0)
 
 

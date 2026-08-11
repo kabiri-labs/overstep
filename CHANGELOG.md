@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.25.0] - 2026-08-11
+
+### Added
+- **`overstep validate --live`** — asks the target the two questions the file
+  cannot answer: is it reachable, and is each subject's credential still
+  accepted? The inconclusive check already judged both, but only afterwards,
+  from a full run's observations, and only as the generic "the credentials or
+  the matrix are wrong". Asked first, the same judgement becomes "alice was
+  denied `GET /users/u1` (HTTP 401)" before any negative test has been sent.
+
+  It works by borrowing the run's own positive controls: an expected-*allow*
+  case is by definition a request the matrix says that subject may make, so
+  sending one and seeing it allowed is the cheapest proof the identity works.
+  One probe per subject.
+
+  The check does not change state. Probes go through the executor with
+  `read_only` set and non-mutating verbs are preferred, so a subject whose only
+  positive control is a `DELETE` is reported as unverifiable rather than
+  verified destructively; setup steps are not run for the same reason. A
+  delivery failure is reported as an unreachable target rather than a bad
+  credential, since a request that never arrived says nothing about the token.
+  Anonymous subjects are not flagged — carrying no credential, having nothing to
+  verify is their normal shape, not a gap.
+
+  `validate` also gained `--base`, `--insecure` and `--env-file`, needed to
+  reach a target the way `run` does.
+
 ## [0.24.0] - 2026-08-11
 
 ### Added

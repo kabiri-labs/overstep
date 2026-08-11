@@ -2,7 +2,7 @@
 
 **Matrix-driven authorization testing for HTTP APIs and MCP tool-calls.**
 
-![Version](https://img.shields.io/badge/version-0.24.0-blue)
+![Version](https://img.shields.io/badge/version-0.25.0-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -205,6 +205,33 @@ Placeholders are worth the loudest of those, because leaving one in does not
 half-configure a run — it kills it. Every credential is rejected, so every
 expected-allow test fails and every expected-deny test "passes" for the wrong
 reason. `run` prints the same lines before it sends its first request.
+
+Two things the file cannot tell you — whether the target answers, and whether
+each credential is still accepted — need the target itself:
+
+```bash
+overstep validate matrix.yaml --live
+```
+
+```
+error: subject 'alice' was denied GET /users/u1 (HTTP 401), which the matrix
+expects to be allowed — its credential is rejected or expired, or the policy is
+wrong; every negative result for it would be meaningless
+```
+
+`--live` sends **one** request per subject: an expected-*allow* case, which is by
+definition a request the matrix says that subject may make, so seeing it allowed
+is the cheapest proof the identity works. This is the same judgement the
+[inconclusive-run check](#inconclusive-runs-the-gate-refuses-to-fail-open) makes
+afterwards, asked first and answered per subject — an expired token becomes
+"alice is rejected" before the run instead of "the credentials or the matrix are
+wrong" after it.
+
+It is side-effect free: probes go out `--read-only`, and non-mutating verbs are
+preferred, so a subject whose only positive control is a `DELETE` is reported as
+unverifiable rather than verified destructively. Setup steps are not run either,
+for the same reason. Anonymous subjects are not flagged — carrying no credential,
+having nothing to verify is their normal shape.
 
 ### 4. Read the plan before sending anything
 
@@ -911,7 +938,7 @@ which is what keeps waivers distinct from a drift baseline.
 | `overstep run MATRIX` | generate, execute and report; non-zero exit on findings |
 | `overstep snapshot MATRIX` | record current decisions as a drift baseline |
 | `overstep plan MATRIX` | print the generated test cases (no network) |
-| `overstep validate MATRIX` | lint a matrix for structural problems and unfilled placeholders (`--strict` to fail on warnings) |
+| `overstep validate MATRIX` | lint a matrix for structural problems and unfilled placeholders (`--live` also probes the target; `--strict` fails on warnings) |
 | `overstep scaffold SPEC` | draft a `resources:` block, or a full matrix, from OpenAPI/HAR/MCP |
 | `overstep version` | print the installed version |
 
