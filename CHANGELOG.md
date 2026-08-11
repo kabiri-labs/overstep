@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.26.0] - 2026-08-11
+
+### Added
+- **`overstep coverage MATRIX [--spec SPEC]`** — reports what the matrix covers,
+  and sends nothing. Two absences make `Vulnerabilities 0` mean less than it
+  looks like, and a finding count can express neither.
+
+  The **API surface** is the outer one: the matrix *is* the specification, so an
+  operation nobody declared is invisible by construction — no run sends it, and
+  nothing in the findings mentions it. Comparing against an independent
+  description of the API is the only way to see it. `--spec` reads OpenAPI
+  (default), HAR (`--fmt har`), or an MCP server / `tools.json` (`--fmt mcp`).
+  Missing operations are listed; so are matrix resources the spec does not
+  mention, which is usually an undocumented endpoint or a stale spec, and
+  occasionally a mistyped path — that one shows up as a gap and a stray at once.
+
+  Matching normalizes away parameter naming, letter case and a trailing slash,
+  so a spec writing `/users/{user_id}` and a matrix writing `/users/{id}` are
+  one operation rather than a phantom gap.
+
+  The **object surface** is the cross-owner probe coverage added in 0.24.0,
+  reported here without needing a run.
+
+  `--fail-under N` exits `1` when either percentage is below `N`, so the number
+  can gate a pipeline rather than only describe one.
+
 ## [0.25.0] - 2026-08-11
 
 ### Added
