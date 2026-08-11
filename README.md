@@ -2,7 +2,7 @@
 
 **Matrix-driven authorization testing for HTTP APIs and MCP tool-calls.**
 
-![Version](https://img.shields.io/badge/version-0.26.0-blue)
+![Version](https://img.shields.io/badge/version-0.27.0-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -145,6 +145,16 @@ pipeline out of the box.
 
 The demo proves the tool runs. This is the part that matters — six steps from a
 spec to a result you can trust.
+
+Each command ends by naming the next one on `stderr`, so the sequence does not
+have to be memorised:
+
+```
+next: overstep validate matrix.yaml --live — check the target answers and every
+credential still works
+```
+
+Set `OVERSTEP_NO_HINTS=1` to switch them off; a pipeline knows its own next step.
 
 ### 1. Draft the matrix
 
