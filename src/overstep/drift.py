@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import Dict, List
 
 from overstep import __version__
+from overstep.documents import read_json
 from overstep.models import Effect, Finding, Observation, TestCase, VulnClass
 
 
@@ -48,8 +49,8 @@ def save_snapshot(snapshot: dict, path: str) -> None:
 
 
 def load_snapshot(path: str) -> dict:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    """Read a drift baseline, raising :class:`DocumentError` if it cannot be."""
+    return read_json(path, "baseline")
 
 
 def diff(baseline: dict, cases: List[TestCase], observations: List[Observation]) -> List[Finding]:

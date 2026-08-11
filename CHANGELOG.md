@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.27.1] - 2026-08-11
+
+### Fixed
+- **A bad input file now fails as a message, not a traceback.** The two most
+  common mistakes with this tool — typing a path that isn't there, and
+  mis-indenting a YAML file — escaped as a raw Python traceback from whichever
+  loader happened to open the file, burying the one useful line under forty
+  lines of overstep's own source. That was the worst diagnostic in the most
+  travelled path, and out of step with the rest of the tool, where an expired
+  token or an unreachable target is explained precisely.
+
+  Reading is now centralized, and every failure to obtain a document names the
+  file, its role in the run, and where the parser stopped:
+
+  ```
+  error: matrix 'matirx.yaml' does not exist
+  error: matrix 'matrix.yaml' is not valid YAML: mapping values are not allowed here (line 18, column 8)
+  error: waivers file 'waivers.yaml' is not valid YAML: ... (line 4, column 3)
+  error: baseline 'baseline.json' is not valid JSON: Expecting value (line 1, column 1)
+  ```
+
+  This covers every file the CLI reads — matrix, OpenAPI spec, HAR capture, MCP
+  tools file, waivers and drift baseline — across `run`, `plan`, `validate`,
+  `coverage`, `snapshot` and `scaffold`. All of them exit `2`, the existing
+  configuration-error code.
+
+  Two shape checks come with it, for documents that parse but are not what was
+  asked for: a spec whose top level is not a mapping, and a HAR file that is not
+  an object, are now named as such instead of failing later on an `AttributeError`.
+
+### Changed
+- `overstep.drift.load_snapshot`, `overstep.loaders.openapi.load_resources` /
+  `scaffold_matrix`, `overstep.loaders.har.load_resources` and
+  `overstep.loaders.mcp.load_tools_from_file` raise `overstep.documents.DocumentError`
+  instead of `OSError` / `yaml.YAMLError` / `json.JSONDecodeError`. It subclasses
+  `ValueError`, so callers already catching `(OSError, ValueError)` are unaffected.
+  `load_matrix` and `load_waivers` keep raising `MatrixError` and `WaiverError`.
+
 ## [0.27.0] - 2026-08-11
 
 ### Added

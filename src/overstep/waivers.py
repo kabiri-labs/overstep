@@ -17,9 +17,9 @@ from __future__ import annotations
 import datetime
 from typing import Dict, List, Optional, Tuple
 
-import yaml
 from pydantic import BaseModel, ValidationError, field_validator
 
+from overstep.documents import DocumentError, read_yaml
 from overstep.models import Finding
 
 
@@ -62,8 +62,10 @@ class Waiver(BaseModel):
 
 def load_waivers(path: str) -> List[Waiver]:
     """Parse a waivers YAML file into a list of :class:`Waiver`."""
-    with open(path, "r", encoding="utf-8") as f:
-        doc = yaml.safe_load(f) or {}
+    try:
+        doc = read_yaml(path, "waivers file") or {}
+    except DocumentError as exc:
+        raise WaiverError(str(exc)) from exc
     raw = doc.get("waivers", doc if isinstance(doc, list) else [])
     if not isinstance(raw, list):
         raise WaiverError("waivers file must contain a 'waivers:' list")

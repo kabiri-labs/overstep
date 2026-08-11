@@ -28,6 +28,7 @@ from overstep import __version__
 from overstep.auth import AuthError
 from overstep.coverage import SpecCoverage, against_spec
 from overstep.coverage import assess as assess_coverage
+from overstep.documents import DocumentError
 from overstep.drift import load_snapshot, save_snapshot
 from overstep.fixtures import SetupError
 from overstep.matrix import Matrix, MatrixError, Problem, Severity, load_matrix
@@ -177,10 +178,10 @@ def run(
         console.print(f"[{level}]{problem.severity.value}:[/] {problem}")
 
     base_url = _resolve(spec, base)
-    snapshot_data = load_snapshot(baseline) if baseline else None
     try:
+        snapshot_data = load_snapshot(baseline) if baseline else None
         waiver_list = load_waivers(waivers) if waivers else None
-    except WaiverError as exc:
+    except (DocumentError, WaiverError) as exc:
         console.print(f"[bold red]error:[/] {exc}")
         raise typer.Exit(code=2)
 
@@ -432,7 +433,11 @@ def _declared_operations(spec: str, fmt: str, only_get: bool, token: Optional[st
                 if spec.startswith(("http://", "https://"))
                 else load_tools_from_file(spec)
             )
-        except Exception as exc:  # network / protocol / parse errors
+        except DocumentError as exc:
+            # Already names the file and what is wrong with it.
+            console.print(f"[bold red]error:[/] {exc}")
+            raise typer.Exit(code=2)
+        except Exception as exc:  # network / protocol errors
             console.print(f"[bold red]error:[/] could not read MCP tools: {exc}")
             raise typer.Exit(code=2)
         # Only the tool name is compared, so a minimal resource is enough.
@@ -447,6 +452,10 @@ def _declared_operations(spec: str, fmt: str, only_get: bool, token: Optional[st
 
     try:
         return load_resources(spec, only_get=only_get)
+    except DocumentError as exc:
+        # Already names the file and what is wrong with it.
+        console.print(f"[bold red]error:[/] {exc}")
+        raise typer.Exit(code=2)
     except (OSError, ValueError) as exc:
         console.print(f"[bold red]error:[/] could not read '{spec}': {exc}")
         raise typer.Exit(code=2)
@@ -525,7 +534,11 @@ def scaffold(
                 raise typer.Exit(code=2)
         else:
             url = server_url or "http://localhost:8000/mcp"
-            tools = load_tools_from_file(spec_file)
+            try:
+                tools = load_tools_from_file(spec_file)
+            except DocumentError as exc:
+                console.print(f"[bold red]error:[/] {exc}")
+                raise typer.Exit(code=2)
 
         typer.echo(scaffold_matrix_from_tools(tools, server_name=server_name, server_url=url))
         _scaffold_next_step(full_matrix=True)
@@ -542,7 +555,12 @@ def scaffold(
         def _warn(message: str) -> None:
             err_console.print(f"[yellow]warning:[/] {message}")
 
-        typer.echo(scaffold_matrix(spec_file, only_get=only_get, warn=_warn))
+        try:
+            document = scaffold_matrix(spec_file, only_get=only_get, warn=_warn)
+        except DocumentError as exc:
+            console.print(f"[bold red]error:[/] {exc}")
+            raise typer.Exit(code=2)
+        typer.echo(document)
         _scaffold_next_step(full_matrix=True)
         return
 
@@ -554,7 +572,12 @@ def scaffold(
         console.print("[bold red]error:[/] --fmt must be 'openapi', 'har' or 'mcp'")
         raise typer.Exit(code=2)
 
-    typer.echo(resources_to_yaml(load_resources(spec_file, only_get=only_get)))
+    try:
+        resources = load_resources(spec_file, only_get=only_get)
+    except DocumentError as exc:
+        console.print(f"[bold red]error:[/] {exc}")
+        raise typer.Exit(code=2)
+    typer.echo(resources_to_yaml(resources))
     _scaffold_next_step(full_matrix=False)
 
 

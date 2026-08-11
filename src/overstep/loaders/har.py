@@ -7,11 +7,11 @@ calls to the same endpoint with different ids fold into one resource.
 """
 from __future__ import annotations
 
-import json
 import re
 from typing import List
 from urllib.parse import urlparse
 
+from overstep.documents import DocumentError, read_json
 from overstep.models import Request, Resource, ResourceType
 
 _NUMERIC = re.compile(r"^[0-9]{2,}$")
@@ -38,8 +38,9 @@ def _resource_name(method: str, path: str) -> str:
 
 
 def load_resources(path: str, *, only_get: bool = False) -> List[Resource]:
-    with open(path, "r", encoding="utf-8") as f:
-        har = json.load(f)
+    har = read_json(path, "HAR file")
+    if not isinstance(har, dict):
+        raise DocumentError(f"HAR file '{path}' is not a HAR document (no 'log' object)")
 
     seen = set()
     resources: List[Resource] = []
