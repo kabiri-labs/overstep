@@ -2,7 +2,7 @@
 
 **Matrix-driven authorization testing for HTTP APIs and MCP tool-calls.**
 
-![Version](https://img.shields.io/badge/version-0.25.0-blue)
+![Version](https://img.shields.io/badge/version-0.26.0-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -837,6 +837,48 @@ Pass `--allow-inconclusive` to report anyway and keep the old exit code.
 recorded against a dead target says "everything is denied", which would report the
 next healthy run as wholesale authorization drift.
 
+### Coverage: what a clean result is allowed to mean
+
+Two different absences make `Vulnerabilities 0` mean less than it looks like, and
+neither shows up in a finding count. `overstep coverage` reports both, and sends
+nothing:
+
+```bash
+overstep coverage matrix.yaml --spec openapi.yaml
+```
+
+```
+              API surface
+ Operations in the spec              140
+ Declared in the matrix       92/140 (66%)
+
+note: 48 operation(s) are in the spec but not in the matrix, so no run says
+anything about them:
+  • POST /orders
+  • DELETE /orders/{id}
+  ...
+
+            Object surface
+ Object resources                     31
+ Probed across owners        28/31 (90%)
+```
+
+The **API surface** is the outer gap. The matrix *is* the specification, so an
+operation nobody declared is invisible by construction — no run sends it, and
+nothing in the findings mentions it. The only way to see it is to compare the
+matrix against an independent description of the API: `--spec` takes OpenAPI
+(default), a HAR capture (`--fmt har`), or an MCP server or `tools.json`
+(`--fmt mcp`).
+
+Parameter *names* are the matrix author's choice, not the API's, so a spec
+writing `/users/{user_id}` and a matrix writing `/users/{id}` match. Resources
+the spec doesn't mention are listed too — usually an undocumented endpoint or a
+stale spec, occasionally a mistyped path, which shows up as one gap and one
+stray.
+
+`--fail-under N` exits `1` when either percentage falls below `N`, so coverage
+can gate a pipeline instead of only describing one.
+
 ### Probe coverage: what a clean result is allowed to mean
 
 The inconclusive check answers "did this run happen at all". Coverage answers the
@@ -938,6 +980,7 @@ which is what keeps waivers distinct from a drift baseline.
 | `overstep run MATRIX` | generate, execute and report; non-zero exit on findings |
 | `overstep snapshot MATRIX` | record current decisions as a drift baseline |
 | `overstep plan MATRIX` | print the generated test cases (no network) |
+| `overstep coverage MATRIX` | report what the matrix covers, vs. `--spec` and vs. its own object surface (no network) |
 | `overstep validate MATRIX` | lint a matrix for structural problems and unfilled placeholders (`--live` also probes the target; `--strict` fails on warnings) |
 | `overstep scaffold SPEC` | draft a `resources:` block, or a full matrix, from OpenAPI/HAR/MCP |
 | `overstep version` | print the installed version |

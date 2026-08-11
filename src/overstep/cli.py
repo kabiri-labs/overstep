@@ -11,6 +11,8 @@ Commands:
 * ``plan``      — print the generated test cases without touching the network.
 * ``validate``  — check a matrix file for structural problems and placeholders,
   and with ``--live`` probe the target for reachability and credential liveness.
+* ``coverage``  — report what the matrix covers, against a spec and against
+  its own object surface. Sends nothing.
 * ``scaffold``  — emit a starter resources block from an OpenAPI/HAR file.
 """
 from __future__ import annotations
@@ -24,6 +26,7 @@ from rich.table import Table
 
 from overstep import __version__
 from overstep.auth import AuthError
+from overstep.coverage import SpecCoverage, against_spec
 from overstep.coverage import assess as assess_coverage
 from overstep.drift import load_snapshot, save_snapshot
 from overstep.fixtures import SetupError
@@ -316,6 +319,129 @@ def validate(
         + (" and the target accepted every subject" if live else "")
     )
     raise typer.Exit(code=0)
+
+
+@app.command(name="coverage")
+def coverage_cmd(
+    matrix: str = typer.Argument(..., help="Path to the authorization matrix YAML."),
+    spec: Optional[str] = typer.Option(
+        None, help="OpenAPI/HAR file, or an MCP server URL / tools.json, to compare against."
+    ),
+    fmt: str = typer.Option("openapi", help="Format of --spec: openapi | har | mcp."),
+    only_get: bool = typer.Option(False, help="Only count GET operations from the spec."),
+    token: Optional[str] = typer.Option(None, help="MCP: bearer token for fetching tools/list."),
+    fail_under: Optional[float] = typer.Option(
+        None,
+        help="Exit 1 if either coverage percentage is below this (0-100).",
+    ),
+    env_file: Optional[str] = typer.Option(None, help="dotenv file with ${VAR} values."),
+):
+    """Report what the matrix covers: the API's operations, and its own object surface.
+
+    Sends nothing. Both numbers bound what a clean run is allowed to claim — an
+    operation the matrix never declared and an object resource it never probed
+    across owners are equally absent from the findings, and equally invisible
+    without this.
+    """
+    if fail_under is not None and not 0 <= fail_under <= 100:
+        console.print("[bold red]error:[/] --fail-under must be between 0 and 100")
+        raise typer.Exit(code=2)
+
+    spec_obj = _load(matrix, env_file)
+    below: list[str] = []
+
+    if spec is not None:
+        result = against_spec(spec_obj, _declared_operations(spec, fmt, only_get, token))
+        _print_spec_coverage(result)
+        if fail_under is not None and result.ratio * 100 < fail_under:
+            below.append(f"API operations {result.ratio:.0%}")
+
+    probe = assess_coverage(spec_obj, plan(spec_obj))
+    _print_probe_coverage(probe)
+    if fail_under is not None and probe.ratio * 100 < fail_under:
+        below.append(f"cross-owner probes {probe.ratio:.0%}")
+
+    if below:
+        console.print(
+            f"[bold red]below --fail-under {fail_under:g}%:[/] {', '.join(below)}"
+        )
+        raise typer.Exit(code=1)
+
+
+def _declared_operations(spec: str, fmt: str, only_get: bool, token: Optional[str]):
+    """Read the API's own description of itself, in whichever form it exists."""
+    if fmt == "openapi":
+        from overstep.loaders.openapi import load_resources
+    elif fmt == "har":
+        from overstep.loaders.har import load_resources
+    elif fmt == "mcp":
+        from overstep.loaders.mcp import fetch_tools, load_tools_from_file
+        from overstep.models import McpCall, Resource
+
+        try:
+            tools = (
+                fetch_tools(spec, token=token)
+                if spec.startswith(("http://", "https://"))
+                else load_tools_from_file(spec)
+            )
+        except Exception as exc:  # network / protocol / parse errors
+            console.print(f"[bold red]error:[/] could not read MCP tools: {exc}")
+            raise typer.Exit(code=2)
+        # Only the tool name is compared, so a minimal resource is enough.
+        return [
+            Resource(name=t["name"], transport="mcp", call=McpCall(server="mcp", tool=t["name"]))
+            for t in tools
+            if t.get("name")
+        ]
+    else:
+        console.print("[bold red]error:[/] --fmt must be 'openapi', 'har' or 'mcp'")
+        raise typer.Exit(code=2)
+
+    try:
+        return load_resources(spec, only_get=only_get)
+    except (OSError, ValueError) as exc:
+        console.print(f"[bold red]error:[/] could not read '{spec}': {exc}")
+        raise typer.Exit(code=2)
+
+
+def _print_spec_coverage(result: SpecCoverage) -> None:
+    """Name the operations no run will ever mention, because none will send them."""
+    table = Table(title="API surface")
+    table.add_column("Metric")
+    table.add_column("Value", justify="right")
+    table.add_row("Operations in the spec", str(result.operations))
+    style = "" if result.complete else "yellow"
+    cell = f"{result.covered}/{result.operations} ({result.ratio:.0%})"
+    table.add_row("Declared in the matrix", f"[{style}]{cell}[/]" if style else cell)
+    console.print(table)
+
+    if result.missing:
+        console.print(
+            f"[yellow]note:[/] {len(result.missing)} operation(s) are in the spec but "
+            f"not in the matrix, so no run says anything about them:"
+        )
+        for label in result.missing:
+            console.print(f"  [yellow]•[/] {label}")
+    if result.extra:
+        # Not necessarily wrong — but a typo'd path looks exactly like this.
+        console.print(
+            f"[dim]note: {len(result.extra)} matrix resource(s) are not in the spec "
+            f"(undocumented endpoint, stale spec, or a mistyped path):[/]"
+        )
+        for label in result.extra:
+            console.print(f"  [dim]• {label}[/]")
+
+
+def _print_probe_coverage(coverage: ProbeCoverage) -> None:
+    table = Table(title="Object surface")
+    table.add_column("Metric")
+    table.add_column("Value", justify="right")
+    table.add_row("Object resources", str(coverage.object_resources))
+    style = "" if coverage.complete else "yellow"
+    cell = f"{coverage.probed}/{coverage.object_resources} ({coverage.ratio:.0%})"
+    table.add_row("Probed across owners", f"[{style}]{cell}[/]" if style else cell)
+    console.print(table)
+    _print_unprobed(coverage)
 
 
 @app.command()
