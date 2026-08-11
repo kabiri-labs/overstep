@@ -422,6 +422,11 @@ class TestCase(BaseModel):
     path_template: str
     path: str
     variant: Variant
+    # For a cross-owner (OTHER) probe: the subject whose object is being reached
+    # for. ``None`` on SELF and NA cases, and also on an OTHER case that has no
+    # victim — one generated for a resource where nobody could resolve an object,
+    # which exercises the endpoint but tests nothing about ownership.
+    victim: Optional[str] = None
     expected: Effect
     resource_type: ResourceType
     required_roles: List[str] = Field(default_factory=list)
@@ -528,6 +533,44 @@ class RunHealth(BaseModel):
         return bool(self.reasons)
 
 
+class ProbeCoverage(BaseModel):
+    """How much of the BOLA surface a run actually reached.
+
+    Every object resource is a place where object-level access control can be
+    missing, but only a *cross-owner* probe can show it: one subject reaching
+    for another subject's object. The planner drops that probe when no two
+    subjects resolve to different objects, because re-sending a subject's own
+    request under the OTHER label would prove nothing — so a matrix can declare
+    an object resource, run it, and never test the thing it was declared for.
+
+    Nothing about that is visible in the finding count, which is exactly the
+    gap: ``Vulnerabilities 0`` reads the same whether the probe ran and found
+    nothing or was never generated. Reporting the absence of a finding is only
+    worth something if the run could have seen it, so the run says how many of
+    its object resources it was actually able to probe.
+
+    The defaults describe a run with no object resources, so a ``RunResult``
+    built without coverage data behaves exactly as before.
+    """
+
+    object_resources: int = 0
+    # Object resources for which at least one real cross-owner probe was planned.
+    probed: int = 0
+    # The ones that were not, by name, so the report can say which to fix.
+    unprobed: List[str] = Field(default_factory=list)
+
+    @property
+    def complete(self) -> bool:
+        return not self.unprobed
+
+    @property
+    def ratio(self) -> float:
+        """Probed share of the object resources; 1.0 when there are none."""
+        if not self.object_resources:
+            return 1.0
+        return self.probed / self.object_resources
+
+
 class RunResult(BaseModel):
     """The full outcome of a run: what we planned, what we saw, what was wrong.
 
@@ -554,6 +597,9 @@ class RunResult(BaseModel):
     # read "no vulnerabilities" as "no vulnerabilities exist". Defaults to a
     # healthy, empty verdict so existing callers are unaffected.
     health: RunHealth = Field(default_factory=RunHealth)
+    # How much of the declared BOLA surface the run was able to probe. "No
+    # findings" over an unprobed resource is not evidence of anything.
+    coverage: ProbeCoverage = Field(default_factory=ProbeCoverage)
 
     @property
     def vulnerabilities(self) -> List[Finding]:

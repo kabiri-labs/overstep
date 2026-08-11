@@ -102,4 +102,9 @@ def summarize(result: RunResult) -> Dict[str, object]:
         # run never reached the target, so the verdict travels with the counts.
         "inconclusive": result.health.inconclusive,
         "inconclusive_reasons": list(result.health.reasons),
+        # "No BOLA findings" is only evidence for the object resources this run
+        # could actually probe across owners; the rest were never asked.
+        "object_resources": result.coverage.object_resources,
+        "object_resources_probed": result.coverage.probed,
+        "object_resources_unprobed": list(result.coverage.unprobed),
     }

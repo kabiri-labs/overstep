@@ -390,9 +390,17 @@ def plan(matrix: Matrix, context: Optional[Dict[str, str]] = None) -> List[TestC
                     if variant == Variant.OTHER and target and target.marker
                     else []
                 )
-                victim = target.name if (multi_victim and target is not None) else None
+                id_victim = target.name if (multi_victim and target is not None) else None
+                # Whose object this probe reaches for. Only an OTHER probe with
+                # a real target is a cross-owner probe: when a subject can
+                # neither locate its own object nor find a peer holding a
+                # different one, _variants still emits an OTHER case so the
+                # resource is exercised, but it reaches for a default id that
+                # belongs to nobody and proves nothing about ownership.
+                victim = target.name if (variant == Variant.OTHER and target) else None
                 common = dict(
-                    id=make_test_id(resource.name, subject.name, variant, victim),
+                    id=make_test_id(resource.name, subject.name, variant, id_victim),
+                    victim=victim,
                     resource=resource.name,
                     subject=subject.name,
                     role=subject.role,
@@ -445,12 +453,13 @@ def plan(matrix: Matrix, context: Optional[Dict[str, str]] = None) -> List[TestC
                         cases.append(
                             TestCase(
                                 id=(
-                                    f"{make_test_id(resource.name, subject.name, variant, victim)}"
+                                    f"{make_test_id(resource.name, subject.name, variant, id_victim)}"
                                     f"::{method}"
                                 ),
                                 resource=resource.name,
                                 subject=subject.name,
                                 role=subject.role,
+                                victim=victim,
                                 transport=resource.transport,
                                 method=method,
                                 path_template=resource.request.path,

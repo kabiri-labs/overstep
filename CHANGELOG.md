@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.24.0] - 2026-08-11
+
+### Added
+- **Runs now report how much of the BOLA surface they could actually probe.**
+  A cross-owner probe is the only thing that tests object-level access control,
+  and the planner generates one only when two subjects resolve to genuinely
+  different objects — otherwise it drops the probe rather than replaying a
+  subject's own request under the OTHER label, which would manufacture a pass.
+  That was right but silent: a resource nobody probed and a resource probed and
+  found clean both contributed `0` to the finding count, so `Vulnerabilities 0`
+  could not be told apart from "the matrix never asked". The summary now carries
+  `Object resources probed n/m`, names the resources a probe was never generated
+  for, and ships the same numbers in `findings.json` under
+  `summary.object_resources{,_probed,_unprobed}`. `overstep plan` prints the note
+  too, without touching the network.
+- **`TestCase.victim`** — the subject whose object a cross-owner probe reaches
+  for. It is what separates a real probe from the victimless OTHER case the
+  planner emits when *nobody* can resolve an object for a resource: that case
+  exercises the endpoint but reaches for a default id belonging to no subject,
+  and counting it would report coverage the run does not have. Test ids are
+  unchanged — the victim suffix stays reserved for `probe_victims: all` — so
+  existing baselines and waivers keep matching.
+
 ## [0.23.0] - 2026-08-11
 
 ### Added

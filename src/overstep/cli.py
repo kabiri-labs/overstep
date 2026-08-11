@@ -23,10 +23,11 @@ from rich.table import Table
 
 from overstep import __version__
 from overstep.auth import AuthError
+from overstep.coverage import assess as assess_coverage
 from overstep.drift import load_snapshot, save_snapshot
 from overstep.fixtures import SetupError
 from overstep.matrix import Matrix, MatrixError, Problem, Severity, load_matrix
-from overstep.models import Effect, RunHealth, RunResult
+from overstep.models import Effect, ProbeCoverage, RunHealth, RunResult
 from overstep.placeholders import scan as scan_placeholders
 from overstep.pipeline import (
     InconclusiveRunError,
@@ -234,10 +235,11 @@ def plan_cmd(
 ):
     """Print the generated test cases without sending any requests."""
     spec = _load(matrix)
+    cases = plan(spec)
     table = Table(title="overstep test plan")
     for col in ("Expected", "Class", "Request", "Subject", "Variant"):
         table.add_column(col)
-    for c in plan(spec):
+    for c in cases:
         if negative_only and c.expected != Effect.DENY:
             continue
         style = "red" if c.expected == Effect.DENY else "green"
@@ -249,6 +251,9 @@ def plan_cmd(
             c.variant.value,
         )
     console.print(table)
+    # The plan is where an unprobed resource is cheapest to fix — before the
+    # run, not in the report afterwards.
+    _print_unprobed(assess_coverage(spec, cases))
 
 
 @app.command()
@@ -372,7 +377,42 @@ def _print_summary(result: RunResult) -> None:
         table.add_row("Waived (accepted)", str(s["waived"]))
     for cls, count in sorted(s["by_class"].items()):
         table.add_row(f"  {cls}", str(count))
+    _add_coverage_row(table, result.coverage)
     console.print(table)
+    _print_unprobed(result.coverage)
+
+
+def _add_coverage_row(table: Table, coverage: ProbeCoverage) -> None:
+    """State the BOLA surface a clean result is allowed to speak for."""
+    if not coverage.object_resources:
+        return
+    style = "" if coverage.complete else "yellow"
+    cell = f"{coverage.probed}/{coverage.object_resources}"
+    table.add_row(
+        "Object resources probed",
+        f"[{style}]{cell}[/]" if style else cell,
+    )
+
+
+def _print_unprobed(coverage: ProbeCoverage) -> None:
+    """Name the resources a cross-owner probe was never generated for.
+
+    Without this, a clean run over a matrix whose subjects all point at the same
+    object is indistinguishable from a clean run that actually tested something.
+    """
+    if coverage.complete:
+        return
+    console.print(
+        f"[yellow]note:[/] no cross-owner probe was generated for "
+        f"{len(coverage.unprobed)} object resource(s), so this run says nothing "
+        f"about BOLA on them:"
+    )
+    for name in coverage.unprobed:
+        console.print(f"  [yellow]•[/] {name}")
+    console.print(
+        "  [dim]give at least two subjects different objects "
+        "(an 'objects:' entry, or the owner attribute)[/]"
+    )
 
 
 def _print_inconclusive(health: RunHealth) -> None:
