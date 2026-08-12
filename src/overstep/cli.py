@@ -520,10 +520,15 @@ def scaffold(
 
     if fmt == "mcp":
         from overstep.loaders.mcp import (
+            fetch_resource_templates,
             fetch_tools,
+            load_resource_templates_from_file,
             load_tools_from_file,
             scaffold_matrix_from_tools,
         )
+
+        def _warn(message: str) -> None:
+            err_console.print(f"[yellow]warning:[/] {message}")
 
         if spec_file.startswith("http://") or spec_file.startswith("https://"):
             url = server_url or spec_file
@@ -532,15 +537,36 @@ def scaffold(
             except Exception as exc:  # network / protocol errors
                 console.print(f"[bold red]error:[/] could not reach MCP server: {exc}")
                 raise typer.Exit(code=2)
+            # A server exposing no resources answers with an error or nothing,
+            # which is the same answer: there is no resource surface to draft.
+            # Not a reason to fail a scaffold whose tool half already succeeded.
+            try:
+                templates = fetch_resource_templates(spec_file, token=token)
+            except Exception:
+                templates = []
         else:
             url = server_url or "http://localhost:8000/mcp"
             try:
                 tools = load_tools_from_file(spec_file)
+                templates = load_resource_templates_from_file(spec_file)
             except DocumentError as exc:
                 console.print(f"[bold red]error:[/] {exc}")
                 raise typer.Exit(code=2)
 
-        typer.echo(scaffold_matrix_from_tools(tools, server_name=server_name, server_url=url))
+        typer.echo(
+            scaffold_matrix_from_tools(
+                tools,
+                server_name=server_name,
+                server_url=url,
+                templates=templates,
+                warn=_warn,
+            )
+        )
+        if not tools and not templates:
+            _warn(
+                "the server listed no tools and no resource templates, so the "
+                "matrix has nothing to test — check the token and the URL"
+            )
         _scaffold_next_step(full_matrix=True)
         return
 

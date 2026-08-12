@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.31.0] - 2026-08-12
+
+### Added
+- **`scaffold --fmt mcp` drafts the resource surface too.** It read `tools/list`
+  and nothing else, so a scaffolded matrix started life with the blind spot
+  0.30.0 exists to close: a server can enforce ownership on every tool and hand
+  the same objects out by URI, and a matrix drafted from the tools alone would
+  never ask. It now also reads `resources/templates/list` and emits a `read:`
+  resource per template.
+
+  The URI placeholder is read the way a tool's arguments already are: an id-like
+  `{doc_id}`, or a lone `{key}`, becomes the `owner_uri` and the resource is
+  object-level. A template with several placeholders and no obvious object among
+  them — `repo://{owner}/{repo}/tree` — gets one `mcp_resource_uri` injection per
+  placeholder, each from its own subject attribute, because every one still has
+  to be filled or the URI goes out with a literal brace in it; which of them is
+  the thing being owned is left to the author. A template with no placeholder
+  addresses one fixed object and is drafted as a `function`.
+
+  Two deliberate omissions. A template using an RFC 6570 operator (`{+path}`,
+  `{?query}`) is reported on stderr and left out, since ownership substitution
+  cannot fill it and the drafted resource would reach for an address that does
+  not exist. Concrete `resources/list` entries are not drafted at all: a fixed
+  URI per object says nothing about which object belongs to whom, so no
+  cross-owner probe can be derived from one.
+
+  A tool and a template may share a name; the second becomes `<name>_resource`
+  rather than overwriting the first. A server exposing no resources still
+  scaffolds its tools, and one exposing neither now says so on stderr instead of
+  emitting an empty matrix silently.
+
+### Fixed
+- The scaffold's own listing calls now send `notifications/initialized` before
+  asking, so a server that enforces the initialization lifecycle answers them
+  instead of refusing — the same conformance gap fixed for the run transport in
+  0.29.2, in the one place that had its own client.
+
 ## [0.30.2] - 2026-08-12
 
 ### Fixed

@@ -137,3 +137,150 @@ def test_scaffold_emits_two_distinct_user_subjects():
     ids = [tuple(sorted(s.get("attributes", {}).items())) for s in users]
     assert ids[0] != ids[1], "both users carry the same placeholder object id"
     assert len({s["token"] for s in users}) == 2
+
+
+# --- resource templates -----------------------------------------------------
+
+_TEMPLATES = [
+    {"uriTemplate": "doc://acme/{doc_id}", "name": "document", "mimeType": "text/plain"},
+    {"uriTemplate": "config://settings", "name": "settings"},
+    {"uriTemplate": "repo://{owner}/{repo}/tree", "name": "tree",
+     "description": "A repository tree"},
+]
+
+
+def test_guess_owner_uri_prefers_an_id_like_placeholder():
+    from overstep.loaders.mcp import guess_owner_uri
+
+    assert guess_owner_uri("doc://acme/{doc_id}") == "doc_id"
+    assert guess_owner_uri("repo://{org_id}/{branch}") == "org_id"
+    # A single placeholder needs no judgement: it is the variable part.
+    assert guess_owner_uri("s3://bucket/{key}") == "key"
+    # Several, none of them an id — the scaffold does not pick a winner.
+    assert guess_owner_uri("repo://{owner}/{repo}/tree") is None
+    assert guess_owner_uri("config://settings") is None
+
+
+def test_operator_templates_are_reported_not_drafted():
+    """Ownership is plain {name} substitution, so an operator cannot be filled."""
+    from overstep.loaders.mcp import has_uri_operator
+
+    assert has_uri_operator("file:///{+path}") is True
+    assert has_uri_operator("search://x{?q,lang}") is True
+    assert has_uri_operator("doc://acme/{doc_id}") is False
+
+    warnings = []
+    doc = yaml.safe_load(scaffold_matrix_from_tools(
+        [], templates=[{"uriTemplate": "file:///{+path}", "name": "file"}],
+        warn=warnings.append,
+    ))
+    assert doc["resources"] == []
+    assert any("RFC 6570 operator" in w for w in warnings)
+
+
+def test_a_template_becomes_a_read_resource():
+    doc = yaml.safe_load(
+        scaffold_matrix_from_tools(_TOOLS, templates=_TEMPLATES, server_name="docs")
+    )
+    by_name = {r["name"]: r for r in doc["resources"]}
+
+    document = by_name["document"]
+    assert document["read"] == {"server": "docs", "uri": "doc://acme/{doc_id}"}
+    assert document["type"] == "object"
+    assert document["owner_uri"] == "doc_id"
+    assert "call" not in document
+    assert doc["policy"]["document"]["allow"][0] == {"role": "user", "scope": "own"}
+
+
+def test_a_template_with_no_placeholder_is_a_function():
+    doc = yaml.safe_load(scaffold_matrix_from_tools([], templates=_TEMPLATES))
+    settings = {r["name"]: r for r in doc["resources"]}["settings"]
+    assert settings["type"] == "function"
+    assert "owner_uri" not in settings and "ownership" not in settings
+
+
+def test_every_placeholder_gets_an_injection_when_none_is_the_object():
+    """Each one still has to be filled, or the URI goes out with a literal brace."""
+    doc = yaml.safe_load(scaffold_matrix_from_tools([], templates=_TEMPLATES))
+    tree = {r["name"]: r for r in doc["resources"]}["tree"]
+    assert tree["ownership"]["injections"] == [
+        {"location": "mcp_resource_uri", "selector": "owner", "owner_attr": "owner"},
+        {"location": "mcp_resource_uri", "selector": "repo", "owner_attr": "repo"},
+    ]
+    attrs = {s["name"]: s.get("attributes", {}) for s in doc["subjects"]}
+    assert set(attrs["user1"]) >= {"owner", "repo"}
+
+
+def test_a_template_sharing_a_tools_name_does_not_replace_it():
+    tools = [{"name": "document", "inputSchema": {"type": "object", "properties": {}}}]
+    doc = yaml.safe_load(scaffold_matrix_from_tools(
+        tools, templates=[{"uriTemplate": "doc://a/{doc_id}", "name": "document"}]
+    ))
+    names = [r["name"] for r in doc["resources"]]
+    assert names == ["document", "document_resource"]
+    assert set(doc["policy"]) == {"document", "document_resource"}
+
+
+def test_the_scaffolded_read_matrix_is_structurally_valid():
+    """Only the placeholder values should be left to fill in."""
+    doc = yaml.safe_load(
+        scaffold_matrix_from_tools(_TOOLS, templates=_TEMPLATES, server_name="docs")
+    )
+    problems = [
+        p for p in Matrix(**doc).validate_refs()
+        if "placeholder" not in p and "no two subjects" not in p
+    ]
+    assert problems == []
+
+
+def test_load_resource_templates_from_file(tmp_path):
+    from overstep.loaders.mcp import load_resource_templates_from_file
+
+    p = tmp_path / "listing.json"
+    p.write_text(json.dumps({"result": {"resourceTemplates": _TEMPLATES}}))
+    assert [t["name"] for t in load_resource_templates_from_file(str(p))] == [
+        "document", "settings", "tree"
+    ]
+    # One capture may hold both listings, and a tools-only one yields no templates.
+    p.write_text(json.dumps({"tools": _TOOLS}))
+    assert load_resource_templates_from_file(str(p)) == []
+
+
+def test_fetch_resource_templates_over_http():
+    from overstep.loaders.mcp import fetch_resource_templates
+
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        msg = json.loads(request.content)
+        seen.append(msg.get("method"))
+        if msg.get("method") == "initialize":
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {}},
+                                  headers={"Mcp-Session-Id": "s1"})
+        if msg.get("method") == "notifications/initialized":
+            return httpx.Response(202)
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": 2,
+                                         "result": {"resourceTemplates": _TEMPLATES}})
+
+    import overstep.loaders.mcp as mod
+
+    orig = httpx.Client
+
+    def factory(*a, **kw):
+        kw["transport"] = httpx.MockTransport(handler)
+        return orig(*a, **kw)
+
+    mod.httpx.Client = factory
+    try:
+        templates = fetch_resource_templates("http://mcp.test/mcp")
+    finally:
+        mod.httpx.Client = orig
+
+    assert [t["name"] for t in templates] == ["document", "settings", "tree"]
+    # The lifecycle is completed, so a server that enforces it answers the listing.
+    assert "notifications/initialized" in seen
+
+
+def test_a_server_with_no_resources_still_scaffolds_its_tools():
+    doc = yaml.safe_load(scaffold_matrix_from_tools(_TOOLS, templates=[]))
+    assert [r["name"] for r in doc["resources"]] == [t["name"] for t in _TOOLS]
