@@ -2,7 +2,7 @@
 
 **Authorization testing for MCP servers. Works on HTTP APIs too.**
 
-![Version](https://img.shields.io/badge/version-0.34.0-blue)
+![Version](https://img.shields.io/badge/version-0.34.1-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -19,10 +19,18 @@ reports every negative test that got through.
                                probes)                         session, drift)
 ```
 
+It answers two questions, and the second is the one you ask forever:
+
+> **What can each role reach today?** — the first run, against the surface you
+> declared.
+>
+> **Did this release change who can access what?** — every run after it, against
+> a [baseline](#authorization-regression-the-question-you-ask-every-release) of
+> the answers you already accepted.
+
 Findings are classified, mapped to **CWE / OWASP API Top 10**, graded by
 **confidence** (did the victim's data actually come back?), and shipped with a
-command that reproduces them. Snapshot the results and CI fails the moment your
-authorization surface **drifts**.
+command that reproduces them.
 
 ---
 
@@ -30,6 +38,7 @@ authorization surface **drifts**.
 
 [Why MCP needs this](#why-mcp-authorization-needs-its-own-tool) ·
 [What it finds](#what-overstep-finds) ·
+[**Regression**](#authorization-regression-the-question-you-ask-every-release) ·
 [What it doesn't do](#what-it-doesnt-do) ·
 [Install](#install) ·
 [**Quickstart**](#quickstart-the-vulnerable-mcp-demo) ·
@@ -91,6 +100,42 @@ scope**. overstep makes that table explicit and tests every cell.
 | **Authorization drift** | a decision that changed since your last release | a cell that flipped deny → allow |
 
 The last four are MCP-specific. The first four apply to MCP and HTTP alike.
+
+## Authorization regression: the question you ask every release
+
+Finding today's holes is the first run. The value that compounds is the run after
+it — because an authorization surface does not usually break by being written
+wrong, it breaks by *changing*. A refactor drops a scope check. A new tool ships
+without an owner check. A role gains a permission in a config nobody reviewed as
+security. Each of those is invisible to a scanner that only asks "is this bad?",
+because nothing about the new state looks anomalous on its own. It is only wrong
+relative to what you agreed to last month.
+
+overstep records the decision the target actually made for every cell, then diffs
+against it:
+
+```bash
+overstep snapshot matrix.yaml --out baseline.json          # once, after triage
+overstep run matrix.yaml --baseline baseline.json --fail-on drift   # every PR
+```
+
+A cell that flipped **deny → allow** is a newly opened hole. **allow → deny** is a
+new restriction — often intended, occasionally an outage you would rather hear
+about from CI than from a customer. Findings that already existed when you took
+the baseline do not fail the build, which is what lets a real system adopt this
+without an impossible green-from-day-one requirement.
+
+Two properties make the diff worth gating on. It is **deterministic** — every
+request is one your matrix asked for, so the same surface produces the same answer
+every run, and a difference is a real difference rather than a scanner changing its
+mind. And the run **refuses to fail open**: if the target was unreachable, the
+credentials were rejected, or the protocol was one overstep could not speak, the
+result is [inconclusive](#inconclusive-runs-the-gate-refuses-to-fail-open) rather
+than a clean bill of health.
+
+Keep `matrix.yaml` and `baseline.json` in version control and authorization gets
+reviewed like any other code. The mechanics — waivers, expiry, `vuln-or-drift` —
+are under [Catching authorization drift](#catching-authorization-drift).
 
 ## What it doesn't do
 
