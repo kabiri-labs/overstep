@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.31.2] - 2026-08-12
+
+### Fixed
+- **A failed listing became an empty surface instead of an error.** Reading the
+  resource half for `coverage --fmt mcp` was wrapped in a bare `except`, on the
+  reasoning that a server without resources should not fail a scan. But a server
+  without resources answers with an error the loader already reads as "none" —
+  so that clause caught nothing it was written for, and swallowed the one thing
+  that mattered: a genuine transport failure.
+
+  The consequence is a false-green gate. The operation count is the denominator
+  `--fail-under` compares against, so a matrix could report 100% coverage of a
+  surface half of which was never read. The failure is now reported like a
+  failure to read the tools, exiting `2`. `scaffold` keeps going — a tools-only
+  draft is still worth having — but says on stderr that the resource half is
+  missing, rather than emitting a matrix silently blind to it.
+
+- **Listings are paginated.** `tools/list` and `resources/templates/list` were
+  read one page deep, so anything behind a `nextCursor` was absent from both the
+  scaffolded matrix and the coverage denominator — letting `--fail-under` pass
+  for a surface that was never counted. Both are now followed to the end,
+  bounded at 20 pages and stopping on a repeated cursor, matching the cap the
+  run transport already applies to its own listing.
+
 ## [0.31.1] - 2026-08-12
 
 ### Changed
