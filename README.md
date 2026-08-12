@@ -42,7 +42,7 @@ authorization surface **drifts**.
 [Running in CI](#running-in-ci) ·
 [Commands](#command-reference) ·
 [Taxonomy](#finding-taxonomy) ·
-[Comparison](#comparison)
+[Where this sits](#where-this-sits)
 
 ---
 
@@ -1091,6 +1091,31 @@ resources:
 
 MCP has no verb, so this is HTTP-only.
 
+### Compared with Burp Autorize / AuthMatrix
+
+For HTTP alone, these are the closest tools, and the honest summary is that they
+are interactive and overstep is declarative. Autorize replays the traffic you
+browse under a second identity, which is excellent for exploration and needs no
+setup; AuthMatrix builds a grid inside a Burp session. Both live where a person
+is driving.
+
+overstep asks you to write the matrix down first, which is more work up front and
+buys four things a session cannot give you:
+
+| | |
+|---|---|
+| **The matrix is a file** | reviewed in a pull request, versioned with the code, and readable by someone who wasn't there |
+| **The same result every run** | no dependence on what you happened to browse, so a diff between two runs means something |
+| **Gating on change** | a [drift baseline](#catching-authorization-drift) fails CI when a decision flips, not on a backlog of known findings; [waivers](#waivers-accepted-risk-without-turning-off-gating) carry accepted risk with an expiry |
+| **It says what it could not test** | the [inconclusive check](#inconclusive-runs-the-gate-refuses-to-fail-open) and [coverage](#coverage-what-a-clean-result-is-allowed-to-mean) refuse to let silence read as safety |
+
+Findings come out as SARIF (CWE/OWASP-tagged, for code scanning) and JUnit, which
+is a packaging difference rather than a capability one, but it is the difference
+between a finding a person reads and a finding a pipeline acts on.
+
+Use both. Autorize while you are exploring an API by hand; overstep once you know
+what the rules are and want them enforced on every pull request.
+
 ### crAPI demo
 
 See [`examples/crapi`](examples/crapi/README.md) to run overstep against OWASP
@@ -1362,20 +1387,32 @@ unchanged. `validate` flags a resource whose transport is not registered. The
 built-ins are `mcp` and `http`; the registry is the seam any further target plugs
 into without changing the core.
 
-## Comparison
+## Where this sits
 
-| Capability | overstep | Burp Autorize / AuthMatrix | Schemathesis |
-|---|---|---|---|
-| MCP tool & resource authorization | ✅ | ❌ | ❌ |
-| MCP protocol probes (audience, session, enumeration) | ✅ | ❌ | ❌ |
-| Authorization matrix as code | ✅ | ⚠️ (per-request, manual) | ❌ |
-| Positive **and** negative tests | ✅ | ⚠️ | ⚠️ |
-| BOLA / BFLA / BOPLA / privesc classification | ✅ | ⚠️ | ❌ |
-| Content-verified findings + repro | ✅ | ⚠️ | ❌ |
-| Drift baselines & waivers for CI | ✅ | ❌ | ❌ |
-| SARIF (CWE/OWASP) + JUnit output | ✅ | ❌ | ⚠️ |
+Several kinds of tool point at an MCP server, and they answer different
+questions. This is a comparison of *approaches* rather than of products, because
+the products move faster than a table can — and because the approach is what
+decides whether a given tool can answer your question at all.
 
-> ⚠️ means possible only with significant manual effort.
+| Approach | Answers | Does not answer |
+|---|---|---|
+| **Static scanning of tool descriptions** | is a tool description malicious or manipulative — tool poisoning, rug pulls, instructions aimed at the agent | whether the server *enforces* anything. It sends no requests, so a server that hands any document to any caller looks identical to one that doesn't |
+| **Gateways and policy proxies** | enforcement on live traffic, in front of the server | what the server itself permits. Everything holds until something reaches the server by another route, and nothing tells you whether it would hold then |
+| **Generic API scanners / DAST** | input handling, transport and injection classes, on an HTTP endpoint | BOLA, because ownership is not in the spec: nothing tells the scanner which object belongs to whom. Most speak HTTP, not JSON-RPC over it |
+| **A script against the MCP SDK** | anything you have time to write | repeatability. It is a point-in-time answer with no baseline, no gate and no record of what it could not reach |
+| **overstep** | whether the server enforces ownership and role on its tools **and** its resources, and whether it obeys the protocol's own rules on credential audience and session binding | tool poisoning, prompt injection, and anything at runtime — it is a test, not a control |
+
+The two halves of that last row are the point. overstep will not tell you a tool
+description is lying to your agent; a description scanner will not tell you the
+server behind it hands `doc://acme/anyone` to whoever asks. They are complements,
+not alternatives.
+
+Against other **authorization** testers specifically — Burp's Autorize and
+AuthMatrix are the closest — the difference is that the matrix is a file rather
+than a session: it is reviewed in a pull request, it produces the same result on
+every run, it fails a pipeline on change rather than on a backlog, and it says
+what it could *not* probe. See [HTTP APIs](#http-apis) for that comparison, since
+neither tool speaks MCP.
 
 ## License
 
