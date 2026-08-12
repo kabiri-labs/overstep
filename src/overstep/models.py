@@ -348,6 +348,11 @@ class AuthProvider(BaseModel):
     # or URL) via Protected Resource Metadata (RFC 9728) + Authorization Server
     # Metadata (RFC 8414), instead of hardcoding token_url.
     discover_from: Optional[str] = None
+    # The authorization server these credentials were registered with. Client
+    # identifiers are unique to the issuer that minted them, so discovery landing
+    # on a different one is refused rather than followed — the MCP server drives
+    # that discovery, and it is the host under test.
+    issuer: Optional[str] = None
     # RFC 8707 resource indicator sent with the token request so the token is
     # audience-bound to the MCP server. Defaults to the discovered resource.
     resource: Optional[str] = None

@@ -30,9 +30,9 @@ def test_prm_candidates_include_origin_and_path():
 
 
 def test_as_metadata_candidates():
-    urls = _as_metadata_candidates("http://host/as")
-    assert "http://host/as/.well-known/oauth-authorization-server" in urls
-    assert "http://host/as/.well-known/openid-configuration" in urls
+    urls = _as_metadata_candidates("https://host/as")
+    assert "https://host/as/.well-known/oauth-authorization-server" in urls
+    assert "https://host/as/.well-known/openid-configuration" in urls
 
 
 # --- a combined OAuth AS + MCP resource server ------------------------------
@@ -47,12 +47,12 @@ class _Backend:
         if path == "/.well-known/oauth-protected-resource":
             return httpx.Response(200, json={
                 "resource": "http://mcp.test/mcp",
-                "authorization_servers": ["http://mcp.test/as"],
+                "authorization_servers": ["https://mcp.test/as"],
             })
         if path == "/as/.well-known/oauth-authorization-server":
             return httpx.Response(200, json={
-                "issuer": "http://mcp.test/as",
-                "token_endpoint": "http://mcp.test/as/token",
+                "issuer": "https://mcp.test/as",
+                "token_endpoint": "https://mcp.test/as/token",
             })
         if path == "/as/.well-known/openid-configuration":
             return httpx.Response(404)
@@ -119,9 +119,9 @@ def test_discover_token_endpoint():
             disc = discover_token_endpoint("http://mcp.test/mcp", client=client)
     finally:
         _unpatch(orig)
-    assert disc.token_endpoint == "http://mcp.test/as/token"
+    assert disc.token_endpoint == "https://mcp.test/as/token"
     assert disc.resource == "http://mcp.test/mcp"
-    assert disc.issuer == "http://mcp.test/as"
+    assert disc.issuer == "https://mcp.test/as"
 
 
 def _oauth_matrix() -> Matrix:

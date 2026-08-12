@@ -2,7 +2,7 @@
 
 **Authorization testing for MCP servers. Works on HTTP APIs too.**
 
-![Version](https://img.shields.io/badge/version-0.33.0-blue)
+![Version](https://img.shields.io/badge/version-0.34.0-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -720,6 +720,7 @@ auth:
     - name: mcp_oauth
       type: oauth2_client_credentials
       discover_from: docs            # the MCP server name (or a URL)
+      issuer: https://login.example.com    # where these credentials are registered
       client_id: "{{client_id}}"     # per-subject via auth.vars
       client_secret: "${CLIENT_SECRET}"
 
@@ -734,6 +735,29 @@ calls — and, because overstep knows what it was bound to, the
 [audience probe](#token-audience-the-credential-that-belongs-somewhere-else)
 follows for free. The interactive authorization-code flow needs a browser and is
 out of scope for an automated tool.
+
+#### Pin the issuer
+
+Discovery starts at the server under test. **That server names its authorization
+server**, whose metadata names the URL your `client_secret` is then posted to — so
+the least trusted host in the picture is choosing where a credential goes. Three
+checks are automatic:
+
+- the authorization server and token endpoint must be **HTTPS** (loopback and
+  `--insecure` excepted, for local rigs);
+- its metadata's `issuer` must be **identical** to the identifier used to build
+  the well-known URL (RFC 8414 §3.3) — this is what stops one authorization server
+  impersonating another;
+- a metadata request must not be **redirected to another origin**.
+
+None of those catches a target that names an authorization server it simply owns
+and describes honestly: nothing about it is inconsistent. `issuer:` is what
+refuses that — client identifiers are unique to the authorization server that
+issued them, so a discovery landing anywhere else is an error rather than a
+fallback. `validate` warns when a provider sends a secret without one.
+
+If you only ever point overstep at servers you operate, the warning is noise and
+you can ignore it. If you point it at anything you are assessing, pin the issuer.
 
 ### Local (stdio) servers
 
