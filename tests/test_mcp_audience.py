@@ -134,6 +134,54 @@ def test_audience_is_inferred_from_a_discovering_auth_provider():
     assert cases[0].audience == "docs"
 
 
+def test_a_credential_in_headers_is_still_a_credential():
+    """The shape `authenticate()` actually leaves behind.
+
+    A provider writes what it obtained into `subject.headers` under its
+    token_header and leaves `token` unset, so a subject that authenticated
+    through the discovered-OAuth flow — the identity this probe exists for — has
+    no `token` at plan time. Reading only `token` generated no probe at all.
+    """
+    m = _two_server_matrix(
+        subjects=[
+            {"name": "alice", "role": "user", "token_audience": "docs",
+             "headers": {"Authorization": "Bearer alice-token"}},   # no `token`
+        ],
+    )
+    assert [c.id for c in _audience_cases(m)] == ["mcp:billing::alice::audience"]
+
+
+def test_a_subject_with_no_credential_at_all_is_not_probed():
+    """A non-secret header is not an identity — X-Tenant authenticates nobody."""
+    m = _two_server_matrix(
+        subjects=[
+            {"name": "nobody", "role": "user", "token_audience": "docs",
+             "headers": {"X-Tenant": "t1"}},
+        ],
+    )
+    assert _audience_cases(m) == []
+
+
+def test_a_server_level_credential_is_dropped_from_the_probe():
+    """Otherwise the target's own key authenticates the call and we report it.
+
+    With a credential declared on `servers[]`, the request would be authorized by
+    something other than the credential under test, and a served `tools/list`
+    would be recorded as the foreign token having been accepted.
+    """
+    m = _two_server_matrix(
+        servers=[
+            {"name": "docs", "url": "http://docs.test/mcp"},
+            {"name": "billing", "url": "http://billing.test/mcp",
+             "headers": {"Authorization": "Bearer billing-gateway-key",
+                         "X-Api-Version": "2"}},
+        ],
+    )
+    inv = _audience_cases(m)[0].mcp
+    assert "Authorization" not in inv.headers
+    assert inv.headers["X-Api-Version"] == "2"      # transport headers stay
+
+
 def test_an_explicit_resource_indicator_is_the_audience():
     """RFC 8707: the resource the token was requested for is what it is bound to."""
     cases = _audience_cases(

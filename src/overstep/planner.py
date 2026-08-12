@@ -27,6 +27,7 @@ from overstep.models import (
     OwnershipLocation,
     Resource,
     ResourceType,
+    SECRET_HEADERS,
     Subject,
     TestCase,
     Variant,
@@ -426,7 +427,7 @@ def _audience_cases(matrix: Matrix, context: Dict[str, str]) -> List[TestCase]:
 
     cases: List[TestCase] = []
     for subject in matrix.subjects:
-        if not subject.token:
+        if not has_credential(subject):
             continue  # nothing to replay
         audience = _declared_audience(matrix, subject)
         if not audience:
@@ -434,7 +435,7 @@ def _audience_cases(matrix: Matrix, context: Dict[str, str]) -> List[TestCase]:
         for server in (s for s in matrix.servers if s.kind == "http"):
             if _same_audience(server, audience):
                 continue
-            inv = _tools_list_invocation(matrix, server, context)
+            inv = _tools_list_invocation(matrix, server, context, sole_credential=True)
             cases.append(
                 _protocol_case(
                     server, subject, Variant.AUDIENCE, inv,
@@ -469,14 +470,45 @@ def _protocol_case(server, subject: Subject, variant: Variant, inv, **fields) ->
     )
 
 
-def _tools_list_invocation(matrix: Matrix, server, context: Dict[str, str], **fields):
-    """A ``tools/list`` invocation against one server, for the protocol probes."""
+def has_credential(subject: Subject) -> bool:
+    """Whether this subject presents anything a server could authenticate it by.
+
+    ``token`` is only one of the two places a credential lives, and often not the
+    one in use. :func:`overstep.auth.authenticate` writes what a provider handed
+    back into ``headers`` under that provider's ``token_header`` and leaves
+    ``token`` unset — which is exactly the discovered-OAuth identity the audience
+    probe exists for — and a custom scheme (an API key header, a session cookie)
+    never populates ``token`` at all. Reading only ``token`` would drop the
+    probes for precisely the subjects most worth probing.
+    """
+    if subject.token:
+        return True
+    return any(key.lower() in SECRET_HEADERS for key in subject.headers)
+
+
+def _tools_list_invocation(
+    matrix: Matrix, server, context: Dict[str, str], *, sole_credential: bool = False, **fields
+):
+    """A ``tools/list`` invocation against one server, for the protocol probes.
+
+    ``sole_credential`` drops any credential the *server* declares in its own
+    headers. A probe that asks whether one particular identity is accepted can
+    only answer that if nothing else in the request could have done the
+    authenticating; leaving a server-level key in place would let it authorize
+    the call and have the result read as acceptance of the credential under test.
+    Other server headers stay — they are transport, not identity, and the probe
+    should look like a real client in every respect but the one being tested.
+    """
+    headers = render(dict(server.headers), context)
+    if sole_credential:
+        headers = {k: v for k, v in headers.items() if k.lower() not in SECRET_HEADERS}
+
     from overstep.models import McpInvocation
 
     return McpInvocation(
         kind="http",
         url=server.url or "",
-        headers=render(dict(server.headers), context),
+        headers=headers,
         protocol_version=server.protocol_version,
         method="tools/list",
         matcher=matrix.mcp_access,
@@ -504,7 +536,7 @@ def _session_cases(matrix: Matrix, context: Dict[str, str]) -> List[TestCase]:
     cases: List[TestCase] = []
     for server in (s for s in matrix.servers if s.kind == "http"):
         for subject in matrix.subjects:
-            if not subject.token and not subject.headers:
+            if not has_credential(subject):
                 continue  # no identity to open a session worth stealing
             identity = dict(subject.headers)
             if subject.token and not any(k.lower() == "authorization" for k in identity):
