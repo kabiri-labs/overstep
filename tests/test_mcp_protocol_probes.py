@@ -349,7 +349,10 @@ def test_the_session_repro_reproduces_the_session_and_not_the_credential():
     finding = next(f for f in result.findings if f.vuln_class == VulnClass.SESSION_HIJACK)
 
     assert "initialize" in finding.curl                      # step 1 opens the session
-    assert "Mcp-Session-Id: $SESSION" in finding.curl        # step 2 rides it
+    assert "Mcp-Session-Id: $OVERSTEP_SESSION" in finding.curl   # step 2 rides it
+    # Double quotes, not single: the shell has to expand the variable, or step 2
+    # sends the literal characters and reproduces nothing.
+    assert '"Mcp-Session-Id: $OVERSTEP_SESSION"' in finding.curl
     assert "alice-token" not in finding.curl                 # never the raw secret
     # The credential appears only on the handshake, never on the request itself.
     step_one, step_two = finding.curl.split("# 2.")

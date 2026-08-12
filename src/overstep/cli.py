@@ -671,7 +671,13 @@ def _print_summary(result: RunResult) -> None:
     table.add_column("Metric")
     table.add_column("Value", justify="right")
     table.add_row("Tests run", str(s["total_tests"]))
-    table.add_row("Positive / negative", f"{s['positive_tests']} / {s['negative_tests']}")
+    # Listing probes are neither controls nor denial checks, so they are named
+    # rather than folded into either — otherwise the row stops adding up to the
+    # total and the count of real positive controls reads higher than it is.
+    counts = f"{s['positive_tests']} / {s['negative_tests']}"
+    if s["listing_tests"]:
+        counts += f" (+{s['listing_tests']} listing)"
+    table.add_row("Positive / negative", counts)
     # One broken endpoint is reported once per identity that reaches it, so the
     # finding count answers "how many probes got through" and the defect count
     # answers "how many things do I have to fix".

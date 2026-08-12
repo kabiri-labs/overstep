@@ -1,5 +1,63 @@
 # Changelog
 
+## [0.32.0] - 2026-08-12
+
+### Changed
+- **The bundled MCP demo now demonstrates the protocol probes too.** The demo
+  server had both transport-level probes switched on and neither had anything to
+  report: `tools/list` was public, so a session id was never what made a request
+  work and the control correctly ruled the finding out; and the matrix left
+  enumeration opt-in and never opted in. The two probes that have no equivalent
+  in an HTTP API scanner were the two the demo did not show.
+
+  The server now issues an `Mcp-Session-Id` only to an authenticated caller and
+  then accepts it *in place of* a credential — the defect the MCP spec names —
+  and requires a credential, but no role, to list. The matrix sets
+  `probe_tool_enumeration: true`. The run reports 16 findings across 7 defects
+  where it reported 9 across 5: 3 × `session-hijack` and 4 × `tool-enumeration`
+  on top of the BOLA and privilege-escalation findings it always had.
+
+  Consequence worth knowing before you hit it: scaffolding or measuring coverage
+  against the demo now needs `--token alice-token`, because listing is no longer
+  anonymous. The README snippets pass one.
+
+  `tests/test_examples_demo.py` runs the demo end to end over ASGI and pins its
+  numbers, since the README publishes them and nothing else would notice them
+  going stale.
+
+- **`Positive / negative` no longer counts enumeration probes as positive.** An
+  enumeration probe is nominally allow-expected, so `summarize` counted it —
+  while the inconclusive check, correctly, does not: its success proves no
+  credential works. The demo turning the probe on made the summary read `12 / 15`
+  where only 8 were controls. They are now counted separately and shown as
+  `8 / 15 (+4 listing)`, with a `listing_tests` field in `findings.json` and its
+  own card in the HTML report, so the three still add up to the total.
+
+### Fixed
+- **A refused listing was read as a server with nothing on it.** `fetch_tools`
+  and `fetch_resource_templates` treated any unreadable listing as "none",
+  because a server without a resource surface answers with an error and that
+  answer is genuinely empty. A `401` answers with an error too. The demo change
+  above made this reachable from the README's own commands: `overstep coverage
+  --spec <url> --fmt mcp --fail-under 100` against a server that refused to list
+  computed `0/0 (100%)` and exited 0 — a gate going green because nothing was
+  measured.
+
+  Only `-32601` — the code that states the method does not exist — is still read
+  as "none", so a server without resources scaffolds its tools exactly as
+  before. Every other refusal, in-band or as an HTTP status, now raises
+  `McpListingError`; `scaffold` and `coverage` already report a failed listing
+  and exit 2.
+
+- **The session-hijack repro sent the literal string `$SESSION`.** Step 2 of the
+  two-step repro carried `Mcp-Session-Id: $SESSION`, single-quoted like any other
+  literal because the variable was not named with the prefix that marks the ones
+  meant to expand. The command ran, the server saw an unknown session id and
+  refused, and the repro for a real finding demonstrated nothing. The variable is
+  now `$OVERSTEP_SESSION`, matching the convention the credential variables
+  already follow, and the test asserts the double quotes rather than only the
+  header.
+
 ## [0.31.3] - 2026-08-12
 
 ### Fixed

@@ -16,6 +16,19 @@ It also serves MCP *resources* at ``doc://acme/{doc_id}`` via ``resources/read``
 with the same missing ownership check — the second door onto the same documents,
 and the reason testing only tools is not enough.
 
+Two more defects live in the protocol layer rather than in any one tool, so that
+the demo exercises the transport-level probes too:
+
+* **session-hijack** — ``initialize`` issues an ``Mcp-Session-Id`` to an
+  authenticated caller, and every later request accepts that id *in place of* a
+  credential. The MCP spec forbids exactly this: session ids travel in headers,
+  and whoever picks one up inherits the identity that opened it.
+* **tool-enumeration** — ``tools/list`` requires a credential but not a role, so
+  every authenticated caller is shown the admin-only tools they may not invoke.
+
+Because listing now requires a credential, scaffolding against this server needs
+one:  ``overstep scaffold mcp --url ... --token alice-token``.
+
 Run it with:  python -m uvicorn examples.mcp_api.server:app --port 9000
 Then:         overstep run examples/mcp_api/matrix.yaml --out out
 """
@@ -75,10 +88,21 @@ _TOOLS = [
 ]
 
 
+# session id -> (subject, role), populated by `initialize`
+_SESSIONS: Dict[str, Any] = {}
+
+
 def _caller(request: Request):
     auth = request.headers.get("authorization", "")
     token = auth[7:] if auth.lower().startswith("bearer ") else ""
-    return _TOKENS.get(token, (None, "anonymous"))
+    if token in _TOKENS:
+        return _TOKENS[token]
+    # The session-binding defect: an `Mcp-Session-Id` is accepted as proof of
+    # identity, so anyone who reads one out of a log or a proxy becomes its owner.
+    session = request.headers.get("mcp-session-id", "")
+    if session in _SESSIONS:
+        return _SESSIONS[session]
+    return (None, "anonymous")
 
 
 def _ok(req_id, result) -> Dict[str, Any]:
@@ -99,7 +123,7 @@ async def mcp(request: Request):
     req_id = msg.get("id")
     method = msg.get("method")
     params = msg.get("params") or {}
-    _, role = _caller(request)
+    subject, role = _caller(request)
 
     if method == "initialize":
         result = {
@@ -107,15 +131,29 @@ async def mcp(request: Request):
             "capabilities": {"tools": {}},
             "serverInfo": {"name": "overstep-demo-mcp", "version": "1"},
         }
-        return JSONResponse(_ok(req_id, result), headers={"Mcp-Session-Id": "demo-session"})
+        # Only a caller who proved who they are gets a session — an anonymous
+        # handshake yields nothing worth stealing. That is what makes the reuse
+        # below a hijack rather than an endpoint that was open all along.
+        headers = {}
+        if subject is not None:
+            session = f"sess-{subject}"
+            _SESSIONS[session] = (subject, role)
+            headers["Mcp-Session-Id"] = session
+        return JSONResponse(_ok(req_id, result), headers=headers)
 
     if method == "notifications/initialized":
         return JSONResponse({"jsonrpc": "2.0", "id": req_id, "result": {}})
 
     if method == "tools/list":
+        if subject is None:
+            return JSONResponse(_err(req_id, -32001, "authentication required"), status_code=401)
+        # Authenticated, but no role check: `list_all_users` and `reset_tenant`
+        # are advertised to everyone, including the users who cannot call them.
         return JSONResponse(_ok(req_id, {"tools": _TOOLS}))
 
     if method == "resources/templates/list":
+        if subject is None:
+            return JSONResponse(_err(req_id, -32001, "authentication required"), status_code=401)
         return JSONResponse(_ok(req_id, {"resourceTemplates": [{
             "uriTemplate": "doc://acme/{doc_id}",
             "name": "document",
@@ -163,7 +201,6 @@ async def mcp(request: Request):
         if name == "create_document":
             # A fixture-creating tool: mint a new document owned by the caller and
             # return its id (used by setup steps to seed real BOLA objects).
-            subject, _ = _caller(request)
             new_id = f"d-{len(_DOCS) + 1}"
             _DOCS[new_id] = {
                 "owner": subject or "anon",

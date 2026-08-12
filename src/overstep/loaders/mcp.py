@@ -171,7 +171,12 @@ def fetch_tools(
     timeout: float = 15.0,
     verify: bool = True,
 ) -> List[Dict[str, Any]]:
-    """Fetch a live MCP server's tools via ``initialize`` + ``tools/list``."""
+    """Fetch a live MCP server's tools via ``initialize`` + ``tools/list``.
+
+    Raises :class:`McpListingError` when the listing was refused rather than
+    empty — most servers require a credential to list, and reading that refusal
+    as "this server has no tools" would turn a blank into a measurement.
+    """
     return _fetch_list(
         url, "tools/list", "tools",
         token=token, headers=headers, protocol_version=protocol_version,
@@ -190,16 +195,54 @@ def fetch_resource_templates(
 ) -> List[Dict[str, Any]]:
     """Fetch a live MCP server's URI templates via ``resources/templates/list``.
 
-    Best-effort: a server exposing no resources answers with a JSON-RPC error or
-    an empty result, and either way the answer is "none". Not supporting the
-    method is not a scaffolding failure — it means there is no resource surface
-    to draft.
+    Best-effort in one direction only: a server that does not implement the
+    method answers ``-32601``, and that really is "none" — there is no resource
+    surface to draft, which is not a scaffolding failure. A refusal is a
+    :class:`McpListingError` like any other listing that could not be read.
     """
     return _fetch_list(
         url, "resources/templates/list", "resourceTemplates",
         token=token, headers=headers, protocol_version=protocol_version,
         timeout=timeout, verify=verify,
     )
+
+
+class McpListingError(RuntimeError):
+    """A listing could not be read — as distinct from a server that has none."""
+
+
+# JSON-RPC's "the method does not exist", the one error that really does mean
+# "there is nothing of this kind here".
+_METHOD_NOT_FOUND = -32601
+
+
+def _refusal(method: str, resp, message) -> None:
+    """Raise unless an unreadable listing genuinely means "none".
+
+    "The server has no tools" and "the server would not tell me" are the same
+    empty list, and the difference decides whether a number is a measurement or a
+    blank. It matters most where the number is a denominator: `coverage
+    --fail-under 100` against a server that answered `401` would compute 0/0 and
+    report the matrix complete, which is precisely the fail-open this project
+    refuses to ship. So the benefit of the doubt goes only to `-32601` — the code
+    that states the method does not exist — and every other refusal is raised.
+    """
+    error = message.get("error") if isinstance(message, dict) else None
+    code = error.get("code") if isinstance(error, dict) else None
+    if isinstance(error, dict) and code == _METHOD_NOT_FOUND:
+        return
+    if resp.status_code >= 400:
+        detail = f"HTTP {resp.status_code}"
+        if isinstance(error, dict) and error.get("message"):
+            detail += f" ({error['message']})"
+        raise McpListingError(f"{method} was refused: {detail}")
+    if isinstance(error, dict):
+        raise McpListingError(
+            f"{method} failed: {error.get('message') or 'JSON-RPC error'} "
+            f"(code {code})"
+        )
+    if not isinstance(message, dict) or "result" not in message:
+        raise McpListingError(f"{method} returned no JSON-RPC result")
 
 
 def _fetch_list(
@@ -264,8 +307,9 @@ def _fetch_list(
             message = _parse_message(resp)
             result = message.get("result") if isinstance(message, dict) else None
             if not isinstance(result, dict):
-                # A server that does not support the method answers with an
-                # error, which is the same answer as "none": there is nothing
+                _refusal(method, resp, message)
+                # Not a refusal, so the server simply does not support the
+                # method — which is the same answer as "none": there is nothing
                 # of this kind to read.
                 break
             page = result.get(result_key)

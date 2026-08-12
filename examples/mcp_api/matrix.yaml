@@ -22,6 +22,12 @@ mcp_access:
   is_error_is_deny: true
   jsonrpc_error_is_deny: true
 
+# The session-binding probe is on by default; enumeration is opt-in, because
+# listing every tool and enforcing at call time is a defensible design. This
+# server is not doing that — it lists the admin-only tools to plain users and
+# then refuses only some of them — so the demo asks for it.
+probe_tool_enumeration: true
+
 subjects:
   - { name: alice, role: user,  token: alice-token, marker: "alice@corp.example", attributes: { doc_id: d-alice } }
   - { name: bob,   role: user,  token: bob-token,   marker: "bob@corp.example",   attributes: { doc_id: d-bob } }
