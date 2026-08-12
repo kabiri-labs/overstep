@@ -1,5 +1,54 @@
 # Changelog
 
+## [0.29.2] - 2026-08-12
+
+### Fixed
+- **A public tool listing could vouch for credentials that had all expired.**
+  Enumeration cases carry `expected: allow`, and the run-health check counted
+  every expected-allow case as a positive control. On a server whose
+  `tools/list` is public, that case is answered with no credential at all — so
+  with `probe_tool_enumeration` enabled, every real tool-call could fail on a
+  rejected token while the enumeration observation kept `health.reasons` empty,
+  and a run that authenticated nobody reported a conclusive `Vulnerabilities 0`.
+  That is the fail-open the health check exists to catch, reintroduced through a
+  case that only looks like a positive control.
+
+  `TestCase.is_positive_control` now names the distinction — an allowed result
+  is evidence about a credential only when the matrix granted *this subject*
+  something — and both the health check and `validate --live` use it.
+
+- **The MCP initialization lifecycle was never completed over HTTP.** The client
+  sent `initialize` and went straight to the next request, without
+  `notifications/initialized`. A server entitled to enforce the lifecycle
+  refuses everything that arrives before it, and that refusal was recorded as a
+  denial: a clean-looking result produced by overstep's own non-conformance
+  rather than by the server's authorization. stdio always sent it; HTTP now does
+  too.
+
+- **A conditional allow rule counted as permission it never granted.** The
+  enumeration check read `required_roles()`, which lists a rule's role
+  regardless of its `condition`. A subject matching the role but failing the
+  condition — one the planner denies — was treated as allowed, so a restricted
+  tool shown to them was reported clean. Permission is now resolved through the
+  planner's own policy evaluation (`grants_access`), which applies conditions and
+  still ignores only ownership scope.
+
+- **A paginated `tools/list` was read one page deep.** Any restricted tool on a
+  later page was absent from `listed_tools` and could not produce a finding.
+  The enumeration probe now follows `nextCursor` and accumulates, bounded at 20
+  pages and stopping on a repeated cursor so a server cannot hold a run open.
+  Only that probe paginates; the audience and session probes need allow/deny,
+  not contents.
+
+- **The session-hijack repro did not reproduce the session hijack.** The generic
+  MCP repro ignored `anonymous` and `handshake_headers` and emitted a single
+  `tools/list` carrying the subject's bearer and no session id — a command that
+  succeeds against a correctly secured server and demonstrates nothing. The
+  finding now carries the two steps the defect actually consists of: open the
+  session as the subject, keep the id the server issued, then send the same
+  request with that id and no credential. `findings.json` gains a `handshake`
+  object alongside the request for the same reason.
+
 ## [0.29.1] - 2026-08-12
 
 ### Fixed

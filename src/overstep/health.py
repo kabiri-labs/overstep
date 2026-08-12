@@ -94,8 +94,10 @@ def assess(
     """Judge whether a run's observations are worth drawing conclusions from."""
     grouped = _group(cases, observations)
     sent_all = [o for o in observations if not o.skipped]
-    expected = {case.id: case.expected for case in cases}
-    positives_all = [o for o in sent_all if expected.get(o.test_id) == Effect.ALLOW]
+    # Only a case whose allowed result would prove the credential works counts;
+    # see TestCase.is_positive_control for the one that looks like it and isn't.
+    controls = {case.id for case in cases if case.is_positive_control}
+    positives_all = [o for o in sent_all if o.test_id in controls]
 
     health = RunHealth(
         executed=len(sent_all),
@@ -117,7 +119,7 @@ def assess(
     for target, pairs in grouped.items():
         prefix = f"{target}: " if label_targets else ""
         sent = [(c, o) for c, o in pairs if not o.skipped]
-        planned_positive = [c for c, _ in pairs if c.expected == Effect.ALLOW]
+        planned_positive = [c for c, _ in pairs if c.is_positive_control]
 
         if not sent:
             health.reasons.append(
@@ -137,7 +139,7 @@ def assess(
             # twice: an unreachable target denies everything by definition.
             continue
 
-        positives = [(c, o) for c, o in sent if c.expected == Effect.ALLOW]
+        positives = [(c, o) for c, o in sent if c.is_positive_control]
         if planned_positive and not positives:
             health.reasons.append(
                 f"{prefix}every expected-allow test was skipped, so nothing proves the "

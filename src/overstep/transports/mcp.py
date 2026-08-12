@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, NamedTuple, Optional
 
 import httpx
 
@@ -33,6 +33,10 @@ from overstep.models import (
 from overstep.transports.base import register
 
 _RETRY_STATUSES = frozenset({429, 503})
+
+# Upper bound on tools/list pages followed for one probe. Generous for any real
+# catalogue, and a hard stop for a server whose cursor never terminates.
+_MAX_LIST_PAGES = 20
 
 
 def mcp_headers(inv: McpInvocation, subject: Subject) -> Dict[str, str]:
@@ -75,19 +79,23 @@ def listed_tool_names(inv: McpInvocation, result: Dict[str, Any]) -> List[str]:
     return [t.get("name", "") for t in tools if isinstance(t, dict) and t.get("name")]
 
 
-def jsonrpc_request(inv: McpInvocation, request_id: int = 2) -> Dict[str, Any]:
+def jsonrpc_request(
+    inv: McpInvocation, request_id: int = 2, cursor: Optional[str] = None
+) -> Dict[str, Any]:
     """The JSON-RPC request body for one invocation.
 
     ``tools/call`` names a tool and its arguments; every other method overstep
     sends (today, ``tools/list``) names neither, so it goes out with empty params
     rather than a ``name: ""`` the server would have to reject for the wrong
-    reason.
+    reason. ``cursor`` continues a paginated listing.
     """
     params: Dict[str, Any] = (
         {"name": inv.tool, "arguments": inv.arguments}
         if inv.method == "tools/call"
         else {}
     )
+    if cursor:
+        params["cursor"] = cursor
     return {"jsonrpc": "2.0", "id": request_id, "method": inv.method, "params": params}
 
 
@@ -127,7 +135,15 @@ def _parse_message(resp: httpx.Response) -> dict:
 async def _initialize(
     client: httpx.AsyncClient, url: str, headers: Dict[str, str], protocol_version: str
 ) -> Optional[str]:
-    """Best-effort MCP initialize; return a session id if the server issues one."""
+    """Best-effort MCP initialize; return a session id if the server issues one.
+
+    The lifecycle is not finished until the client sends
+    ``notifications/initialized``, and a server is entitled to refuse everything
+    that arrives before it. stdio has always sent that notification; over HTTP it
+    was missing, so a strict server would reject the request that followed and
+    the refusal would be recorded as a denial — a clean-looking result produced
+    by our own non-conformance rather than by the server's authorization.
+    """
     payload = {
         "jsonrpc": "2.0",
         "id": 1,
@@ -142,7 +158,22 @@ async def _initialize(
         resp = await client.post(url, json=payload, headers=headers)
     except httpx.HTTPError:
         return None
-    return resp.headers.get("mcp-session-id")
+    session = resp.headers.get("mcp-session-id")
+    if resp.status_code >= 400:
+        # The handshake was refused; announcing initialization would be a second
+        # request making the same point.
+        return session
+
+    notified = dict(headers)
+    if session:
+        notified["Mcp-Session-Id"] = session
+    try:
+        await client.post(
+            url, json={"jsonrpc": "2.0", "method": "notifications/initialized"}, headers=notified
+        )
+    except httpx.HTTPError:
+        pass
+    return session
 
 
 async def _handshake(
@@ -167,9 +198,10 @@ async def _post(
     *,
     max_retries: int,
     backoff_base: float,
+    cursor: Optional[str] = None,
 ) -> httpx.Response:
     """Send one JSON-RPC request, retrying the statuses worth retrying."""
-    payload = jsonrpc_request(inv)
+    payload = jsonrpc_request(inv, cursor=cursor)
     for attempt in range(max_retries + 1):
         resp = await client.post(inv.url, json=payload, headers=headers)
         if resp.status_code in _RETRY_STATUSES and attempt < max_retries:
@@ -179,8 +211,17 @@ async def _post(
     return resp
 
 
-def _read(inv: McpInvocation, resp: httpx.Response):
-    """Turn one response into (effect, text, listed tools, error message)."""
+class Reading(NamedTuple):
+    """One response, interpreted."""
+
+    effect: Effect
+    text: str
+    listed: List[str]
+    error: Optional[str]
+    next_cursor: Optional[str]
+
+
+def _read(inv: McpInvocation, resp: httpx.Response) -> Reading:
     message = _parse_message(resp)
     error = message.get("error") if isinstance(message, dict) else None
     result = message.get("result") if isinstance(message, dict) else None
@@ -193,12 +234,56 @@ def _read(inv: McpInvocation, resp: httpx.Response):
         text=text,
         status=resp.status_code,
     )
-    return (
+    cursor = result.get("nextCursor")
+    return Reading(
         effect,
         text,
         listed_tool_names(inv, result),
         error.get("message") if isinstance(error, dict) else None,
+        cursor if isinstance(cursor, str) and cursor else None,
     )
+
+
+async def _read_all_pages(
+    client: httpx.AsyncClient,
+    inv: McpInvocation,
+    headers: Dict[str, str],
+    first: Reading,
+    *,
+    max_retries: int,
+    backoff_base: float,
+) -> List[str]:
+    """Every tool across a paginated listing, starting from the first page.
+
+    Bounded: a server that keeps handing back a cursor — by fault or by design —
+    must not be able to hold a run open indefinitely. Stopping early under-reports
+    rather than hanging, which is the safer of the two failures for a step that
+    only ever adds names to a list.
+    """
+    listed = list(first.listed)
+    cursor = first.next_cursor
+    seen = {cursor} if cursor else set()
+    for _ in range(_MAX_LIST_PAGES):
+        if not cursor:
+            break
+        try:
+            page = _read(
+                inv,
+                await _post(
+                    client, inv, headers, cursor=cursor,
+                    max_retries=max_retries, backoff_base=backoff_base,
+                ),
+            )
+        except httpx.HTTPError:
+            break
+        if page.effect != Effect.ALLOW:
+            break
+        listed.extend(page.listed)
+        cursor = page.next_cursor
+        if cursor in seen:  # a server cycling its own cursor
+            break
+        seen.add(cursor)
+    return listed
 
 
 async def _session_probe(
@@ -247,15 +332,16 @@ async def _session_probe(
             client, inv, {**headers, "Mcp-Session-Id": session},
             max_retries=max_retries, backoff_base=backoff_base,
         )
-        rode_session, text, listed, error = _read(inv, with_session)
+        ridden = _read(inv, with_session)
+        rode_session, text, listed, error = ridden.effect, ridden.text, ridden.listed, ridden.error
         if rode_session == Effect.ALLOW:
-            control, _, _, _ = _read(
+            control = _read(
                 inv,
                 await _post(
                     client, inv, headers,
                     max_retries=max_retries, backoff_base=backoff_base,
                 ),
-            )
+            ).effect
         else:
             # Nothing got through even with the session, so the control cannot
             # change the verdict and is not worth a request.
@@ -338,7 +424,14 @@ async def _call(
             )
 
         elapsed = (time.perf_counter() - started) * 1000
-        effect, text, listed, error = _read(inv, resp)
+        reading = _read(inv, resp)
+        listed = reading.listed
+        if inv.paginate and reading.effect == Effect.ALLOW and reading.next_cursor:
+            listed = await _read_all_pages(
+                client, inv, headers, reading,
+                max_retries=max_retries, backoff_base=backoff_base,
+            )
+        effect, text, error = reading.effect, reading.text, reading.error
         matched = [m for m in case.expect_markers if m and m in text]
         return Observation(
             test_id=case.id,

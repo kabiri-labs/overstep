@@ -223,6 +223,142 @@ def test_listed_tools_are_recorded_on_the_observation():
     assert obs.listed_tools == ["read_document", "reset_tenant", "undeclared_tool"]
 
 
+def test_a_public_listing_does_not_vouch_for_expired_credentials():
+    """The fail-open the health check exists to catch, reintroduced sideways.
+
+    Enumeration cases expect allow, so a public `tools/list` answered with no
+    credential at all could satisfy the run's positive control. Every real call
+    then fails on a rejected token, `health.reasons` stays empty, and a run that
+    authenticated nobody reports a conclusive clean result.
+    """
+    def all_credentials_rejected(request: httpx.Request) -> httpx.Response:
+        msg = json.loads(request.content)
+        method, req_id = msg.get("method"), msg.get("id")
+        if method == "initialize":
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": req_id, "result": {}},
+                                  headers={"Mcp-Session-Id": _SESSION})
+        if method == "tools/list":                       # public
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": req_id,
+                                             "result": {"tools": _ALL_TOOLS}})
+        return httpx.Response(401, json={"detail": "token expired"})
+
+    result = _run(_matrix(probe_tool_enumeration=True), all_credentials_rejected)
+    assert result.health.inconclusive, (
+        "no credential was accepted, so the run proved nothing — a public listing "
+        "must not stand in as the positive control"
+    )
+
+
+def test_the_initialization_lifecycle_is_completed_over_http():
+    """A server entitled to enforce the lifecycle must not refuse us for our own
+    non-conformance, which would look exactly like a denial."""
+    seen = []
+
+    def strict(request: httpx.Request) -> httpx.Response:
+        msg = json.loads(request.content)
+        method, req_id = msg.get("method"), msg.get("id")
+        seen.append(method)
+        if method == "initialize":
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": req_id, "result": {}},
+                                  headers={"Mcp-Session-Id": _SESSION})
+        if method == "notifications/initialized":
+            return httpx.Response(202)
+        if "notifications/initialized" not in seen:
+            return httpx.Response(400, json={"detail": "not initialized"})
+        return httpx.Response(200, json={
+            "jsonrpc": "2.0", "id": req_id,
+            "result": {"content": [{"type": "text", "text": "{}"}], "isError": False},
+        })
+
+    _run(_matrix(probe_session_binding=False), strict)
+    assert "notifications/initialized" in seen
+
+
+def test_a_conditional_grant_the_subject_fails_is_not_a_grant():
+    """Role alone is not permission when the rule carries a condition."""
+    m = _matrix(
+        probe_tool_enumeration=True,
+        subjects=[{"name": "alice", "role": "user", "token": "alice-token",
+                   "attributes": {"tenant": "external"}}],
+        policy={
+            "read_document": {"allow": [{"role": "user"}]},
+            # alice matches the role but not the condition, so the planner denies
+            # her — the listing must be read the same way.
+            "reset_tenant": {"allow": [
+                {"role": "user", "condition": "subject.tenant == 'internal'"},
+            ]},
+        },
+    )
+    result = _run(m, _server(session_is_auth=False))
+    assert [f.test_id for f in result.findings if f.vuln_class == VulnClass.TOOL_ENUMERATION] == [
+        "mcp:docs::alice::enumerate::reset_tenant"
+    ]
+
+
+def test_a_restricted_tool_on_a_later_page_is_still_found():
+    """A paginated listing must be followed, or page two is silently clean."""
+    pages = {
+        None: {"tools": [{"name": "read_document"}], "nextCursor": "p2"},
+        "p2": {"tools": [{"name": "undeclared_tool"}], "nextCursor": "p3"},
+        "p3": {"tools": [{"name": "reset_tenant"}]},
+    }
+
+    def paginated(request: httpx.Request) -> httpx.Response:
+        msg = json.loads(request.content)
+        method, req_id = msg.get("method"), msg.get("id")
+        if method == "initialize":
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": req_id, "result": {}},
+                                  headers={"Mcp-Session-Id": _SESSION})
+        if method == "notifications/initialized":
+            return httpx.Response(202)
+        cursor = (msg.get("params") or {}).get("cursor")
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": req_id, "result": pages[cursor]})
+
+    result = _run(_matrix(probe_tool_enumeration=True, probe_session_binding=False), paginated)
+    obs = next(o for o in result.observations if o.test_id == "mcp:docs::alice::enumerate")
+    assert obs.listed_tools == ["read_document", "undeclared_tool", "reset_tenant"]
+    # reset_tenant is only on page three; without pagination alice reads clean.
+    assert [
+        f.test_id for f in result.findings
+        if f.vuln_class == VulnClass.TOOL_ENUMERATION and f.subject == "alice"
+    ] == ["mcp:docs::alice::enumerate::reset_tenant"]
+
+
+def test_a_cyclic_cursor_does_not_hang_the_run():
+    """A server whose cursor never terminates must not hold a run open."""
+    def looping(request: httpx.Request) -> httpx.Response:
+        msg = json.loads(request.content)
+        method, req_id = msg.get("method"), msg.get("id")
+        if method == "initialize":
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": req_id, "result": {}})
+        if method == "notifications/initialized":
+            return httpx.Response(202)
+        return httpx.Response(200, json={
+            "jsonrpc": "2.0", "id": req_id,
+            "result": {"tools": [{"name": "read_document"}], "nextCursor": "always"},
+        })
+
+    result = _run(_matrix(probe_tool_enumeration=True, probe_session_binding=False), looping)
+    obs = next(o for o in result.observations if o.test_id == "mcp:docs::alice::enumerate")
+    assert 0 < len(obs.listed_tools) <= 21     # bounded, not unbounded
+
+
+def test_the_session_repro_reproduces_the_session_and_not_the_credential():
+    """A repro that adds the token back succeeds against a secure server."""
+    result = _run(_matrix(), _server(session_is_auth=True))
+    finding = next(f for f in result.findings if f.vuln_class == VulnClass.SESSION_HIJACK)
+
+    assert "initialize" in finding.curl                      # step 1 opens the session
+    assert "Mcp-Session-Id: $SESSION" in finding.curl        # step 2 rides it
+    assert "alice-token" not in finding.curl                 # never the raw secret
+    # The credential appears only on the handshake, never on the request itself.
+    step_one, step_two = finding.curl.split("# 2.")
+    assert "OVERSTEP_TOKEN_ALICE" in step_one
+    assert "Authorization" not in step_two
+    assert finding.request["handshake"]["method"] == "initialize"
+    assert "Authorization" not in finding.request["headers"]
+
+
 def test_a_long_catalogue_survives_body_truncation():
     """The snippet is capped at 2048 chars; the tool list must not be read from it."""
     many = [{"name": f"tool_{i}", "description": "x" * 200} for i in range(60)]

@@ -2,7 +2,7 @@
 
 **Matrix-driven authorization testing for HTTP APIs and MCP tool-calls.**
 
-![Version](https://img.shields.io/badge/version-0.29.1-blue)
+![Version](https://img.shields.io/badge/version-0.29.2-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -872,12 +872,22 @@ probe_tool_enumeration: true
 ```
 
 It calls `tools/list` as each subject and compares what came back against the
-policy you already wrote: a tool declared as a resource, listed to a subject with
-no allow rule for it, is reported as `tool-enumeration` (medium). Two deliberate
-silences — a tool the matrix doesn't declare is *undescribed* rather than
-disallowed, which is [coverage](#coverage-what-a-clean-result-is-allowed-to-mean)'s
+policy you already wrote: a tool declared as a resource that this subject may not
+invoke is reported as `tool-enumeration` (medium). Permission is resolved the way
+the planner resolves it, so an allow rule whose `condition` the subject fails is
+not a grant; only ownership scope is ignored, since a listing says nothing about
+which objects a call would reach. A paginated listing is followed to the end
+(bounded at 20 pages), because a restricted tool on page two is exactly the one
+worth reporting.
+
+Two deliberate silences — a tool the matrix doesn't declare is *undescribed*
+rather than disallowed, which is [coverage](#coverage-what-a-clean-result-is-allowed-to-mean)'s
 gap to report; and a subject that cannot list at all has nothing to disclose, so
-its refusal is not reported as an over-restriction.
+its refusal is not reported as an over-restriction. An enumeration probe is also
+never counted as a positive control for the
+[inconclusive check](#inconclusive-runs-the-gate-refuses-to-fail-open): a public
+listing answers with no credential at all, and letting it vouch for one would let
+a run where every token had expired report itself clean.
 
 ### Local (stdio) MCP servers
 
