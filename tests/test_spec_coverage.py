@@ -157,6 +157,34 @@ def test_mcp_resources_are_matched_by_tool_name():
     assert result.extra == []
 
 
+def test_mcp_resource_reads_are_matched_by_uri_shape():
+    """A declared read must not be reported as a stray against its own server.
+
+    The two sides name the URI placeholder independently — the server's template
+    says `{doc_id}`, the matrix may say `{id}` — so they are compared by shape,
+    the way a path is.
+    """
+    from overstep.models import McpResourceRead
+
+    m = Matrix(
+        subjects=[{"name": "a", "role": "user", "token": "t"}],
+        servers=[{"name": "mcp", "url": "http://t/mcp"}],
+        resources=[Resource(name="doc", transport="mcp",
+                            read=McpResourceRead(server="mcp", uri="doc://acme/{id}"))],
+        policy={"doc": {"allow": [{"role": "user"}]}},
+    )
+    declared = [
+        Resource(name="doc", transport="mcp",
+                 read=McpResourceRead(server="s", uri="doc://acme/{doc_id}")),
+        Resource(name="other", transport="mcp",
+                 read=McpResourceRead(server="s", uri="note://{note_id}")),
+    ]
+    result = against_spec(m, declared)
+
+    assert result.missing == ["resource note://{note_id}"]
+    assert result.extra == []
+
+
 # --- CLI --------------------------------------------------------------------
 
 MATRIX = """

@@ -424,15 +424,17 @@ def _declared_operations(spec: str, fmt: str, only_get: bool, token: Optional[st
     elif fmt == "har":
         from overstep.loaders.har import load_resources
     elif fmt == "mcp":
-        from overstep.loaders.mcp import fetch_tools, load_tools_from_file
-        from overstep.models import McpCall, Resource
+        from overstep.loaders.mcp import (
+            fetch_resource_templates,
+            fetch_tools,
+            load_resource_templates_from_file,
+            load_tools_from_file,
+        )
+        from overstep.models import McpCall, McpResourceRead, Resource
 
+        live = spec.startswith(("http://", "https://"))
         try:
-            tools = (
-                fetch_tools(spec, token=token)
-                if spec.startswith(("http://", "https://"))
-                else load_tools_from_file(spec)
-            )
+            tools = fetch_tools(spec, token=token) if live else load_tools_from_file(spec)
         except DocumentError as exc:
             # Already names the file and what is wrong with it.
             console.print(f"[bold red]error:[/] {exc}")
@@ -440,12 +442,32 @@ def _declared_operations(spec: str, fmt: str, only_get: bool, token: Optional[st
         except Exception as exc:  # network / protocol errors
             console.print(f"[bold red]error:[/] could not read MCP tools: {exc}")
             raise typer.Exit(code=2)
-        # Only the tool name is compared, so a minimal resource is enough.
-        return [
+        # Both halves of the surface, or a matrix that correctly declares a
+        # resource-read would be reported as a stray against its own server.
+        try:
+            templates = (
+                fetch_resource_templates(spec, token=token)
+                if live
+                else load_resource_templates_from_file(spec)
+            )
+        except Exception:
+            templates = []
+        # Only the tool name / URI shape is compared, so a minimal resource is enough.
+        declared = [
             Resource(name=t["name"], transport="mcp", call=McpCall(server="mcp", tool=t["name"]))
             for t in tools
             if t.get("name")
         ]
+        declared += [
+            Resource(
+                name=tpl.get("name") or tpl["uriTemplate"],
+                transport="mcp",
+                read=McpResourceRead(server="mcp", uri=tpl["uriTemplate"]),
+            )
+            for tpl in templates
+            if tpl.get("uriTemplate")
+        ]
+        return declared
     else:
         console.print("[bold red]error:[/] --fmt must be 'openapi', 'har' or 'mcp'")
         raise typer.Exit(code=2)

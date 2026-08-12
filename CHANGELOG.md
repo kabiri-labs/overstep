@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.31.1] - 2026-08-12
+
+### Changed
+- **The README leads with MCP.** The tool's centre of gravity moved there — tools
+  and resources, the token-audience, session-binding and tool-enumeration probes,
+  MCP-aware scaffolding — while the document still opened on an HTTP quickstart
+  and reached MCP two thirds of the way down. It is reorganised around what the
+  tool is now for:
+
+  - a new opening section on *why MCP authorization needs its own tool* — no
+    `403`, a surface wider than the tool list, and protocol rules that no test of
+    your own policy can cover;
+  - the quickstart is the vulnerable **MCP** demo, and the six-step "point it at
+    your own server" walkthrough starts from an MCP scaffold;
+  - the matrix example and the plan expansion are MCP;
+  - the MCP material — tools, resources, the three protocol probes, OAuth, stdio,
+    the allow/deny matcher — is gathered under one **MCP surface** section
+    instead of being scattered across six subsections;
+  - **HTTP APIs** keeps everything it had (OpenAPI/HAR scaffolding, the response
+    matcher, cross-method probing, the crAPI demo) in one clearly second-priority
+    section;
+  - the two sections both titled *"…what a clean result is allowed to mean"* are
+    merged into one, as the outer gap (what the matrix never declared) and the
+    inner gap (what the run could not ask about);
+  - a five-command orientation table, a matrix-switch reference, and a
+    protocol-probe summary table were added for people who want the shape before
+    the prose.
+
+### Fixed
+- **`coverage --fmt mcp` compares the resource surface too.** It read only
+  `tools/list`, so a matrix that correctly declared a `read:` was reported as a
+  stray against its own server — "an undocumented operation or a stale spec" for
+  something that was neither. It now reads `resources/templates/list` as well,
+  matching each URI by shape so the two sides may name the placeholder
+  differently, exactly as paths are already compared.
+
 ## [0.31.0] - 2026-08-12
 
 ### Added
