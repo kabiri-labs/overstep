@@ -40,6 +40,8 @@ def _classify_violation(matrix: Matrix, case: TestCase) -> VulnClass:
     # the policy could say.
     if case.variant == Variant.AUDIENCE:
         return VulnClass.TOKEN_AUDIENCE
+    if case.variant == Variant.SESSION:
+        return VulnClass.SESSION_HIJACK
 
     subject_rank = matrix.role_rank(case.role)
     required_rank = _min_required_rank(matrix, case)
@@ -98,15 +100,33 @@ def _audience_confidence(obs: Observation) -> str:
     reporting that as proof would be the same guess-from-status the marker oracle
     exists to avoid.
     """
-    snippet = obs.body_snippet or ""
-    try:
-        result = json.loads(snippet)
-    except ValueError:
-        # The snippet is truncated, and only a populated catalogue is long
-        # enough for that; an empty result parses.
-        return "confirmed" if snippet else "suspected"
-    tools = result.get("tools") if isinstance(result, dict) else None
-    return "confirmed" if isinstance(tools, list) and tools else "suspected"
+    return "confirmed" if obs.listed_tools else "suspected"
+
+
+def _undeclared_tools(matrix: Matrix, case: TestCase, obs: Observation) -> List[str]:
+    """Tools the server advertised that this subject has no allow rule for.
+
+    Only tools the matrix *declares* are considered. One it says nothing about is
+    not disallowed, it is undescribed — that gap is what ``overstep coverage``
+    reports, and reading it as a finding here would turn every undeclared
+    operation into one.
+
+    The scope of an allow rule is not consulted: an owner-scoped grant still
+    means the caller may invoke the tool, and a listing says nothing about which
+    objects it will reach.
+    """
+    if not obs.listed_tools:
+        return []
+    server = case.resource.removeprefix("mcp:")
+    leaked: List[str] = []
+    for resource in matrix.resources:
+        if resource.transport != "mcp" or resource.call is None:
+            continue
+        if resource.call.server != server or resource.call.tool not in obs.listed_tools:
+            continue
+        if case.role not in matrix.required_roles(resource.name):
+            leaked.append(resource.call.tool)
+    return sorted(set(leaked))
 
 
 def _grade(vuln: VulnClass, case: TestCase, obs: Observation):
@@ -170,6 +190,14 @@ def _detail(case: TestCase, obs: Observation, vuln: VulnClass, confidence: str =
             f"token minted for somewhere else is a confused deputy: the token is "
             f"replayable at every service trusting the same issuer."
         )
+    if vuln == VulnClass.SESSION_HIJACK:
+        return (
+            f"a request carrying {case.subject}'s session id and no credential of its "
+            f"own was served by {case.mcp.url if case.mcp else case.resource}, while "
+            f"the same request without the session id was refused — the session is "
+            f"acting as authentication, so anyone who obtains the id becomes "
+            f"{case.subject}."
+        )
     if vuln == VulnClass.PRIVILEGE_ESCALATION:
         allowed = ", ".join(case.required_roles) or "a higher-privileged role"
         return (
@@ -207,6 +235,36 @@ def classify(
             continue
         # A deliberately skipped request (read-only) is not evidence either way.
         if obs.skipped:
+            continue
+
+        if case.variant == Variant.ENUMERATE:
+            # This probe reports on what the listing contained, not on whether
+            # listing was permitted: a subject that cannot list at all has
+            # nothing to disclose, which is not an over-restriction to report.
+            for tool in _undeclared_tools(matrix, case, obs):
+                findings.append(
+                    Finding(
+                        test_id=f"{case.id}::{tool}",
+                        vuln_class=VulnClass.TOOL_ENUMERATION,
+                        severity="medium",
+                        resource=case.resource,
+                        subject=case.subject,
+                        role=case.role,
+                        method=case.method,
+                        path=case.path,
+                        expected=Effect.DENY,
+                        observed=Effect.ALLOW,
+                        status=obs.status,
+                        variant=case.variant,
+                        detail=(
+                            f"{case.subject} ({case.role}) was shown tool '{tool}' in "
+                            f"{case.method} on server '{case.path}', but has no allow "
+                            f"rule for it — the privileged half of the surface is "
+                            f"advertised to callers who may not use it."
+                        ),
+                        evidence=obs,
+                    )
+                )
             continue
 
         if case.expected == Effect.ALLOW:
@@ -289,6 +347,11 @@ def classify(
     # Attach a copy-pasteable reproduction to every finding.
     for f in findings:
         case = by_case.get(f.test_id)
+        if case is None and "::" in f.test_id:
+            # An enumeration finding is one per disclosed tool, so its id extends
+            # the probe's by that tool name; the request to reproduce is the
+            # probe itself.
+            case = by_case.get(f.test_id.rsplit("::", 1)[0])
         subject = subjects.get(f.subject)
         if case is not None and subject is not None:
             f.curl = to_curl(repro_base, subject, case)

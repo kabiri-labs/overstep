@@ -1,5 +1,54 @@
 # Changelog
 
+## [0.29.0] - 2026-08-12
+
+### Added
+- **Session-binding probing for MCP servers.** Streamable HTTP hands out an
+  `Mcp-Session-Id` at `initialize`, and the spec is explicit that it must not be
+  used to authenticate: session identifiers travel in headers, and headers end up
+  in proxies, access logs and referrers, so a server that accepts one as proof of
+  identity lets anybody holding the string become the user who opened it.
+
+  Every Streamable HTTP server is now checked, without configuration. The probe
+  opens a session as the subject, then sends the same **anonymous** `tools/list`
+  twice — once carrying the session id, once without it. The second request is
+  the control, and it is what makes the result mean anything: a server whose
+  listing is simply public answers the first request too, and reporting that as
+  session hijacking would be a finding about nothing. Only the difference between
+  the two counts, so a defect is reported solely when the session is what made
+  the request work.
+
+  A server that issues no session id is stateless and has nothing to hijack; the
+  probe is recorded as skipped rather than answered, since it never ran. Findings
+  are class `session-hijack` (CWE-287, `API2:2023`). Set
+  `probe_session_binding: false` to switch it off.
+
+- **Tool-enumeration probing, opt-in.** A server that advertises a tool to
+  someone who may not invoke it discloses the shape of its privileged half.
+  `probe_tool_enumeration: true` calls `tools/list` as each subject and compares
+  what came back with the policy already in the matrix: a declared tool listed to
+  a subject with no allow rule for it is reported as `tool-enumeration`
+  (CWE-200, `API5:2023`, medium).
+
+  Opt-in unlike the other two probes, and the asymmetry is deliberate — listing
+  everything and enforcing at call time is a common, defensible design, so
+  reporting it by default would be an opinion dressed as a finding. Session
+  hijacking and a token accepted from the wrong audience are never defensible.
+
+  Two deliberate silences: a tool the matrix does not declare is undescribed
+  rather than disallowed, which is `overstep coverage`'s gap to report; and a
+  subject that cannot list at all has nothing to disclose, so its refusal is not
+  reported as an over-restriction.
+
+### Changed
+- `Observation` carries `listed_tools` for a `tools/list` request. The names are
+  recorded from the result rather than parsed back out of `body_snippet`, which
+  is truncated at 2048 characters — a tool catalogue being exactly the kind of
+  result long enough to lose its tail. The token-audience confidence grading uses
+  it too, in place of the JSON parse it did before.
+- `McpInvocation` gains `anonymous` and `handshake_headers`, which let a probe
+  open a session as one identity and then send its request as nobody.
+
 ## [0.28.0] - 2026-08-12
 
 ### Added

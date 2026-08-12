@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from overstep.mcp_matching import content_text, evaluate_mcp
-from overstep.models import Effect, McpInvocation, Observation, Subject, TestCase
+from overstep.models import Effect, McpInvocation, Observation, Subject, TestCase, Variant
 from overstep.transports.base import register
 
 _RETRY_STATUSES = frozenset({429, 503})
@@ -29,16 +29,35 @@ _RETRY_STATUSES = frozenset({429, 503})
 
 def mcp_headers(inv: McpInvocation, subject: Subject) -> Dict[str, str]:
     """Assemble request headers: server headers, then subject headers, then a
-    bearer derived from the subject's token unless an auth header is already set."""
+    bearer derived from the subject's token unless an auth header is already set.
+
+    An ``anonymous`` invocation gets none of the identity half — not the subject's
+    headers, not a bearer, and not an ``Authorization`` inherited from the server,
+    since a probe asking what an unauthenticated request achieves has to actually
+    be one.
+    """
     headers: Dict[str, str] = {}
     headers.update(inv.headers)
-    headers.update(subject.headers)
-    if subject.token and not any(k.lower() == "authorization" for k in headers):
-        headers["Authorization"] = f"Bearer {subject.token}"
+    if inv.anonymous:
+        headers = {k: v for k, v in headers.items() if k.lower() != "authorization"}
+    else:
+        headers.update(subject.headers)
+        if subject.token and not any(k.lower() == "authorization" for k in headers):
+            headers["Authorization"] = f"Bearer {subject.token}"
     headers.setdefault("Content-Type", "application/json")
     headers.setdefault("Accept", "application/json, text/event-stream")
     headers.setdefault("MCP-Protocol-Version", inv.protocol_version)
     return headers
+
+
+def listed_tool_names(inv: McpInvocation, result: Dict[str, Any]) -> List[str]:
+    """Tool names from a ``tools/list`` result; empty for any other method."""
+    if inv.method != "tools/list":
+        return []
+    tools = result.get("tools")
+    if not isinstance(tools, list):
+        return []
+    return [t.get("name", "") for t in tools if isinstance(t, dict) and t.get("name")]
 
 
 def jsonrpc_request(inv: McpInvocation, request_id: int = 2) -> Dict[str, Any]:
@@ -111,6 +130,146 @@ async def _initialize(
     return resp.headers.get("mcp-session-id")
 
 
+async def _handshake(
+    client: httpx.AsyncClient, inv: McpInvocation, subject: Subject, headers: Dict[str, str]
+) -> Optional[str]:
+    """Open the session for this invocation and return its id, if any.
+
+    Normally the handshake carries the same identity as the request that follows.
+    A session probe deliberately splits the two: ``handshake_headers`` merges over
+    the request's, so the session is opened as the victim and then used by a
+    request that carries nothing.
+    """
+    if inv.handshake_headers:
+        headers = {**headers, **inv.handshake_headers}
+    return await _initialize(client, inv.url, headers, inv.protocol_version)
+
+
+async def _post(
+    client: httpx.AsyncClient,
+    inv: McpInvocation,
+    headers: Dict[str, str],
+    *,
+    max_retries: int,
+    backoff_base: float,
+) -> httpx.Response:
+    """Send one JSON-RPC request, retrying the statuses worth retrying."""
+    payload = jsonrpc_request(inv)
+    for attempt in range(max_retries + 1):
+        resp = await client.post(inv.url, json=payload, headers=headers)
+        if resp.status_code in _RETRY_STATUSES and attempt < max_retries:
+            await asyncio.sleep(backoff_base * (2 ** attempt))
+            continue
+        return resp
+    return resp
+
+
+def _read(inv: McpInvocation, resp: httpx.Response):
+    """Turn one response into (effect, text, listed tools, error message)."""
+    message = _parse_message(resp)
+    error = message.get("error") if isinstance(message, dict) else None
+    result = message.get("result") if isinstance(message, dict) else None
+    result = result if isinstance(result, dict) else {}
+    text = result_text(inv, result)
+    effect = evaluate_mcp(
+        inv.matcher,
+        jsonrpc_error=error,
+        is_error=bool(result.get("isError")),
+        text=text,
+        status=resp.status_code,
+    )
+    return (
+        effect,
+        text,
+        listed_tool_names(inv, result),
+        error.get("message") if isinstance(error, dict) else None,
+    )
+
+
+async def _session_probe(
+    client: httpx.AsyncClient,
+    subject: Subject,
+    case: TestCase,
+    inv: McpInvocation,
+    *,
+    max_retries: int,
+    backoff_base: float,
+) -> Observation:
+    """Is a session id worth a credential?
+
+    The MCP spec says sessions must not be used for authentication, because an
+    identifier that travels in a header leaks the way headers leak — proxies,
+    logs, referrers — and anyone holding one would become the identity that
+    opened it.
+
+    Three exchanges answer that. Open a session as the subject, then send the
+    same anonymous request twice: once carrying the session id, once without it.
+    The second is the control, and it is what keeps this honest — a server whose
+    ``tools/list`` is simply public answers the first request too, and calling
+    that session hijacking would be a finding about nothing. Only the difference
+    between the two is evidence, so the probe is *allowed* only when the session
+    was what made it work.
+
+    A server that issues no session id is stateless and has nothing to hijack;
+    the probe is skipped rather than answered, since it never ran.
+    """
+    started = time.perf_counter()
+    headers = mcp_headers(inv, subject)
+
+    def elapsed() -> float:
+        return round((time.perf_counter() - started) * 1000, 1)
+
+    try:
+        session = await _handshake(client, inv, subject, headers)
+        if not session:
+            return Observation(
+                test_id=case.id, status=0, effect=Effect.DENY, skipped=True,
+                latency_ms=elapsed(),
+                error="server issued no session id — stateless, so there is no session to reuse",
+            )
+
+        with_session = await _post(
+            client, inv, {**headers, "Mcp-Session-Id": session},
+            max_retries=max_retries, backoff_base=backoff_base,
+        )
+        rode_session, text, listed, error = _read(inv, with_session)
+        if rode_session == Effect.ALLOW:
+            control, _, _, _ = _read(
+                inv,
+                await _post(
+                    client, inv, headers,
+                    max_retries=max_retries, backoff_base=backoff_base,
+                ),
+            )
+        else:
+            # Nothing got through even with the session, so the control cannot
+            # change the verdict and is not worth a request.
+            control = Effect.DENY
+    except httpx.HTTPError as exc:
+        return Observation(
+            test_id=case.id, status=0, effect=Effect.DENY,
+            latency_ms=elapsed(), error=str(exc),
+        )
+
+    granted = rode_session == Effect.ALLOW and control == Effect.DENY
+    note = None
+    if rode_session == Effect.ALLOW and control == Effect.ALLOW:
+        note = (
+            "the same request succeeded without the session id too, so this "
+            "endpoint is open to anyone and the session proves nothing"
+        )
+    return Observation(
+        test_id=case.id,
+        status=with_session.status_code,
+        effect=Effect.ALLOW if granted else Effect.DENY,
+        latency_ms=elapsed(),
+        headers=dict(with_session.headers),
+        body_snippet=text[:2048],
+        listed_tools=listed,
+        error=note or error,
+    )
+
+
 async def _call(
     client: httpx.AsyncClient,
     subject: Subject,
@@ -138,40 +297,33 @@ async def _call(
         async with semaphore:
             return await _call_stdio(case, inv)
 
+    if case.variant == Variant.SESSION:
+        async with semaphore:
+            return await _session_probe(
+                client, subject, case, inv,
+                max_retries=max_retries, backoff_base=backoff_base,
+            )
+
     headers = mcp_headers(inv, subject)
     async with semaphore:
         started = time.perf_counter()
-        session = await _initialize(client, inv.url, headers, inv.protocol_version)
+        session = await _handshake(client, inv, subject, headers)
         if session:
             headers["Mcp-Session-Id"] = session
 
-        payload = jsonrpc_request(inv)
-        resp = None
-        for attempt in range(max_retries + 1):
-            try:
-                resp = await client.post(inv.url, json=payload, headers=headers)
-            except httpx.HTTPError as exc:
-                elapsed = (time.perf_counter() - started) * 1000
-                return Observation(
-                    test_id=case.id, status=0, effect=Effect.DENY,
-                    latency_ms=round(elapsed, 1), error=str(exc),
-                )
-            if resp.status_code in _RETRY_STATUSES and attempt < max_retries:
-                await asyncio.sleep(backoff_base * (2 ** attempt))
-                continue
-            break
+        try:
+            resp = await _post(
+                client, inv, headers, max_retries=max_retries, backoff_base=backoff_base
+            )
+        except httpx.HTTPError as exc:
+            elapsed = (time.perf_counter() - started) * 1000
+            return Observation(
+                test_id=case.id, status=0, effect=Effect.DENY,
+                latency_ms=round(elapsed, 1), error=str(exc),
+            )
 
         elapsed = (time.perf_counter() - started) * 1000
-        message = _parse_message(resp)
-        error = message.get("error") if isinstance(message, dict) else None
-        result = message.get("result") if isinstance(message, dict) else None
-        result = result if isinstance(result, dict) else {}
-        is_error = bool(result.get("isError"))
-        text = result_text(inv, result)
-        effect = evaluate_mcp(
-            inv.matcher, jsonrpc_error=error, is_error=is_error, text=text,
-            status=resp.status_code,
-        )
+        effect, text, listed, error = _read(inv, resp)
         matched = [m for m in case.expect_markers if m and m in text]
         return Observation(
             test_id=case.id,
@@ -181,7 +333,8 @@ async def _call(
             headers=dict(resp.headers),
             body_snippet=text[:2048],
             matched_markers=matched,
-            error=(error.get("message") if isinstance(error, dict) else None),
+            listed_tools=listed,
+            error=error,
         )
 
 
@@ -274,6 +427,7 @@ async def _call_stdio(case: TestCase, inv) -> Observation:
         latency_ms=round(elapsed, 1),
         body_snippet=text[:2048],
         matched_markers=matched,
+        listed_tools=listed_tool_names(inv, result),
         error=(error.get("message") if isinstance(error, dict) else None),
     )
 
