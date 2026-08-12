@@ -25,6 +25,13 @@
   the required headers would be a command the server rejects before authorization
   is consulted — an all-clear pasted into a bug report — so it carries them too.
 
+  The three headers a stateless request derives from what it is sending
+  (`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`) are now removed from the
+  matrix's own `servers[].headers` in every spelling before being set. Header
+  names are case-insensitive while dict keys are not, so a `mcp-method` written
+  there would otherwise travel *alongside* the derived `Mcp-Method` and produce
+  exactly the header/body contradiction the revision rejects.
+
   stdio went stateless with the rest of the protocol, so its handshake is skipped
   on that revision as well; the routing headers are HTTP-only and are not sent
   there.
@@ -47,6 +54,13 @@
   no resource surface, which is a true answer to a real question.
 
 ### Fixed
+- **Generated repros declare their protocol version.** `MCP-Protocol-Version` is
+  sent by the executor on every revision, but the repro never carried it, so a
+  pasted command was not quite the request the finding came from. On
+  `2026-07-28`, where the header is required and must match the body's `_meta`,
+  that gap made every stateless repro a command the server rejects before
+  authorization is consulted — the failure mode the repro exists to avoid.
+
 - **`2025-11-25` is recognised.** It was missing from the set of known revisions
   added in `0.32.1`, so a server negotiating it was reported as speaking a
   protocol overstep does not implement — a false refusal of a revision the

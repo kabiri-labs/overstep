@@ -18,9 +18,15 @@ from typing import Any, Dict, Optional
 from urllib.parse import urlencode, urljoin
 
 from overstep.executor import build_headers
-from overstep.mcp_protocol import DEFAULT_PROTOCOL_VERSION, is_stateless, routing_headers
+from overstep.mcp_protocol import (
+    DEFAULT_PROTOCOL_VERSION,
+    PROTOCOL_VERSION_HEADER,
+    RESERVED_HEADERS,
+    is_stateless,
+    routing_headers,
+)
 from overstep.models import SECRET_HEADERS as _SECRET_HEADERS
-from overstep.models import Subject, TestCase
+from overstep.models import Subject, TestCase, drop_header
 
 _MASK = "***"
 
@@ -111,13 +117,19 @@ def _mcp_headers(case: TestCase, subject: Subject) -> Dict[str, str]:
         headers.update(subject.headers)
         if subject.token and not any(k.lower() == "authorization" for k in subject.headers):
             headers["Authorization"] = f"Bearer {subject.token}"
-    if inv is not None and is_stateless(inv.protocol_version):
-        # Required for compliance on this revision, so a repro without them is a
-        # command the server rejects before it ever reaches the authorization
-        # the finding is about — a false all-clear pasted into a bug report.
+    if inv is not None:
+        # The executor sends the protocol version on every revision, and the
+        # routing headers on the stateless one, where both are required for
+        # compliance. A repro missing either is a command the server rejects
+        # before it ever reaches the authorization the finding is about — a
+        # false all-clear pasted into a bug report.
         from overstep.transports.mcp import jsonrpc_params
 
-        headers.update(routing_headers(inv.method, jsonrpc_params(inv)))
+        for name in RESERVED_HEADERS:
+            drop_header(headers, name)
+        headers[PROTOCOL_VERSION_HEADER] = inv.protocol_version
+        if is_stateless(inv.protocol_version):
+            headers.update(routing_headers(inv.method, jsonrpc_params(inv)))
     return headers
 
 
