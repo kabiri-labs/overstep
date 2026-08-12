@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.32.1] - 2026-08-12
+
+### Fixed
+- **A protocol overstep cannot speak was reported as a server that forbids
+  everything.** MCP 2026-07-28 retired the `initialize`/`initialized` exchange
+  and the `Mcp-Session-Id` header, and requires `Mcp-Method`/`Mcp-Name` on every
+  Streamable HTTP request. Against a server on that revision the transport's
+  handshake is refused, and so is every request built on it — at the protocol
+  layer, before authorization is ever consulted.
+
+  Those refusals were recorded as denials, which is where it turns dangerous: a
+  denial is what a *passing* negative test looks like. A matrix with expected-allow
+  tests survived this, because the inconclusive check already condemns a target
+  that allowed none of them — but it named the wrong cause, sending the reader to
+  debug credentials that were never at fault. A matrix without one had nothing
+  left to catch it: every request answered `400`, every negative test "passed",
+  and the run reported no findings and exited `0`.
+
+  The handshake now carries out the reason it could not be completed, and a
+  request rejected in its wake is recorded as a delivery failure — status `0`,
+  the same signal every transport already reserves for "never reached the target"
+  — so the run is inconclusive on the evidence of the requests themselves, with
+  or without a positive control. `validate --live` inherits the same signal and
+  names the protocol before a run is sent.
+
+  Two things are deliberately left alone. A refused handshake is a suspicion, not
+  a verdict: it is confirmed against the request that follows, so a lax server
+  that ignores the lifecycle and answers tool-calls anyway stays testable and its
+  results stay real. And a `401`/`403` on the handshake is the server asking who
+  is calling — the question the run exists to ask — so it stays on the allow/deny
+  path untouched.
+
+  Not covered: the stdio transport, whose handshake is a separate exchange with
+  no HTTP status to read, and the 2026-07-28 wire format itself. This change
+  makes overstep refuse to guess about a server it cannot drive; it does not yet
+  let it drive one.
+
 ## [0.32.0] - 2026-08-12
 
 ### Changed
