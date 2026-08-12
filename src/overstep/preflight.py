@@ -39,7 +39,7 @@ def _positive_control(cases: Sequence[TestCase], subject: str) -> Optional[TestC
     allowed to make is verified with the GET, and never has the DELETE skipped
     under read-only and reported as unverifiable.
     """
-    mine = [c for c in cases if c.subject == subject and c.expected == Effect.ALLOW]
+    mine = [c for c in cases if c.subject == subject and c.is_positive_control]
     safe = [c for c in mine if c.method.upper() not in MUTATING_METHODS]
     return (safe or mine or [None])[0]
 

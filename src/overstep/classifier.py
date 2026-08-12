@@ -11,14 +11,16 @@ There are two kinds of mismatch:
 from __future__ import annotations
 
 import json
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set
 
 from overstep.matrix import Matrix
+from overstep.planner import grants_access
 from overstep.models import (
     Effect,
     Finding,
     Observation,
     ResourceType,
+    Subject,
     TestCase,
     Variant,
     VulnClass,
@@ -103,19 +105,22 @@ def _audience_confidence(obs: Observation) -> str:
     return "confirmed" if obs.listed_tools else "suspected"
 
 
-def _undeclared_tools(matrix: Matrix, case: TestCase, obs: Observation) -> List[str]:
-    """Tools the server advertised that this subject has no allow rule for.
+def _undeclared_tools(
+    matrix: Matrix, case: TestCase, obs: Observation, subject: Optional[Subject]
+) -> List[str]:
+    """Tools the server advertised that this subject may not invoke.
 
     Only tools the matrix *declares* are considered. One it says nothing about is
     not disallowed, it is undescribed — that gap is what ``overstep coverage``
     reports, and reading it as a finding here would turn every undeclared
     operation into one.
 
-    The scope of an allow rule is not consulted: an owner-scoped grant still
-    means the caller may invoke the tool, and a listing says nothing about which
-    objects it will reach.
+    Permission is resolved through the same policy evaluation the planner uses,
+    so a rule whose ``condition`` this subject fails does not count as a grant.
+    Only ownership scope is ignored: an owner-scoped grant is still permission to
+    invoke, and a listing says nothing about which objects the call would reach.
     """
-    if not obs.listed_tools:
+    if not obs.listed_tools or subject is None:
         return []
     server = case.resource.removeprefix("mcp:")
     leaked: List[str] = []
@@ -124,7 +129,7 @@ def _undeclared_tools(matrix: Matrix, case: TestCase, obs: Observation) -> List[
             continue
         if resource.call.server != server or resource.call.tool not in obs.listed_tools:
             continue
-        if case.role not in matrix.required_roles(resource.name):
+        if not grants_access(matrix, resource, subject):
             leaked.append(resource.call.tool)
     return sorted(set(leaked))
 
@@ -241,7 +246,7 @@ def classify(
             # This probe reports on what the listing contained, not on whether
             # listing was permitted: a subject that cannot list at all has
             # nothing to disclose, which is not an over-restriction to report.
-            for tool in _undeclared_tools(matrix, case, obs):
+            for tool in _undeclared_tools(matrix, case, obs, subjects.get(case.subject)):
                 findings.append(
                     Finding(
                         test_id=f"{case.id}::{tool}",

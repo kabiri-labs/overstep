@@ -294,6 +294,18 @@ def _expected_effect(
     return Effect.DENY
 
 
+def grants_access(matrix: Matrix, resource: Resource, subject: Subject) -> bool:
+    """Whether the policy lets this subject invoke this resource at all.
+
+    Ownership scope is deliberately not applied — an owner-scoped grant is still
+    permission to invoke, and says nothing about which objects the call reaches —
+    but a rule's ``condition`` is, so a role matching a rule it cannot satisfy
+    does not count as access. Reading the role alone would treat a subject the
+    planner denies as allowed.
+    """
+    return _expected_effect(matrix, resource, subject, Variant.NA, None) == Effect.ALLOW
+
+
 def _variants(
     resource: Resource,
     subject: Subject,
@@ -569,7 +581,10 @@ def _enumeration_cases(matrix: Matrix, context: Dict[str, str]) -> List[TestCase
     cases: List[TestCase] = []
     for server in (s for s in matrix.servers if s.kind == "http"):
         for subject in matrix.subjects:
-            inv = _tools_list_invocation(matrix, server, context)
+            # The only probe that reasons about the listing's contents, so the
+            # only one that has to see all of it: a restricted tool on page two
+            # would otherwise be absent and read as nothing to report.
+            inv = _tools_list_invocation(matrix, server, context, paginate=True)
             # The findings come from what the listing *contained*, so the effect
             # carries no expectation to violate: a subject that cannot list at
             # all simply has nothing to check, not an over-restriction to report.

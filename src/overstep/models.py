@@ -271,6 +271,11 @@ class McpInvocation(BaseModel):
     # difference. Set together with ``anonymous`` to open a session as one
     # identity and then use it as nobody.
     handshake_headers: Optional[Dict[str, str]] = None
+    # Follow ``nextCursor`` until the listing is exhausted. Only the enumeration
+    # probe needs it — that one reasons about the contents, and a restricted tool
+    # on page two would otherwise be invisible and read as nothing to report. The
+    # probes that only need allow/deny stop at the first page.
+    paginate: bool = False
 
 
 class AuthProvider(BaseModel):
@@ -523,6 +528,22 @@ class TestCase(BaseModel):
     @property
     def is_negative(self) -> bool:
         return self.expected == Effect.DENY
+
+    @property
+    def is_positive_control(self) -> bool:
+        """Whether an allowed result here proves this subject's credential works.
+
+        Not every expected-allow case is evidence of that. An enumeration probe
+        expects allow because listing is normally permitted, not because the
+        matrix grants this subject anything — and a server whose ``tools/list``
+        is public answers it with no credential at all. Counting one as a
+        positive control would let a public listing vouch for expired tokens: the
+        real calls would all fail, the health check would see one allowed
+        positive and stay quiet, and a run that authenticated nobody would report
+        a conclusive ``Vulnerabilities 0``. That is precisely the fail-open the
+        check exists to catch.
+        """
+        return self.expected == Effect.ALLOW and self.variant != Variant.ENUMERATE
 
 
 class Observation(BaseModel):
