@@ -1,5 +1,50 @@
 # Changelog
 
+## [0.34.0] - 2026-08-12
+
+### Security
+- **OAuth discovery no longer trusts the server under test with the client
+  secret.** `discover_from` reads Protected Resource Metadata from the MCP
+  server, follows it to an authorization server, and posts `client_id` /
+  `client_secret` — or, on the password grant, a real username and password — to
+  whatever `token_endpoint` that server's metadata names. Every value in that
+  chain came from the target, and the target is the host a security tool trusts
+  least. None of it was checked.
+
+  Three checks now apply, each one a client requirement the MCP authorization
+  spec states outright:
+
+  - **Issuer validation (RFC 8414 §3.3).** The `issuer` in an authorization
+    server's metadata must be identical to the identifier used to construct the
+    well-known URL. The spec's own example is the attack: a document served from
+    `attacker.example` claiming `"issuer": "https://honest.example"`. Compared as
+    strings, with no normalisation beyond the trailing slash this code itself
+    strips — normalising an attacker-supplied value is how two identifiers are
+    talked into looking like one.
+  - **HTTPS.** The authorization server and token endpoint must be HTTPS, since
+    the next thing to travel there is a secret. Loopback is exempt, as is a run
+    that already disabled TLS verification and has made that choice explicitly.
+  - **No cross-origin redirects** on a metadata request.
+
+  Verified by disabling each check and watching the credential arrive at the
+  attacker's endpoint.
+
+### Added
+- **`issuer:` on an auth provider**, pinning the authorization server its
+  credentials were registered with. Client identifiers are unique to the issuer
+  that minted them, so a discovery landing anywhere else is refused rather than
+  followed.
+
+  This is the only control that stops the second attack, and it is worth being
+  precise about why: metadata validation catches an authorization server
+  *impersonating* another, but not one the target owns and describes honestly —
+  there, nothing is inconsistent and there is nothing to detect. Only knowing in
+  advance where the credentials belong refuses it.
+
+- **`validate` warns** when a provider discovers its token endpoint and sends a
+  secret without pinning an issuer. A warning rather than an error: existing
+  matrices keep running, but a run that is weaker than it looks says so.
+
 ## [0.33.0] - 2026-08-12
 
 ### Added

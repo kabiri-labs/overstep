@@ -365,6 +365,21 @@ class Matrix(BaseModel):
                     f"auth provider '{provider.name}' discover_from references unknown "
                     f"server '{provider.discover_from}'"
                 )
+            if provider.discover_from and not provider.issuer \
+                    and (provider.client_secret or provider.password):
+                # Discovery is driven by the server under test: it names the
+                # authorization server, whose metadata names the URL this secret
+                # is posted to. Validating that metadata catches an authorization
+                # server impersonating another, but not one the target simply
+                # owns and names honestly. Only a pinned issuer refuses that, so
+                # a run without one is weaker than it looks — which is what a
+                # warning is for.
+                warn(
+                    f"auth provider '{provider.name}' discovers its token endpoint from "
+                    f"'{provider.discover_from}' and sends a secret, but pins no issuer — "
+                    f"set 'issuer' to the authorization server these credentials were "
+                    f"registered with, or that server chooses where they are sent"
+                )
         for subject in self.subjects:
             if subject.auth and subject.auth.provider not in provider_names:
                 error(

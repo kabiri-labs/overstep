@@ -167,7 +167,13 @@ def authenticate(
                         )
                     try:
                         discovery_cache[provider.name] = discover_token_endpoint(
-                            server_url, client=client
+                            server_url,
+                            client=client,
+                            expected_issuer=provider.issuer,
+                            # A run that already accepted unverified TLS has made
+                            # its own call about transport security; anything else
+                            # must not be handed a secret over plaintext.
+                            allow_plaintext=not verify_tls,
                         )
                     except DiscoveryError as exc:
                         raise AuthError(str(exc)) from exc
