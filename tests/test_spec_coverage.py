@@ -4,6 +4,7 @@ The matrix *is* the specification, so a gap in it is invisible from inside a
 run: an operation nobody declared is an operation nobody tests, and nothing in
 the findings mentions it. These cases pin the comparison that makes it visible.
 """
+import json
 import pytest
 from typer.testing import CliRunner
 
@@ -157,6 +158,34 @@ def test_mcp_resources_are_matched_by_tool_name():
     assert result.extra == []
 
 
+def test_mcp_resource_reads_are_matched_by_uri_shape():
+    """A declared read must not be reported as a stray against its own server.
+
+    The two sides name the URI placeholder independently — the server's template
+    says `{doc_id}`, the matrix may say `{id}` — so they are compared by shape,
+    the way a path is.
+    """
+    from overstep.models import McpResourceRead
+
+    m = Matrix(
+        subjects=[{"name": "a", "role": "user", "token": "t"}],
+        servers=[{"name": "mcp", "url": "http://t/mcp"}],
+        resources=[Resource(name="doc", transport="mcp",
+                            read=McpResourceRead(server="mcp", uri="doc://acme/{id}"))],
+        policy={"doc": {"allow": [{"role": "user"}]}},
+    )
+    declared = [
+        Resource(name="doc", transport="mcp",
+                 read=McpResourceRead(server="s", uri="doc://acme/{doc_id}")),
+        Resource(name="other", transport="mcp",
+                 read=McpResourceRead(server="s", uri="note://{note_id}")),
+    ]
+    result = against_spec(m, declared)
+
+    assert result.missing == ["resource note://{note_id}"]
+    assert result.extra == []
+
+
 # --- CLI --------------------------------------------------------------------
 
 MATRIX = """
@@ -232,3 +261,38 @@ def test_coverage_sends_nothing(matrix_file, spec_file):
     )
 
     assert result.exit_code == 0
+
+
+def test_coverage_fails_loudly_when_the_mcp_surface_cannot_be_read(matrix_file):
+    """A failed listing must not become an empty denominator.
+
+    `--fail-under` gates on that number, so swallowing the failure would let a
+    matrix pass for covering a surface that was never measured.
+    """
+    import httpx
+
+    import overstep.loaders.mcp as mod
+
+    def broken(request: httpx.Request) -> httpx.Response:
+        msg = json.loads(request.content)
+        if msg.get("method") == "initialize":
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {}})
+        if msg.get("method") == "notifications/initialized":
+            return httpx.Response(202)
+        if msg.get("method") == "tools/list":
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 2, "result": {"tools": []}})
+        raise httpx.ConnectError("connection reset")   # the templates listing
+
+    orig = httpx.Client
+    mod.httpx.Client = lambda *a, **kw: orig(*a, transport=httpx.MockTransport(broken), **kw)
+    try:
+        result = CliRunner().invoke(
+            app,
+            ["coverage", str(matrix_file), "--spec", "http://t/mcp", "--fmt", "mcp",
+             "--fail-under", "100"],
+        )
+    finally:
+        mod.httpx.Client = orig
+
+    assert result.exit_code == 2, result.output
+    assert "could not read the MCP surface" in result.output

@@ -2,6 +2,7 @@
 import json
 
 import httpx
+import pytest
 import yaml
 
 from overstep.loaders.mcp import (
@@ -284,3 +285,89 @@ def test_fetch_resource_templates_over_http():
 def test_a_server_with_no_resources_still_scaffolds_its_tools():
     doc = yaml.safe_load(scaffold_matrix_from_tools(_TOOLS, templates=[]))
     assert [r["name"] for r in doc["resources"]] == [t["name"] for t in _TOOLS]
+
+
+# --- listing failures and pagination ----------------------------------------
+
+def _listing_server(pages, *, method="resources/templates/list", key="resourceTemplates"):
+    """A server that paginates one listing method via nextCursor."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        msg = json.loads(request.content)
+        if msg.get("method") == "initialize":
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {}})
+        if msg.get("method") == "notifications/initialized":
+            return httpx.Response(202)
+        if msg.get("method") != method:
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 2,
+                                             "error": {"code": -32601, "message": "unknown"}})
+        cursor = (msg.get("params") or {}).get("cursor")
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": 2, "result": pages[cursor]})
+    return handler
+
+
+def _with_server(handler, fn, *args, **kwargs):
+    import overstep.loaders.mcp as mod
+
+    orig = httpx.Client
+    mod.httpx.Client = lambda *a, **kw: orig(*a, transport=httpx.MockTransport(handler), **kw)
+    try:
+        return fn(*args, **kwargs)
+    finally:
+        mod.httpx.Client = orig
+
+
+def test_a_paginated_listing_is_followed_to_the_end():
+    """This count is a denominator: a template on page two is not one that
+    does not exist, and `coverage --fail-under` must not treat it as absent."""
+    from overstep.loaders.mcp import fetch_resource_templates
+
+    pages = {
+        None: {"resourceTemplates": [{"uriTemplate": "a://{id}"}], "nextCursor": "p2"},
+        "p2": {"resourceTemplates": [{"uriTemplate": "b://{id}"}], "nextCursor": "p3"},
+        "p3": {"resourceTemplates": [{"uriTemplate": "c://{id}"}]},
+    }
+    got = _with_server(_listing_server(pages), fetch_resource_templates, "http://t/mcp")
+    assert [t["uriTemplate"] for t in got] == ["a://{id}", "b://{id}", "c://{id}"]
+
+
+def test_tools_paginate_too():
+    from overstep.loaders.mcp import fetch_tools
+
+    pages = {
+        None: {"tools": [{"name": "one"}], "nextCursor": "p2"},
+        "p2": {"tools": [{"name": "two"}]},
+    }
+    handler = _listing_server(pages, method="tools/list", key="tools")
+    got = _with_server(handler, fetch_tools, "http://t/mcp")
+    assert [t["name"] for t in got] == ["one", "two"]
+
+
+def test_a_cursor_that_never_terminates_does_not_hang():
+    from overstep.loaders.mcp import fetch_tools
+
+    pages = {None: {"tools": [{"name": "x"}], "nextCursor": "always"},
+             "always": {"tools": [{"name": "x"}], "nextCursor": "always"}}
+    handler = _listing_server(pages, method="tools/list", key="tools")
+    got = _with_server(handler, fetch_tools, "http://t/mcp")
+    assert 0 < len(got) <= 21
+
+
+def test_a_server_without_resources_returns_none_rather_than_raising():
+    """Which is why an exception from this call means a real failure to read."""
+    from overstep.loaders.mcp import fetch_resource_templates
+
+    handler = _listing_server({None: {"tools": []}}, method="tools/list", key="tools")
+    assert _with_server(handler, fetch_resource_templates, "http://t/mcp") == []
+
+
+def test_a_transport_failure_while_listing_is_not_silently_empty():
+    from overstep.loaders.mcp import fetch_resource_templates
+
+    def broken(request: httpx.Request) -> httpx.Response:
+        msg = json.loads(request.content)
+        if msg.get("method") in ("initialize", "notifications/initialized"):
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {}})
+        raise httpx.ConnectError("connection reset")
+
+    with pytest.raises(httpx.HTTPError):
+        _with_server(broken, fetch_resource_templates, "http://t/mcp")

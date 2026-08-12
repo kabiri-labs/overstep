@@ -56,6 +56,9 @@ _MUTATING_WORDS = {
 _URI_PARAM_RE = re.compile(r"{([A-Za-z0-9_.-]+)}")
 _URI_OPERATOR_RE = re.compile(r"{[^A-Za-z0-9_{}][^}]*}|{[^}]*[*][^}]*}")
 
+# Upper bound on listing pages followed, matching the run transport's own cap.
+_MAX_LIST_PAGES = 20
+
 
 def _norm(name: str) -> str:
     return name.replace("_", "").replace("-", "").lower()
@@ -242,13 +245,37 @@ def _fetch_list(
         except httpx.HTTPError:
             pass
 
-        resp = client.post(
-            url, json={"jsonrpc": "2.0", "id": 2, "method": method, "params": {}}, headers=hdrs
-        )
-        message = _parse_message(resp)
-        result = message.get("result") if isinstance(message, dict) else None
-        listed = result.get(result_key) if isinstance(result, dict) else None
-        return listed or []
+        # Listings paginate. Reading only the first page would understate the
+        # surface — and this number is a denominator: `coverage --fail-under`
+        # would count a tool or template on page two as one that does not exist,
+        # and report a matrix as complete while part of the server went
+        # undeclared. Bounded and cycle-safe, so a server whose cursor never
+        # terminates cannot hold the run open.
+        listed: List[Dict[str, Any]] = []
+        cursor: Optional[str] = None
+        seen: set = set()
+        for _ in range(_MAX_LIST_PAGES):
+            params: Dict[str, Any] = {"cursor": cursor} if cursor else {}
+            resp = client.post(
+                url,
+                json={"jsonrpc": "2.0", "id": 2, "method": method, "params": params},
+                headers=hdrs,
+            )
+            message = _parse_message(resp)
+            result = message.get("result") if isinstance(message, dict) else None
+            if not isinstance(result, dict):
+                # A server that does not support the method answers with an
+                # error, which is the same answer as "none": there is nothing
+                # of this kind to read.
+                break
+            page = result.get(result_key)
+            if isinstance(page, list):
+                listed.extend(page)
+            cursor = result.get("nextCursor")
+            if not isinstance(cursor, str) or not cursor or cursor in seen:
+                break
+            seen.add(cursor)
+        return listed
 
 
 def _template_entry(
