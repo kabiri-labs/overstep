@@ -12,6 +12,10 @@ tools are deliberately broken so overstep lights up:
 * ``reset_tenant()`` — correctly enforced: non-admin callers get an ``isError``
   result, so overstep records the negative test as correctly denied (no finding).
 
+It also serves MCP *resources* at ``doc://acme/{doc_id}`` via ``resources/read``,
+with the same missing ownership check — the second door onto the same documents,
+and the reason testing only tools is not enough.
+
 Run it with:  python -m uvicorn examples.mcp_api.server:app --port 9000
 Then:         overstep run examples/mcp_api/matrix.yaml --out out
 """
@@ -110,6 +114,26 @@ async def mcp(request: Request):
 
     if method == "tools/list":
         return JSONResponse(_ok(req_id, {"tools": _TOOLS}))
+
+    if method == "resources/templates/list":
+        return JSONResponse(_ok(req_id, {"resourceTemplates": [{
+            "uriTemplate": "doc://acme/{doc_id}",
+            "name": "document",
+            "mimeType": "text/plain",
+        }]}))
+
+    if method == "resources/read":
+        # BOLA again, through the other door: any URI, for any caller.
+        uri = params.get("uri") or ""
+        doc = _DOCS.get(uri.removeprefix("doc://acme/"))
+        if doc is None:
+            return JSONResponse(_err(req_id, -32002, f"resource not found: {uri}"))
+        return JSONResponse(_ok(req_id, {"contents": [{
+            "uri": uri,
+            "mimeType": "text/plain",
+            "text": f'{{"owner": "{doc["owner"]}", "email": "{doc["email"]}", '
+                    f'"body": "{doc["body"]}"}}',
+        }]}))
 
     if method == "tools/call":
         name = params.get("name")

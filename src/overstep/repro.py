@@ -186,6 +186,7 @@ def request_record(base_url: str, subject: Subject, case: TestCase) -> Dict[str,
             "url": case.mcp.url,
             "tool": case.mcp.tool,
             "arguments": case.mcp.arguments,
+            "uri": case.mcp.uri,
             "headers": mask_headers(_mcp_headers(case, subject), subject.name),
         }
         if case.mcp.handshake_headers:

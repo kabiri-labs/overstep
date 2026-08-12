@@ -163,21 +163,55 @@ class Matrix(BaseModel):
         path_params = (
             set(_PATH_PARAM_RE.findall(res.request.path)) if res.request else set()
         )
+        uri_params = (
+            set(_PATH_PARAM_RE.findall(res.read.uri)) if res.read else set()
+        )
+        # Which location the object identifier may live in follows from what the
+        # resource actually sends: a tool-call has arguments, a resource-read has
+        # a URI, and an HTTP request has neither.
+        mcp_locations = {
+            OwnershipLocation.MCP_ARGUMENT,
+            OwnershipLocation.MCP_RESOURCE_URI,
+        }
         for inj in injections:
-            is_mcp = inj.location == OwnershipLocation.MCP_ARGUMENT
+            is_mcp = inj.location in mcp_locations
             if res.transport == "mcp" and not is_mcp:
+                expected = "mcp_resource_uri" if res.read is not None else "mcp_argument"
                 problems.append(Problem(
                     f"mcp resource '{res.name}' injection must use location "
-                    f"'mcp_argument', not '{inj.location.value}'"
+                    f"'{expected}', not '{inj.location.value}'"
                 ))
             elif res.transport != "mcp" and is_mcp:
                 problems.append(Problem(
-                    f"http resource '{res.name}' cannot use an 'mcp_argument' injection"
+                    f"http resource '{res.name}' cannot use an '{inj.location.value}' injection"
+                ))
+            elif inj.location == OwnershipLocation.MCP_ARGUMENT and res.read is not None:
+                problems.append(Problem(
+                    f"resource '{res.name}' reads a resource, so its object identifier "
+                    f"lives in the URI: use location 'mcp_resource_uri', not "
+                    f"'mcp_argument'"
+                ))
+            elif inj.location == OwnershipLocation.MCP_RESOURCE_URI and res.call is not None:
+                problems.append(Problem(
+                    f"resource '{res.name}' calls a tool, so its object identifier "
+                    f"lives in an argument: use location 'mcp_argument', not "
+                    f"'mcp_resource_uri'"
                 ))
             if inj.location == OwnershipLocation.PATH and res.request and inj.selector not in path_params:
                 problems.append(Problem(
                     f"resource '{res.name}' path injection '{inj.selector}' is not a "
                     f"parameter in path '{res.request.path}'"
+                ))
+            if (
+                inj.location == OwnershipLocation.MCP_RESOURCE_URI
+                and res.read is not None
+                and inj.selector not in uri_params
+            ):
+                # Without the placeholder nothing is substituted, so every subject
+                # would read the same fixed URI — a cross-owner probe in name only.
+                problems.append(Problem(
+                    f"resource '{res.name}' uri injection '{inj.selector}' is not a "
+                    f"placeholder in uri '{res.read.uri}'"
                 ))
 
         # No placeholder for ownership: warn when no subject can supply a value for
@@ -273,16 +307,24 @@ class Matrix(BaseModel):
                     f"(known: {', '.join(sorted(known_transports))})"
                 )
             if res.transport == "mcp":
-                if res.call is None:
-                    error(f"mcp resource '{res.name}' must set a 'call'")
-                elif res.call.server not in server_names:
+                if res.call is None and res.read is None:
+                    error(f"mcp resource '{res.name}' must set a 'call' or a 'read'")
+                elif res.call is not None and res.read is not None:
                     error(
-                        f"mcp resource '{res.name}' references unknown server "
-                        f"'{res.call.server}'"
+                        f"mcp resource '{res.name}' sets both 'call' and 'read'; a "
+                        f"resource invokes a tool or reads a resource, not both"
                     )
+                else:
+                    referenced = res.call.server if res.call else res.read.server
+                    if referenced not in server_names:
+                        error(
+                            f"mcp resource '{res.name}' references unknown server "
+                            f"'{referenced}'"
+                        )
                 if res.type == ResourceType.OBJECT and not res.is_object_locatable:
+                    locator = "owner_uri" if res.read is not None else "owner_arg"
                     error(
-                        f"mcp object resource '{res.name}' must set owner_arg or "
+                        f"mcp object resource '{res.name}' must set {locator} or "
                         f"ownership.injections"
                     )
             else:
