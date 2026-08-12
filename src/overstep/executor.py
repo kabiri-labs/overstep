@@ -17,7 +17,7 @@ from urllib.parse import urljoin
 import httpx
 
 from overstep.matching import evaluate
-from overstep.models import Effect, Observation, Subject, TestCase
+from overstep.models import Effect, Observation, Subject, TestCase, drop_header
 
 # Verbs that change server state; skipped under read-only mode.
 MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -66,16 +66,18 @@ def build_headers(subject: Subject, case: TestCase) -> Dict[str, str]:
     Precedence, lowest to highest:
       1. the resource's own headers (carried on the test case),
       2. the subject's headers (override per identity),
-      3. a bearer ``Authorization`` derived from the subject's token — but only
-         if the *subject* set an ``Authorization`` of its own, so a custom auth
-         scheme chosen per identity is never clobbered.
+      3. a bearer ``Authorization`` derived from the subject's token — unless the
+         *subject* set an ``Authorization`` of its own, so a custom auth scheme
+         chosen per identity is never clobbered.
 
     The token deliberately does *not* yield to an ``Authorization`` inherited
     from the resource. That credential belongs to no identity in particular, and
     letting it stand would send it for every subject: each one's own token would
     be dropped, every request would authenticate as the same caller, and a matrix
     written to tell callers apart would be testing one caller under several
-    names — silently, because the requests still succeed.
+    names — silently, because the requests still succeed. The replacement is
+    case-insensitive: header names are, dicts are not, and two spellings of
+    ``Authorization`` would both be sent for the server to choose between.
 
     The ``Cookie`` header is the exception to (2): the case's cookie (e.g. an
     object-id ownership injection) is *merged* with the subject's session cookie
@@ -95,9 +97,15 @@ def build_headers(subject: Subject, case: TestCase) -> Dict[str, str]:
         headers["Cookie"] = _merge_cookie_values(case_cookie, subject_cookie)
 
     subject_auth = any(k.lower() == "authorization" for k in subject.headers)
+    if subject.token or subject_auth:
+        # The subject brings an identity, so the resource's is replaced rather
+        # than joined — in every spelling, since two Authorization headers
+        # differing only in case both travel and the server chooses.
+        drop_header(headers, "Authorization")
+        headers.update(
+            {k: v for k, v in subject.headers.items() if k.lower() == "authorization"}
+        )
     if subject.token and not subject_auth:
-        for key in [k for k in list(headers) if k.lower() == "authorization"]:
-            del headers[key]
         headers["Authorization"] = f"Bearer {subject.token}"
     return headers
 

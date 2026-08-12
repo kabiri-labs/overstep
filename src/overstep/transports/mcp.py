@@ -22,6 +22,7 @@ import httpx
 
 from overstep.mcp_matching import content_text, contents_text, contents_uris, evaluate_mcp
 from overstep.models import (
+    drop_header,
     Effect,
     McpInvocation,
     Observation,
@@ -59,8 +60,13 @@ def mcp_headers(inv: McpInvocation, subject: Subject) -> Dict[str, str]:
     if inv.anonymous:
         headers = {k: v for k, v in headers.items() if k.lower() not in SECRET_HEADERS}
     else:
-        headers.update(subject.headers)
         subject_authorization = any(k.lower() == "authorization" for k in subject.headers)
+        if subject.token or subject_authorization:
+            # The subject brings an identity, so the server's is replaced rather
+            # than joined — in every spelling, since two Authorization headers
+            # differing only in case both travel and the server chooses.
+            drop_header(headers, "Authorization")
+        headers.update(subject.headers)
         if subject.token and not subject_authorization:
             headers["Authorization"] = f"Bearer {subject.token}"
     headers.setdefault("Content-Type", "application/json")

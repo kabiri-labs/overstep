@@ -16,7 +16,7 @@ from typing import Any, Dict, Optional
 
 import httpx
 
-from overstep.models import McpServer, Subject
+from overstep.models import McpServer, Subject, drop_header
 from overstep.transports.mcp import _parse_message
 
 
@@ -31,10 +31,14 @@ def _http_call(
     }
     headers.update(server.headers)
     if subject:
+        # Same precedence as the run transport: the subject's identity replaces
+        # the server's in every spelling, and the token yields only to an
+        # Authorization the subject set itself.
+        subject_auth = any(k.lower() == "authorization" for k in subject.headers)
+        if subject.token or subject_auth:
+            drop_header(headers, "Authorization")
         headers.update(subject.headers)
-        # Same precedence as the run transport: the token yields to the subject's
-        # own Authorization, never to one declared on the server.
-        if subject.token and not any(k.lower() == "authorization" for k in subject.headers):
+        if subject.token and not subject_auth:
             headers["Authorization"] = f"Bearer {subject.token}"
 
     with httpx.Client(timeout=timeout, verify=verify) as client:

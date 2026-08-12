@@ -53,6 +53,28 @@ def test_subject_token_overrides_a_server_level_authorization():
     assert headers["Authorization"] == "Bearer alice-token"
 
 
+def test_only_one_authorization_is_ever_sent_over_mcp():
+    """The same case-insensitivity trap as the HTTP path.
+
+    A lowercase `authorization` on the server plus an assigned `Authorization`
+    for the subject sends both, and the server picks — possibly the shared one,
+    which puts every subject back on a single identity.
+    """
+    from overstep.models import McpInvocation, Subject
+    from overstep.transports.mcp import mcp_headers
+
+    for server_key in ("Authorization", "authorization", "AUTHORIZATION"):
+        for subject in (
+            Subject(name="a", token="t"),
+            Subject(name="a", headers={"authorization": "Token x"}),
+            Subject(name="a", headers={"Authorization": "Token x"}),
+        ):
+            inv = McpInvocation(tool="t", headers={server_key: "Bearer shared"})
+            sent = [v for k, v in mcp_headers(inv, subject).items() if k.lower() == "authorization"]
+            assert len(sent) == 1, (server_key, subject.headers)
+            assert sent[0] != "Bearer shared"
+
+
 def test_a_subjects_own_authorization_is_still_never_clobbered():
     """Choosing a non-bearer scheme per identity stays a deliberate choice."""
     from overstep.models import McpInvocation, Subject

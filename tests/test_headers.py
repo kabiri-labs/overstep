@@ -89,12 +89,39 @@ def test_a_resource_authorization_is_kept_when_the_subject_has_no_token():
     assert build_headers(subject, case)["Authorization"] == "Bearer shared-key"
 
 
+def _authorizations(headers):
+    """Every Authorization actually going out, in any spelling."""
+    return [v for k, v in headers.items() if k.lower() == "authorization"]
+
+
 def test_a_differently_cased_resource_authorization_is_still_replaced():
     subject = Subject(name="alice", token="alice-token")
     headers = build_headers(subject, _case(headers={"authorization": "Bearer shared-key"}))
-    assert [v for k, v in headers.items() if k.lower() == "authorization"] == [
-        "Bearer alice-token"
-    ]
+    assert _authorizations(headers) == ["Bearer alice-token"]
+
+
+def test_a_differently_cased_subject_scheme_still_replaces_the_resource_one():
+    """Header names are case-insensitive; dict keys are not.
+
+    Assigning `Authorization` beside an existing `authorization` sends *both*,
+    and the server decides which counts. If it picks the resource's, every
+    subject authenticates as the same identity while the run looks correct — the
+    exact failure this precedence exists to prevent, reintroduced by spelling.
+    """
+    subject = Subject(name="alice", headers={"authorization": "Token mine"})
+    headers = build_headers(subject, _case(headers={"Authorization": "Bearer shared-key"}))
+    assert _authorizations(headers) == ["Token mine"]
+
+
+def test_only_one_authorization_is_ever_sent():
+    for case_key in ("Authorization", "authorization", "AUTHORIZATION"):
+        for subject in (
+            Subject(name="a", token="t"),
+            Subject(name="a", headers={"authorization": "Token x"}),
+            Subject(name="a", headers={"Authorization": "Token x"}),
+        ):
+            headers = build_headers(subject, _case(headers={case_key: "Bearer shared"}))
+            assert len(_authorizations(headers)) == 1, (case_key, subject.headers)
 
 
 def test_api_key_header_without_token():
