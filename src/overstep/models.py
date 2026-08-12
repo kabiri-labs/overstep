@@ -169,20 +169,36 @@ class McpServer(BaseModel):
 class McpMatcher(BaseModel):
     """How to decide allow/deny from an MCP tool result.
 
-    MCP has no 403: a denial usually surfaces as a JSON-RPC ``error`` or a result
-    with ``isError: true``. Evaluation order (see overstep.mcp_matching):
+    MCP has no 403 *inside* JSON-RPC: a denial normally surfaces as a JSON-RPC
+    ``error`` or a result with ``isError: true``. But MCP over Streamable HTTP
+    still travels on HTTP, and the authorization spec has the server answer an
+    unauthorized request with ``401`` and a ``WWW-Authenticate`` header — often
+    with no JSON-RPC message in the body at all. Such a response carries no
+    in-band deny signal, so it has to be read from the status; without that, a
+    correctly-denying server looks like one that ran the tool.
+
+    Evaluation order (see overstep.mcp_matching):
 
       1. ``deny_content_regex`` matches   -> deny
       2. ``allow_content_regex`` matches  -> allow
-      3. a JSON-RPC error                 -> deny iff ``jsonrpc_error_is_deny``
-      4. ``isError: true``                -> deny iff ``is_error_is_deny``
-      5. otherwise                        -> allow (the tool ran and returned data)
+      3. HTTP status in ``deny_status``   -> deny (the call never ran)
+      4. a JSON-RPC error                 -> deny iff ``jsonrpc_error_is_deny``
+      5. ``isError: true``                -> deny iff ``is_error_is_deny``
+      6. otherwise                        -> allow (the tool ran and returned data)
+
+    ``deny_status`` items take the same forms as ``ResponseMatcher.allow_status``
+    (an exact code, a range, or a class). It applies to Streamable HTTP only —
+    stdio has no status — and defaults to every HTTP error class, because a
+    non-2xx response means the tool-call was never delivered, whatever the
+    reason. Set it to ``[]`` for a server that reports denials in-band under a
+    non-2xx status of its own.
     """
 
     is_error_is_deny: bool = True
     jsonrpc_error_is_deny: bool = True
     deny_content_regex: Optional[str] = None
     allow_content_regex: Optional[str] = None
+    deny_status: List[Union[int, str]] = Field(default_factory=lambda: ["4xx", "5xx"])
 
 
 class McpInvocation(BaseModel):

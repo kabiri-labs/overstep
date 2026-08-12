@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.27.2] - 2026-08-12
+
+### Fixed
+- **An MCP server that refuses over HTTP is no longer reported as wide open.**
+  The MCP oracle read only the JSON-RPC message: a `error` member, or a result
+  with `isError: true`. The HTTP status the message arrived under was recorded on
+  the observation and then never consulted.
+
+  That leaves the spec's own refusal path unreadable. MCP authorization has an
+  unauthorized request answered with `401` and a `WWW-Authenticate` header, and
+  nothing requires the body to be JSON-RPC — an empty body, or a framework's
+  `{"detail": "Not authenticated"}`, is what real servers send. Neither has an
+  `error` member or an `isError` flag, so evaluation fell through to the final
+  "the tool ran and returned data" branch and recorded **allow**.
+
+  The consequences ran in both directions. Every negative test against a properly
+  secured server became a BOLA, BFLA or privilege-escalation finding — a false
+  positive on the most ordinary case there is, an unauthenticated caller being
+  turned away. And a run whose credentials were all rejected looked fully
+  authenticated, so the inconclusive check saw healthy positive controls and
+  passed a run that had proved nothing.
+
+  `McpMatcher` now carries `deny_status`, defaulting to `["4xx", "5xx"]`: a
+  non-2xx response means the tool-call was never delivered, whatever the reason.
+  It is consulted after the content regexes and before the in-band signals, so an
+  explicit `allow_content_regex` still wins. Streamable HTTP only — stdio has no
+  status, and its synthetic delivery marker is not fed to the matcher. Set
+  `deny_status: []` to restore the previous behaviour for a server that reports
+  genuine denials in-band under a non-2xx status of its own.
+
 ## [0.27.1] - 2026-08-11
 
 ### Fixed

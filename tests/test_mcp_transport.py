@@ -42,6 +42,51 @@ def test_content_text_flattens_blocks():
     assert content_text([{"type": "text", "text": "a"}, {"type": "text", "text": "b"}]) == "a\nb"
 
 
+def test_matcher_http_401_without_a_jsonrpc_body_is_deny():
+    """A spec-compliant refusal carries no in-band deny signal.
+
+    The MCP authorization spec has an unauthorized request answered with 401 and
+    a WWW-Authenticate header; the body need not be a JSON-RPC message, and for
+    a Starlette/FastAPI server it is `{"detail": "Not authenticated"}`. Nothing
+    in that has an `error` member or `isError`, so without the status the oracle
+    falls through to "the tool ran" and reports the denial as access granted.
+    """
+    assert evaluate_mcp(
+        McpMatcher(), jsonrpc_error=None, is_error=False, text="", status=401
+    ) == Effect.DENY
+
+
+def test_matcher_http_5xx_is_deny():
+    assert evaluate_mcp(
+        McpMatcher(), jsonrpc_error=None, is_error=False, text="", status=503
+    ) == Effect.DENY
+
+
+def test_matcher_http_200_still_reads_the_body():
+    assert evaluate_mcp(
+        McpMatcher(), jsonrpc_error=None, is_error=False, text="ok", status=200
+    ) == Effect.ALLOW
+    assert evaluate_mcp(
+        McpMatcher(), jsonrpc_error={"code": -32601, "message": "x"}, is_error=False, status=200
+    ) == Effect.DENY
+
+
+def test_matcher_content_regex_still_wins_over_status():
+    """An explicit allow marker is the author's own statement about the server."""
+    m = McpMatcher(allow_content_regex="granted")
+    assert evaluate_mcp(m, jsonrpc_error=None, is_error=False, text="granted", status=403) == Effect.ALLOW
+
+
+def test_matcher_deny_status_can_be_disabled():
+    m = McpMatcher(deny_status=[])
+    assert evaluate_mcp(m, jsonrpc_error=None, is_error=False, text="", status=401) == Effect.ALLOW
+
+
+def test_matcher_stdio_passes_no_status():
+    """stdio has no HTTP leg, so the default keeps its in-band behaviour."""
+    assert evaluate_mcp(McpMatcher(), jsonrpc_error=None, is_error=False, text="ok") == Effect.ALLOW
+
+
 # --- fixtures ---------------------------------------------------------------
 
 def _mcp_matrix() -> Matrix:
@@ -171,10 +216,10 @@ def _mcp_server_handler(request: httpx.Request) -> httpx.Response:
     return httpx.Response(200, json={"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "unknown"}})
 
 
-def _run_pipeline_against_mock(matrix, **kwargs):
+def _run_pipeline_against_mock(matrix, handler=None, **kwargs):
     import overstep.transports.mcp as mcpmod
 
-    transport = httpx.MockTransport(_mcp_server_handler)
+    transport = httpx.MockTransport(handler or _mcp_server_handler)
     orig = httpx.AsyncClient
 
     def factory(*a, **kw):
@@ -221,6 +266,60 @@ def test_finding_repro_is_an_mcp_call():
     assert "http://mcp.test/mcp" in bola.curl
     assert "alice-token" not in bola.curl          # token masked
     assert bola.request["tool"] == "read_document"
+
+
+def _oauth_guarded_handler(request: httpx.Request) -> httpx.Response:
+    """An MCP server that rejects at the HTTP leg, the way the spec asks it to.
+
+    Unauthenticated requests get a 401 with WWW-Authenticate and a body that is
+    not a JSON-RPC message — the shape a Starlette/FastAPI server produces. Every
+    authenticated caller is then served, so the only denials in a run against
+    this server are the HTTP ones.
+    """
+    auth = request.headers.get("authorization", "")
+    if not auth.lower().startswith("bearer "):
+        return httpx.Response(
+            401,
+            json={"detail": "Not authenticated"},
+            headers={"WWW-Authenticate": 'Bearer resource_metadata="http://mcp.test/.well-known/oauth-protected-resource"'},
+        )
+    return _mcp_server_handler(request)
+
+
+def test_http_401_is_not_reported_as_a_vulnerability():
+    """The regression this guards: a correct refusal read as access granted.
+
+    Every negative test for `anon` is answered with a 401 carrying no in-band
+    deny signal. Read on the JSON-RPC body alone that is indistinguishable from
+    a tool that ran, so each one used to surface as a BOLA/BFLA finding — a false
+    positive on the most ordinary case there is, an unauthenticated caller
+    against a server that rejects it.
+    """
+    result = _run_pipeline_against_mock(_mcp_matrix(), handler=_oauth_guarded_handler)
+
+    anon = [f for f in result.findings if f.subject == "anon"]
+    assert anon == [], f"a 401 refusal must not be a finding, got {[f.test_id for f in anon]}"
+
+    for obs in result.observations:
+        if obs.test_id.endswith("::anon::na") or "::anon::" in obs.test_id:
+            assert obs.status == 401
+            assert obs.effect == Effect.DENY
+
+    # The authenticated subjects still reach the server's real bugs, so the fix
+    # suppresses the false positives without muting the true ones.
+    assert any(f.test_id == "read_document::alice::other" for f in result.findings)
+
+
+def test_a_wholly_401_run_is_inconclusive_rather_than_clean():
+    """With no credential accepted anywhere, the run must not report success."""
+    def all_401(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"detail": "Not authenticated"})
+
+    result = _run_pipeline_against_mock(_mcp_matrix(), handler=all_401)
+    assert result.findings == [] or all(
+        f.vuln_class == VulnClass.UNEXPECTED_DENY for f in result.findings
+    )
+    assert result.health.inconclusive, "a run where nothing was authenticated proves nothing"
 
 
 def test_example_mcp_matrix_loads_and_validates():
