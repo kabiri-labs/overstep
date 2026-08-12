@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.34.1] - 2026-08-12
+
+### Changed
+- **The README leads with regression, not just detection.** Drift was a full
+  capability — `snapshot`, `--baseline`, `--fail-on drift`, a decision recorded
+  per cell — described in one subsection two thirds of the way down, under CI
+  configuration. That is the wrong place for the thing the tool is most useful
+  for: an authorization surface rarely breaks by being written wrong, it breaks by
+  *changing*, and nothing about the changed state looks anomalous on its own. It
+  is only wrong relative to what was agreed last month, which is a question only a
+  baseline can answer.
+
+  The opening now names both questions the tool answers — "what can each role
+  reach today?" and "did this release change who can access what?" — and a new
+  **Authorization regression** section sits directly after *What overstep finds*,
+  with the mechanics still under *Catching authorization drift* rather than
+  duplicated.
+
+  The new section also states the two properties that make a diff worth gating on
+  and which were previously only findable elsewhere in the document: the run is
+  deterministic, so a difference is a real difference rather than a scanner
+  changing its mind; and it refuses to fail open, so an unreachable target or an
+  unspeakable protocol reads as inconclusive rather than clean.
+
+  Documentation only — no behaviour changed. Versioned because the repository
+  treats positioning as a released change (see `0.31.1`).
+
 ## [0.34.0] - 2026-08-12
 
 ### Security
