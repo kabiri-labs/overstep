@@ -15,7 +15,8 @@ listing that advertises tools the caller may not invoke).
 The server is driven in-process over ASGI, so the test needs no port and no
 subprocess.
 """
-import importlib
+import importlib.util
+import os
 from collections import Counter
 
 import httpx
@@ -26,16 +27,23 @@ from overstep.models import Effect, Variant, VulnClass
 from overstep.pipeline import run_pipeline
 from overstep.report.base import summarize
 
-MATRIX = "examples/mcp_api/matrix.yaml"
+# `examples/` is not a package and not installed, and the repository root is on
+# `sys.path` only when pytest happens to be invoked as `python -m pytest`. Both
+# paths are resolved from this file so the suite runs the same from any working
+# directory.
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MATRIX = os.path.join(_ROOT, "examples", "mcp_api", "matrix.yaml")
+_SERVER = os.path.join(_ROOT, "examples", "mcp_api", "server.py")
 
 
 @pytest.fixture
 def demo_app():
     """A fresh server module per test — the demo mutates its own state."""
     pytest.importorskip("fastapi")
-    import examples.mcp_api.server as server
-
-    return importlib.reload(server).app
+    spec = importlib.util.spec_from_file_location("overstep_demo_mcp_server", _SERVER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.app
 
 
 def _run(app):
