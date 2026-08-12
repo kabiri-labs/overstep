@@ -1,8 +1,8 @@
 # overstep
 
-**Matrix-driven authorization testing for HTTP APIs and MCP tool-calls.**
+**Matrix-driven authorization testing for HTTP APIs and MCP servers.**
 
-![Version](https://img.shields.io/badge/version-0.30.1-blue)
+![Version](https://img.shields.io/badge/version-0.30.2-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -14,8 +14,8 @@ reports every negative test that got through as an authorization vulnerability.
 
 ```
    authorization matrix  ──►  positive + negative tests  ──►  run  ──►  findings
-   (subjects × resources)     (self/other, per role,          (BOLA/BFLA/BOPLA/
-                               cross-method)                    privesc/drift)
+   (subjects × resources)     (self/other, per role,          (BOLA/BFLA/BOPLA/privesc,
+                               cross-method, MCP protocol)      MCP protocol, drift)
 ```
 
 Findings are classified, mapped to **CWE / OWASP API Top 10**, graded by
@@ -38,7 +38,7 @@ same file tests an HTTP API and an [MCP server](#testing-mcp--agent-tool-calls).
 [The matrix](#the-authorization-matrix) ·
 [Trustworthy findings](#making-findings-trustworthy) ·
 [Modelling a real API](#modelling-a-real-api) ·
-[MCP tool-calls](#testing-mcp--agent-tool-calls) ·
+[MCP servers](#testing-mcp--agent-tool-calls) ·
 [Running in CI](#running-in-ci) ·
 [Command reference](#command-reference) ·
 [Taxonomy](#finding-taxonomy) ·
@@ -478,8 +478,7 @@ attribute/index access only. No function calls, no arbitrary names.
 By default each subject authenticates with `Authorization: Bearer <token>`. When
 an endpoint needs more — a non-bearer scheme, an API key, a tenant header — set
 headers on the **resource** (sent for every subject) and/or on the **subject**
-(per identity). Subject headers override resource headers, and an explicit
-`Authorization` header is never overwritten by the token:
+(per identity). Subject headers override resource headers:
 
 ```yaml
 resources:
@@ -502,6 +501,18 @@ subjects:
     headers: { X-API-Key: "abc123" }   # custom auth, no bearer token
     attributes: { user_id: u9 }
 ```
+
+**Who wins on `Authorization`.** An `Authorization` header set on the **subject**
+is a deliberate choice of auth scheme for that identity, so the token never
+overwrites it — that is what the `svc`-style rows above rely on. One set on the
+**resource** is different: it belongs to no identity in particular, so a
+subject's token replaces it. Keeping it would send the same credential for every
+subject, dropping each one's own token, and a matrix written to tell callers
+apart would be testing a single caller under several names — silently, because
+the requests still succeed. A subject with no token of its own still inherits the
+resource's header, since there is nothing to replace it with and it may be the
+only way in. The same precedence applies to MCP, where the resource-level
+credential is the one declared under `servers:`.
 
 ### Deciding allow vs. deny (response matcher)
 
@@ -671,10 +682,18 @@ them. The bugs map one-to-one: a subject reading another subject's object via a
 tool argument — or via a [resource URI](#resources-not-just-tools) — is **BOLA**;
 invoking a tool its role shouldn't is **BFLA / privilege escalation**.
 
-A resource sets `transport: mcp` and a `call` instead of an HTTP `request`, and
+A resource sets `transport: mcp` and, instead of an HTTP `request`, either a
+`call` (a tool) or a [`read`](#resources-not-just-tools) (a resource URI);
 `servers:` declares the endpoints. Two server kinds are supported — **Streamable
 HTTP** (`url:`) and **stdio** (`command:`, a local process). Below is HTTP; for
 stdio see [Local (stdio) MCP servers](#local-stdio-mcp-servers).
+
+Beyond what the matrix declares, three **protocol probes** run against every
+Streamable HTTP server, because they ask about the credential and the connection
+rather than about any one operation: [token audience](#token-audience-the-server-that-takes-somebody-elses-credential)
+and [session binding](#session-binding-what-a-connection-alone-is-worth) by
+default, and [tool enumeration](#tool-enumeration-what-the-server-is-willing-to-list)
+on request.
 
 ```yaml
 servers:
@@ -1272,7 +1291,7 @@ the registry is the seam any further target plugs into without changing the core
 | Authorization matrix as code | ✅ | ⚠️ (per-request, manual) | ❌ |
 | Positive **and** negative tests | ✅ | ⚠️ | ⚠️ |
 | BOLA / BFLA / BOPLA / privesc classification | ✅ | ⚠️ | ❌ |
-| HTTP **and** MCP tool-call authorization | ✅ | ❌ | ❌ |
+| HTTP **and** MCP authorization (tools, resources, audience, session) | ✅ | ❌ | ❌ |
 | Content-verified findings + repro | ✅ | ⚠️ | ❌ |
 | Drift baselines & waivers for CI | ✅ | ❌ | ❌ |
 | SARIF (CWE/OWASP) + JUnit output | ✅ | ❌ | ⚠️ |

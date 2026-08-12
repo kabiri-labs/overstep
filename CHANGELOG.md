@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.30.2] - 2026-08-12
+
+### Fixed
+- **A credential declared on an HTTP resource authenticated every subject through
+  it.** `build_headers` withheld the subject's bearer whenever an
+  `Authorization` header was already present — including one inherited from the
+  resource's own `request.headers`, which belongs to no identity in particular.
+  Every subject then sent that one credential, their own tokens were never sent,
+  and a matrix written to tell callers apart was testing a single caller under
+  several names. Silently, because the requests still succeeded: the positive
+  controls passed, the negative probes were answered by the wrong identity, and
+  nothing in the run said so.
+
+  This is the HTTP half of the same defect fixed for MCP in 0.29.1. The token now
+  yields only to an `Authorization` the *subject* set — still a deliberate choice
+  of auth scheme per identity — and replaces one inherited from the resource. A
+  subject with no token of its own still inherits the resource's header, since
+  there is nothing to replace it with and it may be the only way in.
+
+### Changed
+- **README scope statements now follow the code rather than the other way round.**
+  Several described a narrower tool than the one that exists:
+
+  - "an explicit `Authorization` header is never overwritten by the token" was
+    the rule the fix above changes. Replaced with which `Authorization` wins and
+    why, for HTTP and MCP alike.
+  - the tagline and package description said "MCP tool-calls"; the surface now
+    also covers resources, audience, session binding and enumeration, so both
+    say "MCP servers".
+  - the flow diagram and the capability-comparison row listed only the original
+    finding classes.
+  - the MCP section said a resource sets "a `call`", and did not mention that
+    three protocol probes run beyond what the matrix declares.
+
 ## [0.30.1] - 2026-08-12
 
 ### Fixed
