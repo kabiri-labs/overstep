@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.30.1] - 2026-08-12
+
+### Fixed
+- **A resource read switched off its own forbidden-field detection.**
+  `contents_text` put each entry's URI on the line above its body. The BOPLA
+  check parses that body as JSON to find forbidden property keys, and
+  `doc://acme/alice` followed by a JSON document is not JSON — so `_json_keys`
+  returned nothing and `forbidden_fields` silently found nothing on every
+  resource read that returns JSON, which is most of them.
+
+  The URI now travels separately, in `contents_uris`. It is still searched for
+  markers alongside the body, so a read that comes back naming the victim's URI
+  still grades **confirmed** — searched together, stored apart.
+
+- **A stdio resource read did not record what it read.** The structured request
+  on a finding carries `tool` and `arguments`, both empty for a read, and the
+  `uri` was added only to the HTTP branch. Findings from a stdio server named no
+  resource at all in `findings.json` or the HTML report.
+
 ## [0.30.0] - 2026-08-12
 
 ### Added

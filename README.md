@@ -2,7 +2,7 @@
 
 **Matrix-driven authorization testing for HTTP APIs and MCP tool-calls.**
 
-![Version](https://img.shields.io/badge/version-0.30.0-blue)
+![Version](https://img.shields.io/badge/version-0.30.1-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -770,10 +770,14 @@ resources:
 ```
 
 Everything downstream is unchanged — markers, confidence, `--fail-on`, drift,
-waivers, coverage. A cross-owner read that returns the victim's marker is graded
-**confirmed**, because the oracle reads the URI *and* the body of each entry in
-the result (decoding a `blob` when it decodes as UTF-8, since a text document
-served base64 still carries its owner's marker).
+waivers, coverage, `forbidden_fields`. A cross-owner read that returns the
+victim's marker is graded **confirmed**: markers are searched in the body *and*
+in the URIs the result named, since a read that answers with the victim's URI
+reached the victim's object whatever the body held. The two are searched together
+but kept apart — the body stays exactly what the server sent, so a JSON document
+is still parseable and [BOPLA](#bopla-forbidden-response-fields) works over reads
+too. A `blob` is decoded when it decodes as UTF-8, since a text document served
+base64 still carries its owner's marker.
 
 When the URI has no template structure of its own — an S3 key, a file path — make
 the whole thing one placeholder and put the real URIs in `objects:`:
