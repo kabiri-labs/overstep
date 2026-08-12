@@ -2,7 +2,7 @@
 
 **Matrix-driven authorization testing for HTTP APIs and MCP tool-calls.**
 
-![Version](https://img.shields.io/badge/version-0.29.0-blue)
+![Version](https://img.shields.io/badge/version-0.29.1-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -792,9 +792,17 @@ subjects:
 
 `token_audience` is inferred when a subject authenticates through a provider that
 discovers its token endpoint from a server (`discover_from`) or sends an explicit
-`resource` — that token *is* audience-bound, so nothing extra needs saying. With
-no audience known for a subject, no probe is generated: overstep does not guess
-which credential belongs where.
+`resource` — that token *is* audience-bound, so nothing extra needs saying. Such
+a subject usually has no `token:` of its own, because the provider writes what it
+obtained straight into the subject's headers; the probe looks for a credential in
+either place. With no audience known for a subject, no probe is generated:
+overstep does not guess which credential belongs where.
+
+The probe carries that subject's credential and nothing else. A credential
+declared on the **server** itself (an `Authorization` or API-key header under
+`servers:`) is dropped for this request only — a probe asking whether one
+identity is accepted cannot answer that if something else in the request could
+have done the authenticating.
 
 `overstep plan` shows the extra row before anything is sent — one per server the
 credential is foreign to:

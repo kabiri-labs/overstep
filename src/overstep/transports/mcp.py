@@ -21,7 +21,15 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from overstep.mcp_matching import content_text, evaluate_mcp
-from overstep.models import Effect, McpInvocation, Observation, Subject, TestCase, Variant
+from overstep.models import (
+    Effect,
+    McpInvocation,
+    Observation,
+    SECRET_HEADERS,
+    Subject,
+    TestCase,
+    Variant,
+)
 from overstep.transports.base import register
 
 _RETRY_STATUSES = frozenset({429, 503})
@@ -31,18 +39,25 @@ def mcp_headers(inv: McpInvocation, subject: Subject) -> Dict[str, str]:
     """Assemble request headers: server headers, then subject headers, then a
     bearer derived from the subject's token unless an auth header is already set.
 
-    An ``anonymous`` invocation gets none of the identity half — not the subject's
-    headers, not a bearer, and not an ``Authorization`` inherited from the server,
-    since a probe asking what an unauthenticated request achieves has to actually
-    be one.
+    The token yields to an ``Authorization`` the *subject* set, which is a
+    deliberate choice of auth scheme, but not to one inherited from the server:
+    that credential belongs to nobody in particular, and letting it stand would
+    authenticate every subject as the same identity and quietly make each of them
+    untestable.
+
+    An ``anonymous`` invocation gets none of the identity half — no subject
+    headers, no bearer, and no credential inherited from the server either, since
+    a probe asking what an unauthenticated request achieves has to actually be
+    one.
     """
     headers: Dict[str, str] = {}
     headers.update(inv.headers)
     if inv.anonymous:
-        headers = {k: v for k, v in headers.items() if k.lower() != "authorization"}
+        headers = {k: v for k, v in headers.items() if k.lower() not in SECRET_HEADERS}
     else:
         headers.update(subject.headers)
-        if subject.token and not any(k.lower() == "authorization" for k in headers):
+        subject_authorization = any(k.lower() == "authorization" for k in subject.headers)
+        if subject.token and not subject_authorization:
             headers["Authorization"] = f"Bearer {subject.token}"
     headers.setdefault("Content-Type", "application/json")
     headers.setdefault("Accept", "application/json, text/event-stream")

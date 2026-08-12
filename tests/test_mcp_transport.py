@@ -38,6 +38,44 @@ def test_matcher_deny_content_regex_wins():
     assert evaluate_mcp(m, jsonrpc_error=None, is_error=False, text="permission denied") == Effect.DENY
 
 
+def test_subject_token_overrides_a_server_level_authorization():
+    """A credential on `servers[]` belongs to nobody, so it must not stand in.
+
+    Letting it survive would authenticate every subject as the same identity:
+    each one's own token would be dropped, every request would carry the server's
+    credential, and the whole matrix would be testing one caller under many names.
+    """
+    from overstep.models import McpInvocation, Subject
+    from overstep.transports.mcp import mcp_headers
+
+    inv = McpInvocation(tool="t", headers={"Authorization": "Bearer server-key"})
+    headers = mcp_headers(inv, Subject(name="alice", token="alice-token"))
+    assert headers["Authorization"] == "Bearer alice-token"
+
+
+def test_a_subjects_own_authorization_is_still_never_clobbered():
+    """Choosing a non-bearer scheme per identity stays a deliberate choice."""
+    from overstep.models import McpInvocation, Subject
+    from overstep.transports.mcp import mcp_headers
+
+    inv = McpInvocation(tool="t", headers={"Authorization": "Bearer server-key"})
+    subject = Subject(name="svc", token="ignored", headers={"Authorization": "Basic abc"})
+    assert mcp_headers(inv, subject)["Authorization"] == "Basic abc"
+
+
+def test_an_anonymous_invocation_carries_no_credential_of_any_kind():
+    from overstep.models import McpInvocation, Subject
+    from overstep.transports.mcp import mcp_headers
+
+    inv = McpInvocation(
+        tool="t", anonymous=True,
+        headers={"Authorization": "Bearer k", "X-Api-Key": "k2", "X-Trace": "on"},
+    )
+    headers = mcp_headers(inv, Subject(name="alice", token="alice-token"))
+    assert "Authorization" not in headers and "X-Api-Key" not in headers
+    assert headers["X-Trace"] == "on"
+
+
 def test_content_text_flattens_blocks():
     assert content_text([{"type": "text", "text": "a"}, {"type": "text", "text": "b"}]) == "a\nb"
 

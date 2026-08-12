@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.29.1] - 2026-08-12
+
+### Fixed
+- **The audience probe skipped exactly the subjects it was built for.** It
+  required a static `token:` on the subject, but `authenticate()` writes what a
+  provider returned into `subject.headers` under that provider's `token_header`
+  and leaves `token` unset. Every identity using the discovered-OAuth flow — the
+  one case RFC 9728 discovery and audience binding exist for — therefore
+  generated no probe at all, and so did every subject using a custom scheme (an
+  API key header, a session cookie). The feature reported nothing and looked
+  like it had found nothing. A subject now counts as credentialed when it has a
+  token *or* a credential-bearing header; the session probe uses the same
+  test, which also stops a bare `X-Tenant` from being mistaken for an identity.
+
+- **A credential declared on a server authenticated every subject through it.**
+  `mcp_headers` withheld the subject's bearer whenever an `Authorization` header
+  was already present — including one inherited from `servers[].headers`, which
+  belongs to no identity in particular. Every subject then authenticated as that
+  one credential: their own tokens were never sent, and a matrix meant to
+  distinguish callers was testing a single caller under several names. The token
+  now yields only to an `Authorization` the *subject* set, which remains a
+  deliberate choice of auth scheme. `overstep.mcp_client` (setup/teardown
+  fixtures) had the same precedence bug and also ignored subject headers
+  entirely; both are fixed.
+
+  For the audience probe this was additionally a false-positive source: the
+  target server's own key would authorize the `tools/list`, and the result read
+  as acceptance of the foreign token. That probe now drops server-declared
+  credentials outright — the only request in the suite that does — because its
+  verdict is meaningless if anything else could have authenticated the call.
+  Non-credential server headers are still sent, so the probe otherwise looks
+  like a real client.
+
+- `SECRET_HEADERS` moved to `overstep.models` as the single definition of "this
+  header carries a credential", shared by redaction and by the two checks above,
+  so masking and probing cannot disagree about what a credential is.
+
 ## [0.29.0] - 2026-08-12
 
 ### Added

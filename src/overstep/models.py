@@ -17,6 +17,12 @@ HTTPMethod = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
 # friends, or a transport error) counts as the request having been denied.
 ALLOW_STATUSES = frozenset({200, 201, 202, 203, 204, 206})
 
+# Header names whose value is a credential. One definition serves two jobs that
+# must agree: redacting secrets from anything overstep writes out, and deciding
+# whether an identity carries a credential at all — a subject authenticated by a
+# provider, or by a custom scheme, has one of these and no ``token``.
+SECRET_HEADERS = frozenset({"authorization", "cookie", "x-api-key", "api-key", "x-auth-token"})
+
 
 class Effect(str, Enum):
     """The authorization decision, either expected or observed."""

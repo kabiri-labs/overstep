@@ -18,10 +18,9 @@ from typing import Any, Dict, Optional
 from urllib.parse import urlencode, urljoin
 
 from overstep.executor import build_headers
+from overstep.models import SECRET_HEADERS as _SECRET_HEADERS
 from overstep.models import Subject, TestCase
 
-# Header names whose value is a secret and must be redacted in any shared output.
-_SECRET_HEADERS = {"authorization", "cookie", "x-api-key", "api-key", "x-auth-token"}
 _MASK = "***"
 
 # Shell variables this module emits in place of credentials.

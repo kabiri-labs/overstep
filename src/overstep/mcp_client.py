@@ -30,8 +30,12 @@ def _http_call(
         "MCP-Protocol-Version": server.protocol_version,
     }
     headers.update(server.headers)
-    if subject and subject.token and not any(k.lower() == "authorization" for k in headers):
-        headers["Authorization"] = f"Bearer {subject.token}"
+    if subject:
+        headers.update(subject.headers)
+        # Same precedence as the run transport: the token yields to the subject's
+        # own Authorization, never to one declared on the server.
+        if subject.token and not any(k.lower() == "authorization" for k in subject.headers):
+            headers["Authorization"] = f"Bearer {subject.token}"
 
     with httpx.Client(timeout=timeout, verify=verify) as client:
         init = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
