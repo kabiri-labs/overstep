@@ -216,6 +216,36 @@ def test_require_https_accepts_https_and_loopback_only():
         require_https("http://a.test/x", "endpoint")
 
 
+@pytest.mark.parametrize("host", ["127.0.0.1", "127.0.0.2", "127.255.255.254", "[::1]"])
+def test_the_whole_loopback_range_counts_as_local(host):
+    """Isolating local test services on 127.0.0.2 is ordinary, and still local."""
+    require_https(f"http://{host}:9000/as", "authorization server")
+
+
+@pytest.mark.parametrize("host", ["10.0.0.1", "169.254.1.1", "example.com"])
+def test_a_non_loopback_address_is_not_exempt(host):
+    with pytest.raises(DiscoveryError):
+        require_https(f"http://{host}/as", "authorization server")
+
+
+@pytest.mark.parametrize("issuer", [
+    "https://Honest.Test/as",        # httpx lowercases the host it reports
+    "https://honest.test:443/as",    # and drops the default port
+])
+def test_a_differently_spelled_origin_is_not_a_redirect(issuer):
+    """A false 'redirected' here would break discovery against a valid server.
+
+    httpx canonicalises the URL it reports, so the response for an unredirected
+    request comes back spelled differently than it was asked for. Origins are
+    compared as scheme/host/port for that reason — a security check that refuses
+    correct deployments is one people switch off.
+    """
+    backend = Backend(authorization_servers=[issuer], claimed_issuer=issuer,
+                      token_endpoint=f"{issuer}/token")
+
+    assert _discover(backend).issuer == issuer
+
+
 # --- redirects --------------------------------------------------------------
 
 def test_metadata_redirected_to_another_origin_is_refused():
