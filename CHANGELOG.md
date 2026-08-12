@@ -24,6 +24,22 @@
   changing its mind; and it refuses to fail open, so an unreachable target or an
   unspeakable protocol reads as inconclusive rather than clean.
 
+  Two corrections to what the document recommends, both of which it previously got
+  wrong in the reader's favour:
+
+  - **The CI gate is `vuln-or-drift`, not `drift`.** A diff only speaks about
+    cells present on both sides, so a newly added one has nothing to differ from:
+    a tool shipped without an owner check is reported as a BOLA vulnerability, not
+    as drift, and a drift-only gate exits `0` on it. Measured, not reasoned about
+    — the scenario used to motivate the section was the scenario the recommended
+    command missed. Waivers, not the baseline, are now what carries accepted
+    pre-existing risk.
+  - **The fail-closed claim is qualified.** Rejected credentials become an
+    inconclusive run only when the matrix has expected-allow tests; those are what
+    prove a credential still works, and an intentionally all-negative suite has
+    none to lose. Stating it unconditionally promised a guarantee such a matrix
+    does not get.
+
   Documentation only — no behaviour changed. Versioned because the repository
   treats positioning as a released change (see `0.31.1`).
 

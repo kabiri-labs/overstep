@@ -115,23 +115,36 @@ overstep records the decision the target actually made for every cell, then diff
 against it:
 
 ```bash
-overstep snapshot matrix.yaml --out baseline.json          # once, after triage
-overstep run matrix.yaml --baseline baseline.json --fail-on drift   # every PR
+overstep snapshot matrix.yaml --out baseline.json                            # once, after triage
+overstep run matrix.yaml --baseline baseline.json --fail-on vuln-or-drift    # every PR
 ```
 
 A cell that flipped **deny → allow** is a newly opened hole. **allow → deny** is a
 new restriction — often intended, occasionally an outage you would rather hear
-about from CI than from a customer. Findings that already existed when you took
-the baseline do not fail the build, which is what lets a real system adopt this
-without an impossible green-from-day-one requirement.
+about from CI than from a customer.
+
+**Gate on `vuln-or-drift`, not `drift`.** A diff can only speak about cells that
+existed on both sides, so a *newly added* one has nothing to differ from: the new
+tool above, shipped without an owner check, is reported as a BOLA vulnerability
+and not as drift, and a drift-only gate goes green on exactly the case that
+motivates this section. `vuln-or-drift` fails on either.
+
+The cost is that pre-existing findings then fail the build too, which is what the
+baseline was protecting a legacy target from. [Waivers](#waivers-accepted-risk-without-turning-off-gating)
+are the mechanism for that — each accepted finding named, with a reason and an
+optional expiry, reviewed like any other code. That is a better record of accepted
+risk than a baseline that silently swallows everything present on the day it was
+taken.
 
 Two properties make the diff worth gating on. It is **deterministic** — every
 request is one your matrix asked for, so the same surface produces the same answer
 every run, and a difference is a real difference rather than a scanner changing its
-mind. And the run **refuses to fail open**: if the target was unreachable, the
-credentials were rejected, or the protocol was one overstep could not speak, the
-result is [inconclusive](#inconclusive-runs-the-gate-refuses-to-fail-open) rather
-than a clean bill of health.
+mind. And the run **refuses to fail open**: a target that was unreachable, or a
+protocol overstep could not speak, is reported as
+[inconclusive](#inconclusive-runs-the-gate-refuses-to-fail-open) rather than as a
+clean bill of health. Rejected credentials are caught the same way *provided the
+matrix has expected-allow tests* — they are what proves a credential still works,
+and a suite written entirely of negative tests has none to lose.
 
 Keep `matrix.yaml` and `baseline.json` in version control and authorization gets
 reviewed like any other code. The mechanics — waivers, expiry, `vuln-or-drift` —
