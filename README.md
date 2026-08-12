@@ -511,8 +511,10 @@ subject, dropping each one's own token, and a matrix written to tell callers
 apart would be testing a single caller under several names — silently, because
 the requests still succeed. A subject with no token of its own still inherits the
 resource's header, since there is nothing to replace it with and it may be the
-only way in. The same precedence applies to MCP, where the resource-level
-credential is the one declared under `servers:`.
+only way in. Replacement is case-insensitive — header names are, so exactly one
+`Authorization` is ever sent, never two spellings for the server to choose
+between. The same precedence applies to MCP, where the resource-level credential
+is the one declared under `servers:`.
 
 ### Deciding allow vs. deny (response matcher)
 

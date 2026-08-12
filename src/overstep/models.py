@@ -24,6 +24,20 @@ ALLOW_STATUSES = frozenset({200, 201, 202, 203, 204, 206})
 SECRET_HEADERS = frozenset({"authorization", "cookie", "x-api-key", "api-key", "x-auth-token"})
 
 
+def drop_header(headers: Dict[str, str], name: str) -> None:
+    """Remove every spelling of ``name`` from ``headers``, in place.
+
+    HTTP header names are case-insensitive but dict keys are not, so replacing a
+    credential by assigning ``headers["Authorization"]`` leaves a lowercase
+    ``authorization`` sitting beside it and *both* go out on the wire. Which one
+    the server honours is its own business — and if it picks the one that was
+    meant to be replaced, every subject authenticates as the same identity while
+    the run looks correct. Header replacement therefore always deletes first.
+    """
+    for key in [k for k in headers if k.lower() == name.lower()]:
+        del headers[key]
+
+
 class Effect(str, Enum):
     """The authorization decision, either expected or observed."""
 

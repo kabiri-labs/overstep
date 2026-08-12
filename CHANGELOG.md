@@ -34,6 +34,19 @@
   - the MCP section said a resource sets "a `call`", and did not mention that
     three protocol probes run beyond what the matrix declares.
 
+- **Credential replacement is case-insensitive.** HTTP header names are, and
+  Python dict keys are not: assigning `Authorization` beside an inherited
+  lowercase `authorization` left both in place, and both went out on the wire for
+  the server to choose between. If it chose the shared one, every subject
+  authenticated as the same identity again — the very failure the precedence
+  rule exists to prevent, reintroduced by spelling.
+
+  Both directions were affected: a resource/server-level `authorization` beside a
+  subject's token, and a resource-level `Authorization` beside a subject's own
+  lowercase one. Replacement now removes every spelling first, via a shared
+  `drop_header`, on the HTTP executor, the MCP transport, and the MCP fixture
+  client. Only one `Authorization` is ever sent.
+
 ## [0.30.1] - 2026-08-12
 
 ### Fixed
