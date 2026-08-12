@@ -144,7 +144,10 @@ async def _call(
         result = result if isinstance(result, dict) else {}
         is_error = bool(result.get("isError"))
         text = content_text(result.get("content"))
-        effect = evaluate_mcp(inv.matcher, jsonrpc_error=error, is_error=is_error, text=text)
+        effect = evaluate_mcp(
+            inv.matcher, jsonrpc_error=error, is_error=is_error, text=text,
+            status=resp.status_code,
+        )
         matched = [m for m in case.expect_markers if m and m in text]
         return Observation(
             test_id=case.id,
@@ -237,6 +240,8 @@ async def _call_stdio(case: TestCase, inv) -> Observation:
     result = result if isinstance(result, dict) else {}
     is_error = bool(result.get("isError"))
     text = content_text(result.get("content"))
+    # No status is passed: stdio has no HTTP leg, and the synthetic status below
+    # is a delivery marker, not something a matcher's deny_status should read.
     effect = evaluate_mcp(inv.matcher, jsonrpc_error=error, is_error=is_error, text=text)
     matched = [m for m in case.expect_markers if m and m in text]
     # No HTTP status for stdio; 200 marks a delivered call, 0 a transport failure.

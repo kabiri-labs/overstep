@@ -2,7 +2,7 @@
 
 **Matrix-driven authorization testing for HTTP APIs and MCP tool-calls.**
 
-![Version](https://img.shields.io/badge/version-0.27.1-blue)
+![Version](https://img.shields.io/badge/version-0.27.2-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -673,10 +673,11 @@ servers:
   - name: docs
     url: http://127.0.0.1:9000/mcp        # MCP over Streamable HTTP (JSON-RPC)
 
-# MCP has no 403 — decide allow/deny from the tool result:
+# MCP has no 403 of its own — decide allow/deny from the tool result:
 mcp_access:
   is_error_is_deny: true                  # a result with isError: true -> denied
   jsonrpc_error_is_deny: true             # a JSON-RPC error -> denied
+  deny_status: ["4xx", "5xx"]             # HTTP-leg refusal (401/403) -> denied
   # deny_content_regex: "permission denied"
 
 subjects:
@@ -697,10 +698,22 @@ resources:
 ```
 
 overstep performs a best-effort `initialize` handshake and then `tools/call` per
-subject, using that subject's token and headers for identity. Because there is no
-status code, the **marker** oracle matters more than in HTTP: when a cross-owner
-tool-call returns the victim's marker, the BOLA is graded **confirmed**. Findings
-carry an MCP `tools/call` repro, and `--read-only` skips `mutating` tools.
+subject, using that subject's token and headers for identity. Because a denial is
+usually in-band rather than a status code, the **marker** oracle matters more
+than in HTTP: when a cross-owner tool-call returns the victim's marker, the BOLA
+is graded **confirmed**. Findings carry an MCP `tools/call` repro, and
+`--read-only` skips `mutating` tools.
+
+`deny_status` covers the other half. Over Streamable HTTP the authorization spec
+has an unauthorized request answered with `401` and a `WWW-Authenticate` header,
+and nothing requires the body to be a JSON-RPC message — an empty body, or a
+framework's own `{"detail": "Not authenticated"}`, is what many servers send.
+Such a response has no in-band deny signal at all, so it is read from the status:
+any `4xx`/`5xx` means the tool-call was never delivered. Without that, the
+servers that reject *before* dispatching — the ones doing it right — are exactly
+the ones a run reports as wide open. Set `deny_status: []` for a server that
+reports real denials in-band under a non-2xx status of its own. It does not apply
+to stdio, which has no HTTP leg.
 
 **Don't write the resources by hand** — scaffold them from the server's own
 `tools/list`, with object/function type and mutating tools inferred:
