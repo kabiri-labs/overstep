@@ -1,5 +1,63 @@
 # Changelog
 
+## [0.33.0] - 2026-08-12
+
+### Added
+- **overstep speaks MCP `2026-07-28`.** The revision made the core stateless:
+  the `initialize`/`notifications/initialized` handshake and the `Mcp-Session-Id`
+  header are gone, every request carries its own protocol version and client
+  capabilities in `params._meta`, and Streamable HTTP requires `Mcp-Method` and
+  `Mcp-Name` headers that must agree with the body. `0.32.1` could recognise such
+  a server and refuse to guess about it; it could not test one.
+
+  Set it per server:
+
+  ```yaml
+  servers:
+    - name: docs
+      url: https://mcp.example.com/mcp
+      protocol_version: "2026-07-28"
+  ```
+
+  The handshake is now conditional on the revision, across all four places that
+  speak this wire: the run transport, the scaffolding loader, the synchronous
+  fixture client used by setup/teardown, and the generated repro. A repro missing
+  the required headers would be a command the server rejects before authorization
+  is consulted — an all-clear pasted into a bug report — so it carries them too.
+
+  stdio went stateless with the rest of the protocol, so its handshake is skipped
+  on that revision as well; the routing headers are HTTP-only and are not sent
+  there.
+
+  **The default is unchanged at `2025-06-18`.** Which revision to speak is a fact
+  about the target, not a preference, so an existing matrix keeps its wire until
+  it says otherwise.
+
+- **Session binding is reported as not applicable on `2026-07-28`.** The defect
+  was removed from the protocol rather than fixed in any given server, so the
+  probe is skipped before a request is sent. Reporting it as passed would be
+  credit for a control the target never had to implement.
+
+- **A version the server will not accept ends the run.** Configured for a
+  revision the target does not implement, the two errors the spec defines for it
+  — `UnsupportedProtocolVersionError` and `HeaderMismatch` — are recorded as
+  delivery failures rather than denials, so the run is inconclusive instead of
+  passing a matrix of negative tests. `-32601` is deliberately not read this way:
+  a server answering "method not found" to `resources/read` is telling us it has
+  no resource surface, which is a true answer to a real question.
+
+### Fixed
+- **`2025-11-25` is recognised.** It was missing from the set of known revisions
+  added in `0.32.1`, so a server negotiating it was reported as speaking a
+  protocol overstep does not implement — a false refusal of a revision the
+  handshake path drives correctly. An unknown version is still refused rather
+  than guessed at, which is the point of the set.
+
+### Changed
+- The default protocol version now has one definition instead of six copies, and
+  the wire-format rules for both revisions live in `overstep.mcp_protocol` rather
+  than being spelled out separately in each caller.
+
 ## [0.32.1] - 2026-08-12
 
 ### Fixed

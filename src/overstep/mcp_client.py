@@ -16,6 +16,7 @@ from typing import Any, Dict, Optional
 
 import httpx
 
+from overstep.mcp_protocol import CLIENT_INFO, is_stateless, request_meta, routing_headers
 from overstep.models import McpServer, Subject, drop_header
 from overstep.transports.mcp import _parse_message
 
@@ -41,21 +42,27 @@ def _http_call(
         if subject.token and not subject_auth:
             headers["Authorization"] = f"Bearer {subject.token}"
 
+    params: Dict[str, Any] = {"name": tool, "arguments": arguments}
+    stateless = is_stateless(server.protocol_version)
+    if stateless:
+        params["_meta"] = request_meta(server.protocol_version)
+        headers.update(routing_headers("tools/call", params))
+
     with httpx.Client(timeout=timeout, verify=verify) as client:
-        init = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
-                "params": {"protocolVersion": server.protocol_version, "capabilities": {},
-                           "clientInfo": {"name": "overstep", "version": "1"}}}
-        try:
-            resp = client.post(server.url, json=init, headers=headers)
-            session = resp.headers.get("mcp-session-id")
-            if session:
-                headers["Mcp-Session-Id"] = session
-        except httpx.HTTPError:
-            pass
+        if not stateless:
+            init = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                    "params": {"protocolVersion": server.protocol_version, "capabilities": {},
+                               "clientInfo": dict(CLIENT_INFO)}}
+            try:
+                resp = client.post(server.url, json=init, headers=headers)
+                session = resp.headers.get("mcp-session-id")
+                if session:
+                    headers["Mcp-Session-Id"] = session
+            except httpx.HTTPError:
+                pass
         resp = client.post(
             server.url,
-            json={"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-                  "params": {"name": tool, "arguments": arguments}},
+            json={"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": params},
             headers=headers,
         )
         return _parse_message(resp)
@@ -91,14 +98,18 @@ def _stdio_call(
             if isinstance(m, dict) and m.get("id") == want:
                 return m
 
+    params: Dict[str, Any] = {"name": tool, "arguments": arguments}
+    if is_stateless(server.protocol_version):
+        params["_meta"] = request_meta(server.protocol_version)
+
     try:
-        send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
-              "params": {"protocolVersion": server.protocol_version, "capabilities": {},
-                         "clientInfo": {"name": "overstep", "version": "1"}}})
-        read_id(1)
-        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
-        send({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-              "params": {"name": tool, "arguments": arguments}})
+        if not is_stateless(server.protocol_version):
+            send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                  "params": {"protocolVersion": server.protocol_version, "capabilities": {},
+                             "clientInfo": dict(CLIENT_INFO)}})
+            read_id(1)
+            send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        send({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": params})
         return read_id(2)
     finally:
         try:

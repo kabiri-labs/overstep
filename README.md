@@ -2,7 +2,7 @@
 
 **Authorization testing for MCP servers. Works on HTTP APIs too.**
 
-![Version](https://img.shields.io/badge/version-0.32.1-blue)
+![Version](https://img.shields.io/badge/version-0.33.0-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -520,6 +520,39 @@ nothing to protect against. `validate` flags a resource that sets both `call` an
 injection pointing at the wrong half — an `mcp_argument` on a read or an
 `mcp_resource_uri` on a call.
 
+### Protocol revisions
+
+MCP comes in two shapes, and a server speaks one of them. Through `2025-11-25` a
+connection opens with an `initialize` handshake and may carry an `Mcp-Session-Id`
+afterwards. From **`2026-07-28`** the core is stateless: the handshake and the
+session header are gone, and every request carries its own protocol version and
+client capabilities in `params._meta`, plus `Mcp-Method` and `Mcp-Name` headers
+so gateways can route without parsing the body.
+
+overstep drives both. The default stays on the stateful wire, because which
+revision to speak is a fact about your target, not a preference:
+
+```yaml
+servers:
+  - name: docs
+    url: https://mcp.example.com/mcp
+    protocol_version: "2026-07-28"     # default: 2025-06-18
+```
+
+Two consequences worth knowing:
+
+- **Session binding is not applicable on `2026-07-28`.** The defect was removed
+  from the protocol rather than fixed in your server, so the probe is reported as
+  skipped rather than passed — credit for a control nobody had to implement would
+  be the wrong reading.
+- **A version mismatch ends the run rather than scoring it.** If the server
+  answers `UnsupportedProtocolVersionError`, or rejects the request's headers, or
+  refuses a handshake it no longer implements, those refusals are recorded as
+  delivery failures and the run is [inconclusive](#inconclusive-runs-the-gate-refuses-to-fail-open).
+  They are not denials, and a matrix of negative tests must not pass on them.
+
+A revision overstep does not know is refused outright rather than guessed at.
+
 ### The protocol probes
 
 Three checks run against every Streamable HTTP server beyond what the matrix
@@ -603,6 +636,10 @@ explicit that it must not be used to authenticate. Session identifiers travel in
 headers, and headers end up in proxies, access logs and referrers — so a server
 that accepts one as proof of identity lets anybody who obtains the string become
 the user who opened it.
+
+This applies to the stateful revisions. `2026-07-28` removed protocol-level
+sessions altogether, and there the probe is skipped as not applicable — see
+[Protocol revisions](#protocol-revisions).
 
 overstep checks this on every Streamable HTTP server, without configuration:
 
