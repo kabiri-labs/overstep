@@ -57,6 +57,15 @@ SUPPORTED_PROTOCOL_VERSIONS = frozenset({"2024-11-05", "2025-03-26", "2025-06-18
 # the run's subject matter — it has to stay on the normal allow/deny path.
 _AUTH_STATUSES = frozenset({401, 403})
 
+# JSON-RPC's pre-defined codes for a request the server could not accept *as a
+# request*. A server denying authorization does not answer with these: it sets
+# ``isError`` on a result, or uses a code of its own — JSON-RPC reserves
+# -32000..-32099 for implementation-defined server errors, which is where
+# "forbidden" lives. So these four, and only these, distinguish a protocol that
+# failed from a policy that refused. ``-32603`` (internal error) is deliberately
+# absent: servers reach for it to mean anything at all.
+_PROTOCOL_ERROR_CODES = frozenset({-32700, -32600, -32601, -32602})
+
 
 class _Handshake(NamedTuple):
     """What the initialize exchange established, or why it established nothing.
@@ -210,12 +219,22 @@ def _rejected_by_protocol(opened: _Handshake, resp: httpx.Response) -> bool:
     the lifecycle and answers anyway is testable, and its answers are real. And
     a 401/403 on the request is the server talking about the *caller*, which is
     a genuine authorization signal no matter what the handshake did.
+
+    The rejection is read from the status *and* the body, because JSON-RPC is
+    entitled to report a malformed request under a perfectly ordinary 200 — a
+    mismatched server can refuse everything without ever emitting an HTTP error.
+    Only the pre-defined codes count there: "any JSON-RPC error" would rewrite a
+    lax-but-working server's genuine denials into transport failures, losing real
+    findings and condemning a run that was testing exactly what it should.
     """
-    return (
-        opened.refusal is not None
-        and resp.status_code >= 400
-        and resp.status_code not in _AUTH_STATUSES
-    )
+    if opened.refusal is None:
+        return False
+    if resp.status_code >= 400:
+        return resp.status_code not in _AUTH_STATUSES
+    message = _parse_message(resp)
+    error = message.get("error") if isinstance(message, dict) else None
+    code = error.get("code") if isinstance(error, dict) else None
+    return code in _PROTOCOL_ERROR_CODES
 
 
 async def _initialize(

@@ -25,12 +25,21 @@
   or without a positive control. `validate --live` inherits the same signal and
   names the protocol before a run is sent.
 
-  Two things are deliberately left alone. A refused handshake is a suspicion, not
-  a verdict: it is confirmed against the request that follows, so a lax server
-  that ignores the lifecycle and answers tool-calls anyway stays testable and its
-  results stay real. And a `401`/`403` on the handshake is the server asking who
-  is calling — the question the run exists to ask — so it stays on the allow/deny
-  path untouched.
+  That rejection is read from the response body as well as its status. JSON-RPC
+  is entitled to report a malformed request under an ordinary `200`, so a
+  mismatched server can refuse every call without ever emitting an HTTP error —
+  and the status alone would miss it, leaving the fail-open exactly where it was.
+
+  Three things are deliberately left alone. A refused handshake is a suspicion,
+  not a verdict: it is confirmed against the request that follows, so a lax
+  server that ignores the lifecycle and answers tool-calls anyway stays testable
+  and its results stay real. A `401`/`403` on the handshake is the server asking
+  who is calling — the question the run exists to ask — so it stays on the
+  allow/deny path untouched. And only JSON-RPC's four pre-defined codes count as
+  an in-band protocol refusal: a server saying "forbidden" answers with `isError`
+  or a code from the `-32000..-32099` range reserved for exactly that, so
+  treating *any* JSON-RPC error as a protocol failure would rewrite genuine
+  denials into transport errors and lose the findings that matter.
 
   Not covered: the stdio transport, whose handshake is a separate exchange with
   no HTTP status to read, and the 2026-07-28 wire format itself. This change
