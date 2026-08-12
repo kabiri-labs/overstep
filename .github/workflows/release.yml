@@ -5,6 +5,9 @@ name: Release
 #   2. Run manually:          Actions -> Release -> Run workflow -> version = 0.10.0
 # The manual path creates the tag and the GitHub Release for you, so it works even
 # where pushing tags directly is not possible.
+#
+# The notes cover every CHANGELOG entry since the last published tag, so a release
+# that bundles several versions describes all of them.
 on:
   push:
     tags:
@@ -42,6 +45,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Tags, not just the commit: the release notes cover everything since
+          # the last one that was published, which the CHANGELOG cannot know.
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -64,14 +71,17 @@ jobs:
       - name: Build sdist and wheel
         run: python -m build
 
+      # Everything since the last published tag, not just this version's section.
+      # Bundling several versions into one release is normal; describing only the
+      # last of them is how v0.31.2 shipped reading like a two-line patch release.
+      # Fails the build if the version has no CHANGELOG section, rather than
+      # publishing an empty page. See scripts/release_notes.py.
       - name: Extract release notes from CHANGELOG
         run: |
           VERSION="${{ needs.setup.outputs.version }}"
-          awk -v ver="$VERSION" '
-            $0 ~ "^## \\[" ver "\\]" { grab=1; next }
-            grab && /^## \[/ { exit }
-            grab { print }
-          ' CHANGELOG.md > release-notes.md
+          git tag --list 'v*' \
+            | python scripts/release_notes.py --version "$VERSION" --changelog CHANGELOG.md \
+            > release-notes.md
           echo "----- release notes -----"; cat release-notes.md
 
       - name: Upload build artifacts
