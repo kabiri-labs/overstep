@@ -22,9 +22,18 @@
     strips — normalising an attacker-supplied value is how two identifiers are
     talked into looking like one.
   - **HTTPS.** The authorization server and token endpoint must be HTTPS, since
-    the next thing to travel there is a secret. Loopback is exempt, as is a run
-    that already disabled TLS verification and has made that choice explicitly.
-  - **No cross-origin redirects** on a metadata request.
+    the next thing to travel there is a secret. Loopback is exempt — the whole of
+    `127.0.0.0/8` and `::1`, not just `127.0.0.1`, since isolating local test
+    services on another address is ordinary — as is a run that already disabled
+    TLS verification and has made that choice explicitly.
+  - **No cross-origin redirects** on a metadata request. Origins are compared as
+    scheme, host and effective port rather than as text: httpx canonicalises the
+    URL it reports, so `https://Example.com` and `https://example.com:443` come
+    back spelled differently than they were requested even when nothing was
+    redirected, and a textual comparison would refuse a correct deployment. This
+    is deliberately not the normalisation refused for an issuer — an origin is a
+    network location and comparing two should see through spelling, while an
+    identifier normalised is how two different ones start to look alike.
 
   Verified by disabling each check and watching the credential arrive at the
   attacker's endpoint.

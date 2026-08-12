@@ -35,6 +35,7 @@ and must not be presented to another one.
 """
 from __future__ import annotations
 
+import ipaddress
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 from urllib.parse import urlsplit, urlunsplit
@@ -77,12 +78,44 @@ def _as_metadata_candidates(issuer: str) -> List[str]:
     ]
 
 
-_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+_DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
 def _is_loopback(url: str) -> bool:
+    """Does this URL address the local machine?
+
+    The whole of ``127.0.0.0/8`` is loopback, not just ``127.0.0.1`` — isolating
+    local test services on ``127.0.0.2`` is ordinary — so the address is asked
+    rather than matched against a list. A name other than ``localhost`` is not
+    resolved: what it points at today is not a decision to make here.
+    """
     host = (urlsplit(url).hostname or "").lower()
-    return host in _LOOPBACK_HOSTS
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _origin_key(url: str) -> tuple:
+    """A URL's origin as scheme, host and effective port (RFC 6454).
+
+    Compared this way rather than as raw text because httpx canonicalises the
+    URL it reports — lowercasing the host, dropping a default port — so
+    ``https://Example.com`` comes back spelled differently than it was asked for
+    even when nothing was redirected, and a textual comparison would call that a
+    cross-origin hop.
+
+    This normalisation is deliberately *not* the one refused in
+    :func:`_validate_issuer`. An origin is a network location, and comparing two
+    of them is supposed to see through spelling; an issuer is an identifier, and
+    normalising it is how two different ones are talked into looking alike.
+    """
+    parts = urlsplit(url)
+    scheme = (parts.scheme or "").lower()
+    port = parts.port or _DEFAULT_PORTS.get(scheme)
+    return scheme, (parts.hostname or "").lower(), port
 
 
 def require_https(url: str, what: str, *, allow_plaintext: bool = False) -> None:
@@ -118,7 +151,7 @@ def _get_json(client: httpx.Client, urls: List[str]) -> Optional[Tuple[str, dict
             resp = client.get(url)
         except httpx.HTTPError:
             continue
-        if str(resp.url) != url and _origin(str(resp.url)) != _origin(url):
+        if _origin_key(str(resp.url)) != _origin_key(url):
             raise DiscoveryError(
                 f"metadata request for '{url}' was redirected to another origin "
                 f"('{resp.url}') — refusing to trust it"
