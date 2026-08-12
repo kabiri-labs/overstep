@@ -38,6 +38,9 @@ class Variant(str, Enum):
     SELF = "self"    # the subject's own object
     OTHER = "other"  # some other subject's object
     NA = "na"        # not object-scoped (function resources)
+    # Not about the object at all: the subject presents a credential issued for a
+    # *different* audience. See TOKEN_AUDIENCE below.
+    AUDIENCE = "audience"
 
 
 class VulnClass(str, Enum):
@@ -45,6 +48,11 @@ class VulnClass(str, Enum):
     BFLA = "BFLA"
     BOPLA = "BOPLA"
     PRIVILEGE_ESCALATION = "privilege-escalation"
+    # An MCP server accepted a token that was not issued for it. The MCP
+    # authorization spec forbids this outright: a server that honours a
+    # credential minted for someone else is a confused deputy, and the token can
+    # be replayed across every service that trusts the same issuer.
+    TOKEN_AUDIENCE = "token-audience"
     AUTHORIZATION_DRIFT = "authorization-drift"
     UNEXPECTED_DENY = "unexpected-deny"
 
@@ -105,6 +113,15 @@ class Subject(BaseModel):
     # BOLA probe is allowed, overstep looks for the victim's marker in the body to
     # confirm real data leaked rather than trusting the status code alone.
     marker: Optional[str] = None
+    # Who this subject's token was issued *for*: an MCP server name from
+    # ``servers:``, or any audience identifier (the URI in the token's `aud`, the
+    # RFC 8707 resource indicator that obtained it). Declaring it lets overstep
+    # replay the credential at every MCP server it does *not* identify, which is
+    # the one thing the MCP authorization spec says a server must refuse. Left
+    # unset, the audience is inferred from the subject's auth provider when that
+    # provider discovers its token endpoint from a server; unknown means no
+    # audience probe is generated for this subject.
+    token_audience: Optional[str] = None
 
 
 class Request(BaseModel):
@@ -202,7 +219,7 @@ class McpMatcher(BaseModel):
 
 
 class McpInvocation(BaseModel):
-    """A fully-resolved MCP tool-call carried on a test case for the executor."""
+    """A fully-resolved MCP request carried on a test case for the executor."""
 
     kind: Literal["http", "stdio"] = "http"
     # http transport
@@ -212,7 +229,13 @@ class McpInvocation(BaseModel):
     command: List[str] = Field(default_factory=list)
     env: Dict[str, str] = Field(default_factory=dict)
     protocol_version: str = "2025-06-18"
-    tool: str
+    # The JSON-RPC method to send. Almost always ``tools/call``; the audience
+    # probe uses ``tools/list``, which needs authorization, takes no arguments and
+    # changes nothing, so it answers "was this credential accepted at all"
+    # without invoking anybody's tool.
+    method: str = "tools/call"
+    # The tool being called. Empty for a method that names none (``tools/list``).
+    tool: str = ""
     arguments: Dict[str, Any] = Field(default_factory=dict)
     matcher: McpMatcher = Field(default_factory=McpMatcher)
     mutating: bool = False
@@ -461,6 +484,9 @@ class TestCase(BaseModel):
     expect_markers: List[str] = Field(default_factory=list)
     # For transport: mcp — the fully-resolved tool-call to deliver. None for HTTP.
     mcp: Optional[McpInvocation] = None
+    # For an AUDIENCE-variant probe: the audience the credential being replayed
+    # was issued for, so the finding can name it. None on every other case.
+    audience: Optional[str] = None
 
     @property
     def is_negative(self) -> bool:
@@ -624,6 +650,7 @@ class RunResult(BaseModel):
             VulnClass.BFLA,
             VulnClass.BOPLA,
             VulnClass.PRIVILEGE_ESCALATION,
+            VulnClass.TOKEN_AUDIENCE,
         }
         return [f for f in self.findings if f.vuln_class in vuln]
 

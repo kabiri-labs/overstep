@@ -1,5 +1,59 @@
 # Changelog
 
+## [0.28.0] - 2026-08-12
+
+### Added
+- **Token-audience probing for MCP servers.** Every check overstep made until now
+  assumed the server had correctly identified its caller, and asked what that
+  caller was permitted to do. This asks the question underneath: does the server
+  check *who the credential was issued for*?
+
+  The MCP authorization spec answers it for them — a server must not accept a
+  token that was not issued for it — and one that skips the check is a confused
+  deputy. The token a user handed to one server works at another, so the blast
+  radius is not one object but every service trusting the same issuer. overstep
+  already spoke the discovery half of this (RFC 9728 metadata, RFC 8707 resource
+  indicators) to *obtain* audience-bound tokens; it never tested whether anyone
+  validated them.
+
+  Declare what a subject's token is bound to and its credential is replayed at
+  every MCP server that audience does not identify:
+
+  ```yaml
+  subjects:
+    - name: alice
+      role: user
+      token: ${ALICE_DOCS_TOKEN}
+      token_audience: docs        # a server name from servers:, or an audience URI
+  ```
+
+  It is inferred for a subject authenticating through a provider that discovers
+  its token endpoint from a server, or that sends an explicit `resource` — such a
+  token is audience-bound by construction. Where no audience is known, no probe
+  is generated: overstep does not guess which credential belongs where, and a
+  matrix that declares none plans exactly the cases it planned before.
+
+  The probe is `tools/list` rather than a tool-call. It requires authorization,
+  takes no arguments and changes nothing, so it isolates the single question
+  being asked — was this credential accepted at all — without invoking anyone's
+  tool and without needing an object to be resolvable. One probe per (subject,
+  server): validating the audience is a property of the server, not of each tool.
+  A server that serves its catalogue to a foreign token is graded `confirmed`;
+  one that answers without an error but lists nothing is `suspected`, since an
+  empty capability set is how some servers signal refusal.
+
+  Findings are class `token-audience` (CWE-863, `API2:2023`), count as
+  vulnerabilities for `--fail-on vuln`, and carry the usual `curl` repro. The
+  matrix policy is deliberately not consulted — an admin's token bound to server
+  A must still be refused by server B — so the probe expects a denial whatever
+  the matrix allows that subject.
+
+  Streamable HTTP only: on stdio the token is placed in the child process's
+  environment under a variable that server itself named, so there is no audience
+  to violate. Set `probe_token_audience: false` for a deployment where one
+  credential is legitimately valid at several declared servers, which is the one
+  case where a refusal is not required.
+
 ## [0.27.2] - 2026-08-12
 
 ### Fixed

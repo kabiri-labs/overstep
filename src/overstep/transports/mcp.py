@@ -41,6 +41,35 @@ def mcp_headers(inv: McpInvocation, subject: Subject) -> Dict[str, str]:
     return headers
 
 
+def jsonrpc_request(inv: McpInvocation, request_id: int = 2) -> Dict[str, Any]:
+    """The JSON-RPC request body for one invocation.
+
+    ``tools/call`` names a tool and its arguments; every other method overstep
+    sends (today, ``tools/list``) names neither, so it goes out with empty params
+    rather than a ``name: ""`` the server would have to reject for the wrong
+    reason.
+    """
+    params: Dict[str, Any] = (
+        {"name": inv.tool, "arguments": inv.arguments}
+        if inv.method == "tools/call"
+        else {}
+    )
+    return {"jsonrpc": "2.0", "id": request_id, "method": inv.method, "params": params}
+
+
+def result_text(inv: McpInvocation, result: Dict[str, Any]) -> str:
+    """The searchable text of a result, for markers and content regexes.
+
+    A ``tools/call`` result carries the tool's output in ``content``. Other
+    methods answer with a structured result of their own, which has no content
+    array — serialising it keeps one text channel for the oracle instead of a
+    second, method-shaped one.
+    """
+    if inv.method == "tools/call":
+        return content_text(result.get("content"))
+    return json.dumps(result, ensure_ascii=False, sort_keys=True) if result else ""
+
+
 def _parse_message(resp: httpx.Response) -> dict:
     """Return the JSON-RPC message from a JSON or single-event SSE response."""
     ctype = resp.headers.get("content-type", "")
@@ -116,12 +145,7 @@ async def _call(
         if session:
             headers["Mcp-Session-Id"] = session
 
-        payload = {
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/call",
-            "params": {"name": inv.tool, "arguments": inv.arguments},
-        }
+        payload = jsonrpc_request(inv)
         resp = None
         for attempt in range(max_retries + 1):
             try:
@@ -143,7 +167,7 @@ async def _call(
         result = message.get("result") if isinstance(message, dict) else None
         result = result if isinstance(result, dict) else {}
         is_error = bool(result.get("isError"))
-        text = content_text(result.get("content"))
+        text = result_text(inv, result)
         effect = evaluate_mcp(
             inv.matcher, jsonrpc_error=error, is_error=is_error, text=text,
             status=resp.status_code,
@@ -202,10 +226,7 @@ async def _stdio_tools_call(inv, timeout: float = 15.0) -> dict:
         })
         await read_id(1)
         await send({"jsonrpc": "2.0", "method": "notifications/initialized"})
-        await send({
-            "jsonrpc": "2.0", "id": 2, "method": "tools/call",
-            "params": {"name": inv.tool, "arguments": inv.arguments},
-        })
+        await send(jsonrpc_request(inv))
         return await read_id(2)
 
     try:
@@ -239,7 +260,7 @@ async def _call_stdio(case: TestCase, inv) -> Observation:
     result = message.get("result") if isinstance(message, dict) else None
     result = result if isinstance(result, dict) else {}
     is_error = bool(result.get("isError"))
-    text = content_text(result.get("content"))
+    text = result_text(inv, result)
     # No status is passed: stdio has no HTTP leg, and the synthetic status below
     # is a delivery marker, not something a matcher's deny_status should read.
     effect = evaluate_mcp(inv.matcher, jsonrpc_error=error, is_error=is_error, text=text)

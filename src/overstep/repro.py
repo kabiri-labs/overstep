@@ -105,13 +105,16 @@ def _mcp_headers(case: TestCase, subject: Subject) -> Dict[str, str]:
 
 
 def _mcp_payload(case: TestCase) -> Dict[str, Any]:
+    """The JSON-RPC body to paste, matching what the executor actually sent."""
     inv = case.mcp
-    return {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "tools/call",
-        "params": {"name": inv.tool if inv else case.path, "arguments": inv.arguments if inv else {}},
-    }
+    if inv is None:
+        return {
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": case.path, "arguments": {}},
+        }
+    from overstep.transports.mcp import jsonrpc_request
+
+    return jsonrpc_request(inv, request_id=1)
 
 
 def _mask_env(env: Dict[str, str], subject: Subject, runnable: bool = True) -> Dict[str, str]:
@@ -139,7 +142,7 @@ def request_record(base_url: str, subject: Subject, case: TestCase) -> Dict[str,
     """A structured, secret-masked description of the request that was sent."""
     if case.mcp is not None and case.mcp.kind == "stdio":
         return {
-            "method": "tools/call",
+            "method": case.mcp.method,
             "transport": "stdio",
             "command": case.mcp.command,
             "env": _mask_env(case.mcp.env, subject),
@@ -148,7 +151,7 @@ def request_record(base_url: str, subject: Subject, case: TestCase) -> Dict[str,
         }
     if case.mcp is not None:
         return {
-            "method": "tools/call",
+            "method": case.mcp.method,
             "url": case.mcp.url,
             "tool": case.mcp.tool,
             "arguments": case.mcp.arguments,
