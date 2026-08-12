@@ -7,6 +7,12 @@ then a ``tools/call``, turning the result into an allow/deny Observation via
 :mod:`overstep.mcp_matching`. Identity comes from the subject exactly as in HTTP:
 the subject's bearer token / headers, merged over the server's own headers.
 
+That handshake is what pins this transport to a protocol revision (see
+``SUPPORTED_PROTOCOL_VERSIONS``). A server that refuses it — because it speaks a
+revision where ``initialize`` no longer exists — refuses everything after it too,
+at the protocol layer rather than the authorization one, so those refusals are
+reported as delivery failures instead of being mistaken for denials.
+
 Only the JSON-response and single-event SSE shapes of Streamable HTTP are handled;
 that covers the common non-streaming ``tools/call``. A stdio transport (local MCP
 servers via the official SDK) is a separate, future transport.
@@ -38,6 +44,32 @@ _RETRY_STATUSES = frozenset({429, 503})
 # Upper bound on tools/list pages followed for one probe. Generous for any real
 # catalogue, and a hard stop for a server whose cursor never terminates.
 _MAX_LIST_PAGES = 20
+
+# The protocol revisions whose lifecycle this transport implements: an
+# ``initialize`` exchange, ``notifications/initialized``, and the optional
+# ``Mcp-Session-Id`` that follows. MCP 2026-07-28 retired all three and made the
+# core stateless, so a server speaking it cannot be driven by the handshake
+# below — a reason to stop, not to file its refusals as authorization denials.
+SUPPORTED_PROTOCOL_VERSIONS = frozenset({"2024-11-05", "2025-03-26", "2025-06-18"})
+
+# Statuses that answer "who are you", not "what protocol is this". A server is
+# entitled to demand a credential before it will initialize, and that refusal is
+# the run's subject matter — it has to stay on the normal allow/deny path.
+_AUTH_STATUSES = frozenset({401, 403})
+
+
+class _Handshake(NamedTuple):
+    """What the initialize exchange established, or why it established nothing.
+
+    ``refusal`` is set only when the handshake this protocol version requires
+    could not be completed, and it is a suspicion rather than a verdict: a lax
+    server that ignores the lifecycle and answers anyway is perfectly testable,
+    so the caller confirms it against the request that follows before treating
+    it as a delivery failure.
+    """
+
+    session: Optional[str] = None
+    refusal: Optional[str] = None
 
 
 def mcp_headers(inv: McpInvocation, subject: Subject) -> Dict[str, str]:
@@ -141,10 +173,55 @@ def _parse_message(resp: httpx.Response) -> dict:
         return {}
 
 
+def _unusable_protocol(message: dict, protocol_version: str) -> Optional[str]:
+    """Why an initialize *reply* leaves overstep unable to drive this server.
+
+    Two shapes say so. A JSON-RPC error means the method itself was rejected —
+    on a server that retired ``initialize`` that arrives as "method not found"
+    under a perfectly ordinary 200, so the status alone would miss it. And a
+    result negotiating a version this transport does not implement means the
+    exchange succeeded into a protocol whose rules are not the ones the requests
+    below follow.
+    """
+    if not isinstance(message, dict):
+        return None
+    error = message.get("error")
+    if isinstance(error, dict):
+        detail = error.get("message") or error.get("code")
+        return (
+            f"the server rejected 'initialize' ({detail}) — overstep is configured for "
+            f"MCP {protocol_version}, whose handshake this server does not answer"
+        )
+    result = message.get("result")
+    negotiated = result.get("protocolVersion") if isinstance(result, dict) else None
+    if isinstance(negotiated, str) and negotiated not in SUPPORTED_PROTOCOL_VERSIONS:
+        return (
+            f"the server negotiated MCP {negotiated}, which overstep does not implement "
+            f"(it speaks {', '.join(sorted(SUPPORTED_PROTOCOL_VERSIONS))})"
+        )
+    return None
+
+
+def _rejected_by_protocol(opened: _Handshake, resp: httpx.Response) -> bool:
+    """Did the protocol, rather than the policy, refuse this request?
+
+    Both halves have to agree. A handshake overstep could not complete is only
+    fatal once the request built on it was rejected too — a server that ignores
+    the lifecycle and answers anyway is testable, and its answers are real. And
+    a 401/403 on the request is the server talking about the *caller*, which is
+    a genuine authorization signal no matter what the handshake did.
+    """
+    return (
+        opened.refusal is not None
+        and resp.status_code >= 400
+        and resp.status_code not in _AUTH_STATUSES
+    )
+
+
 async def _initialize(
     client: httpx.AsyncClient, url: str, headers: Dict[str, str], protocol_version: str
-) -> Optional[str]:
-    """Best-effort MCP initialize; return a session id if the server issues one.
+) -> _Handshake:
+    """Best-effort MCP initialize; report the session id, or why there is none.
 
     The lifecycle is not finished until the client sends
     ``notifications/initialized``, and a server is entitled to refuse everything
@@ -152,6 +229,13 @@ async def _initialize(
     was missing, so a strict server would reject the request that followed and
     the refusal would be recorded as a denial — a clean-looking result produced
     by our own non-conformance rather than by the server's authorization.
+
+    That trap has a second mouth. A server that retired ``initialize`` outright
+    refuses the handshake and then refuses everything built on it, at the
+    protocol layer, before authorization is ever consulted. Recorded as denials
+    those refusals read as a server that forbids everything — which is the shape
+    of a *passing* negative test. So the reason is carried out of here instead,
+    for the caller to confirm and report as a delivery failure.
     """
     payload = {
         "jsonrpc": "2.0",
@@ -166,12 +250,26 @@ async def _initialize(
     try:
         resp = await client.post(url, json=payload, headers=headers)
     except httpx.HTTPError:
-        return None
+        # The connection itself failed. The request that follows fails the same
+        # way and reports it with the error string the caller needs, so there is
+        # nothing to add here.
+        return _Handshake()
     session = resp.headers.get("mcp-session-id")
     if resp.status_code >= 400:
         # The handshake was refused; announcing initialization would be a second
-        # request making the same point.
-        return session
+        # request making the same point. A 401/403 is the server asking who is
+        # calling, which is the question the run exists to ask — only anything
+        # else is evidence that the protocol, not the credential, is the problem.
+        if resp.status_code in _AUTH_STATUSES:
+            return _Handshake(session)
+        return _Handshake(session, (
+            f"the server refused 'initialize' with HTTP {resp.status_code} — overstep is "
+            f"configured for MCP {protocol_version}, whose handshake this server does not answer"
+        ))
+
+    refusal = _unusable_protocol(_parse_message(resp), protocol_version)
+    if refusal:
+        return _Handshake(session, refusal)
 
     notified = dict(headers)
     if session:
@@ -182,13 +280,13 @@ async def _initialize(
         )
     except httpx.HTTPError:
         pass
-    return session
+    return _Handshake(session)
 
 
 async def _handshake(
     client: httpx.AsyncClient, inv: McpInvocation, subject: Subject, headers: Dict[str, str]
-) -> Optional[str]:
-    """Open the session for this invocation and return its id, if any.
+) -> _Handshake:
+    """Open the session for this invocation; report its id, or why there is none.
 
     Normally the handshake carries the same identity as the request that follows.
     A session probe deliberately splits the two: ``handshake_headers`` merges over
@@ -341,12 +439,18 @@ async def _session_probe(
         return round((time.perf_counter() - started) * 1000, 1)
 
     try:
-        session = await _handshake(client, inv, subject, headers)
+        opened = await _handshake(client, inv, subject, headers)
+        session = opened.session
         if not session:
+            # Either way there is no session to ride, so the probe is skipped
+            # rather than answered. A protocol the handshake could not open says
+            # so precisely; without one, the server is simply stateless.
+            why = opened.refusal or (
+                "server issued no session id — stateless, so there is no session to reuse"
+            )
             return Observation(
                 test_id=case.id, status=0, effect=Effect.DENY, skipped=True,
-                latency_ms=elapsed(),
-                error="server issued no session id — stateless, so there is no session to reuse",
+                latency_ms=elapsed(), error=why,
             )
 
         with_session = await _post(
@@ -429,9 +533,9 @@ async def _call(
     headers = mcp_headers(inv, subject)
     async with semaphore:
         started = time.perf_counter()
-        session = await _handshake(client, inv, subject, headers)
-        if session:
-            headers["Mcp-Session-Id"] = session
+        opened = await _handshake(client, inv, subject, headers)
+        if opened.session:
+            headers["Mcp-Session-Id"] = opened.session
 
         try:
             resp = await _post(
@@ -445,6 +549,16 @@ async def _call(
             )
 
         elapsed = (time.perf_counter() - started) * 1000
+        if _rejected_by_protocol(opened, resp):
+            # The handshake failed and the call failed with it: this request never
+            # reached the server's authorization, so it is a delivery failure and
+            # not the deny it resembles. Status 0 is what every transport reserves
+            # for that, and what stops a target answering nothing but 400 from
+            # reading as one that carefully forbids everything.
+            return Observation(
+                test_id=case.id, status=0, effect=Effect.DENY,
+                latency_ms=round(elapsed, 1), error=opened.refusal,
+            )
         reading = _read(inv, resp)
         listed = reading.listed
         if inv.paginate and reading.effect == Effect.ALLOW and reading.next_cursor:
