@@ -168,6 +168,75 @@ def test_a_method_not_found_under_200_is_still_a_refusal():
     assert "method not found" in " ".join(result.health.reasons)
 
 
+def _in_band_stateless_server(request: httpx.Request) -> httpx.Response:
+    """The same server, reporting every refusal in-band under a 200.
+
+    Returning a JSON-RPC error under a 200 is ordinary JSON-RPC — arguably the
+    more correct spelling — so a mismatched server need never produce a status
+    the transport could read. The refusal has to be legible in the body too.
+    """
+    body = json.loads(request.content or b"{}")
+    if body.get("method") == "initialize":
+        return httpx.Response(200, json={
+            "jsonrpc": "2.0", "id": body.get("id"),
+            "error": {"code": -32601, "message": "method not found: initialize"},
+        })
+    if "Mcp-Method" not in request.headers:
+        return httpx.Response(200, json={
+            "jsonrpc": "2.0", "id": body.get("id"),
+            "error": {"code": -32600, "message": "missing required Mcp-Method/Mcp-Name"},
+        })
+    return _ok(body)
+
+
+def test_an_in_band_refusal_under_200_is_not_a_denial():
+    result = _run(_matrix(), _in_band_stateless_server)
+
+    assert result.health.inconclusive
+    sent = [o for o in result.observations if not o.skipped]
+    assert sent and all(o.status == 0 for o in sent)
+
+
+def test_an_all_negative_matrix_survives_an_in_band_refusal_too():
+    """The same fail-open, reached without ever emitting an HTTP error status."""
+    result = _run(_all_negative_matrix(), _in_band_stateless_server)
+
+    assert result.health.positive_tests == 0
+    assert result.health.inconclusive
+    assert result.findings == []
+
+
+def test_a_refused_handshake_does_not_turn_a_real_denial_into_an_error():
+    """The guard must not eat authorization denials from a lax server.
+
+    This is the shape that makes the in-band check dangerous: the handshake is
+    refused, so a rule of "any JSON-RPC error counts" would rewrite the server's
+    genuine, policy-driven denial into a transport failure — losing real findings
+    and condemning a run that worked.
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content or b"{}")
+        if body.get("method") == "initialize":
+            return httpx.Response(404, text="no such endpoint")
+        if body.get("params", {}).get("name") == "reset_tenant":
+            # An application-defined code: JSON-RPC reserves -32000..-32099 for
+            # exactly this, and it is how a server says "not for you".
+            return httpx.Response(200, json={
+                "jsonrpc": "2.0", "id": body.get("id"),
+                "error": {"code": -32001, "message": "forbidden: admin role required"},
+            })
+        return _ok(body)
+
+    result = _run(_matrix(), handler)
+
+    assert not result.health.inconclusive
+    sent = [o for o in result.observations if not o.skipped]
+    assert all(o.status != 0 for o in sent)
+    # The denials are still denials, so the policy is still under test.
+    assert any(o.effect == Effect.DENY for o in sent)
+    assert any(o.effect == Effect.ALLOW for o in sent)
+
+
 def test_a_negotiated_version_overstep_does_not_implement_is_refused():
     """The handshake can also succeed *into* a protocol this transport is not."""
     def handler(request: httpx.Request) -> httpx.Response:
