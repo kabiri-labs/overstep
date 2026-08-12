@@ -2,7 +2,7 @@
 
 **Matrix-driven authorization testing for HTTP APIs and MCP tool-calls.**
 
-![Version](https://img.shields.io/badge/version-0.27.2-blue)
+![Version](https://img.shields.io/badge/version-0.28.0-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -60,6 +60,7 @@ scope**. overstep makes that table explicit and tests every cell.
 | **BFLA** | a subject invokes a function their role shouldn't have | `GET /admin/users` as a normal user |
 | **BOPLA** | an allowed response exposes a *field* the caller shouldn't see | `password_hash` in a user record |
 | **Privilege escalation** | a lower-privileged role reaches something reserved for a higher one | a `member` deleting a project |
+| **Token audience** (MCP) | a server honours a credential issued for somewhere else | a token minted for server A accepted by server B |
 | **Authorization drift** | a decision that changed since your last release | a cell that flipped deny → allow |
 
 ## What it doesn't do
@@ -74,7 +75,10 @@ Knowing the edges is part of deciding whether this fits:
   exist to catch the common mistakes, not to guess your intent.
 - **It doesn't test authentication.** Login strength, token forgery and session
   fixation are out of scope; overstep tests what an *already authenticated*
-  identity is permitted to do.
+  identity is permitted to do. The one exception is deliberate: for MCP it checks
+  whether a server accepts a credential issued for a *different* audience, which
+  the protocol makes an authorization requirement of the server —
+  see [token audience](#token-audience-the-server-that-takes-somebody-elses-credential).
 - **It doesn't fuzz.** Every request is one the matrix asked for, which is what
   makes results deterministic and diffable.
 - **It doesn't drive an agent with natural-language prompts.** For MCP it tests
@@ -763,6 +767,62 @@ The discovered, audience-bound token is set on the subject and used for its
 tool-calls. The interactive authorization-code flow needs a browser and is out of
 scope for an automated tool.
 
+### Token audience: the server that takes somebody else's credential
+
+Every check so far asks whether a server enforces its policy on a caller it has
+correctly identified. This one asks something prior: does it check *who the
+credential was issued for*? The MCP authorization spec is unambiguous — a server
+must not accept a token that was not issued for it — and a server that skips the
+check is a confused deputy. The token a user handed to one server works at
+another, and the blast radius is not one object but every service trusting the
+same issuer.
+
+Tell overstep what a subject's token is bound to and it replays that credential
+at every MCP server the audience does **not** identify:
+
+```yaml
+subjects:
+  - name: alice
+    role: user
+    token: ${ALICE_DOCS_TOKEN}
+    token_audience: docs             # a server name from servers:, or an audience URI
+```
+
+`token_audience` is inferred when a subject authenticates through a provider that
+discovers its token endpoint from a server (`discover_from`) or sends an explicit
+`resource` — that token *is* audience-bound, so nothing extra needs saying. With
+no audience known for a subject, no probe is generated: overstep does not guess
+which credential belongs where.
+
+`overstep plan` shows the extra row before anything is sent — one per server the
+credential is foreign to:
+
+```
+│ deny  │ function │ tools/list billing │ alice (user) │ audience │
+```
+
+The probe is `tools/list`, not a tool-call: it requires authorization, takes no
+arguments and changes nothing, so it isolates the single question — was this
+credential accepted at all — without invoking anyone's tool. One probe per
+(subject, server), because validating the audience is a property of the server
+rather than of each tool. A server that serves its catalogue to a foreign token
+is graded **confirmed**; one that answers without an error but lists nothing is
+**suspected**, since some servers signal refusal with an empty capability set.
+
+Two edges worth knowing:
+
+- **The policy is deliberately not consulted.** An admin's token bound to server
+  A must still be refused by server B, so the probe expects a denial regardless
+  of what the matrix allows that subject.
+- **It assumes one token, one audience.** If a single credential is legitimately
+  valid at several of your declared servers, that's a shared audience and a
+  refusal isn't required — set `probe_token_audience: false` at the matrix level,
+  or leave those subjects' audience undeclared.
+
+Streamable HTTP only. On stdio the token goes into the child process's
+environment under a variable that server itself named, so there is no audience to
+violate and nothing to replay.
+
 ### Local (stdio) MCP servers
 
 For a server that runs as a local process, declare a `command` instead of a
@@ -800,7 +860,7 @@ overstep run examples/mcp_api/matrix_stdio.yaml --out out
 
 | Value | Exits non-zero when… |
 |---|---|
-| `vuln` (default) | there is an active, non-waived vulnerability (BOLA/BFLA/BOPLA/privilege escalation) |
+| `vuln` (default) | there is an active, non-waived vulnerability (BOLA/BFLA/BOPLA/privilege escalation/token-audience) |
 | `drift` | a decision changed versus the `--baseline` — **only** drift, ignoring pre-existing findings |
 | `vuln-or-drift` | either a vulnerability **or** drift is present |
 | `any` | any active finding exists (including functional `unexpected-deny` regressions) |
@@ -1040,6 +1100,7 @@ SARIF rules (with a `security-severity` score) and on every JSON finding:
 | BOPLA | CWE-213 | API3:2023 |
 | BFLA | CWE-285 | API5:2023 |
 | privilege-escalation | CWE-269 | API5:2023 |
+| token-audience | CWE-863 | API2:2023 |
 
 ## Transports & extensibility
 

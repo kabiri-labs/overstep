@@ -102,6 +102,14 @@ class Matrix(BaseModel):
     # others, at a cost that grows with the number of subjects. A resource may
     # override it.
     probe_victims: Literal["one", "all"] = "one"
+    # Whether to replay each subject's credential at the MCP servers it was not
+    # issued for (see overstep.planner). On by default, but it only produces
+    # probes where an audience is actually known — declared on the subject, or
+    # inferred from an auth provider that discovers its token endpoint from a
+    # server. Turn it off for a deployment where one token is legitimately valid
+    # at several of the declared servers, which is the one case where a refusal
+    # is not required and a probe would report a finding that isn't one.
+    probe_token_audience: bool = True
 
     def victims_for(self, resource: Resource) -> str:
         """The effective probe_victims setting for one resource."""
@@ -310,6 +318,21 @@ class Matrix(BaseModel):
                 error(
                     f"subject '{subject.name}' uses unknown auth provider "
                     f"'{subject.auth.provider}'"
+                )
+            audience = subject.token_audience
+            if (
+                audience
+                and "://" not in audience
+                and audience not in server_names
+            ):
+                # A bare word is meant to be a server name. Typoed, it silently
+                # matches no server, so the credential is replayed at every one
+                # of them — including the server it was actually issued for,
+                # which reports a finding for a token doing its job.
+                error(
+                    f"subject '{subject.name}' has token_audience '{audience}', which is "
+                    f"neither a declared server nor a URI; use a name from 'servers:' "
+                    f"or the audience URI the token was issued for"
                 )
 
         subject_set = set(subject_names)

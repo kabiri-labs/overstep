@@ -56,6 +56,18 @@ TAXONOMY: Dict[VulnClass, Taxon] = {
         security_severity="8.8",
         help_uri="https://owasp.org/API-Security/editions/2023/en/0xa5-broken-function-level-authorization/",
     ),
+    # A resource server that does not check who its token was issued for is the
+    # confused deputy of CWE-863; OWASP files audience validation under
+    # API2:2023, which calls out exactly this ("does not validate the JWT
+    # audience"). Scored above BOLA because the credential is replayable at every
+    # service trusting the same issuer, so the blast radius is not one object.
+    VulnClass.TOKEN_AUDIENCE: Taxon(
+        cwe="CWE-863",
+        cwe_name="Incorrect Authorization",
+        owasp_api="API2:2023 Broken Authentication",
+        security_severity="8.6",
+        help_uri="https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/",
+    ),
     VulnClass.AUTHORIZATION_DRIFT: Taxon(
         cwe="CWE-285",
         cwe_name="Improper Authorization",

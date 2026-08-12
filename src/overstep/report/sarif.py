@@ -17,6 +17,7 @@ _RULE_HELP = {
     VulnClass.BFLA: "Broken Function Level Authorization: a subject invoked a function it is not permitted to.",
     VulnClass.BOPLA: "Broken Object Property Level Authorization: an allowed response exposed a property the caller should not see.",
     VulnClass.PRIVILEGE_ESCALATION: "A subject reached a resource reserved for a more privileged role.",
+    VulnClass.TOKEN_AUDIENCE: "An MCP server accepted a token that was issued for a different audience.",
     VulnClass.AUTHORIZATION_DRIFT: "The authorization decision changed relative to the recorded baseline.",
     VulnClass.UNEXPECTED_DENY: "A subject was denied access the matrix says should be allowed.",
 }

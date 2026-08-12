@@ -34,6 +34,13 @@ def _min_required_rank(matrix: Matrix, case: TestCase) -> int:
 
 def _classify_violation(matrix: Matrix, case: TestCase) -> VulnClass:
     """A negative test slipped through — decide which flavour of broken authz."""
+    # An audience probe is not about this subject's role or this object's owner:
+    # it presented a credential minted for somewhere else and the server took it.
+    # That verdict is independent of the policy, so it is read before anything
+    # the policy could say.
+    if case.variant == Variant.AUDIENCE:
+        return VulnClass.TOKEN_AUDIENCE
+
     subject_rank = matrix.role_rank(case.role)
     required_rank = _min_required_rank(matrix, case)
 
@@ -81,6 +88,27 @@ def _leaked_fields(resource, obs: Observation) -> Set[str]:
     return {f for f in resource.forbidden_fields if f in present}
 
 
+def _audience_confidence(obs: Observation) -> str:
+    """How strongly an accepted foreign credential is evidenced.
+
+    The probe is ``tools/list``, so a result listing tools is the server handing
+    its catalogue to a credential minted for somewhere else — the violation
+    itself. A result listing nothing is weaker: some servers answer an
+    unauthorized caller with an empty capability set rather than an error, and
+    reporting that as proof would be the same guess-from-status the marker oracle
+    exists to avoid.
+    """
+    snippet = obs.body_snippet or ""
+    try:
+        result = json.loads(snippet)
+    except ValueError:
+        # The snippet is truncated, and only a populated catalogue is long
+        # enough for that; an empty result parses.
+        return "confirmed" if snippet else "suspected"
+    tools = result.get("tools") if isinstance(result, dict) else None
+    return "confirmed" if isinstance(tools, list) and tools else "suspected"
+
+
 def _grade(vuln: VulnClass, case: TestCase, obs: Observation):
     """Assign (severity, confidence) using the content-aware oracle.
 
@@ -89,7 +117,12 @@ def _grade(vuln: VulnClass, case: TestCase, obs: Observation):
     configured but never appeared the grant is *suspected* (possibly an empty
     result) and downgraded; with no marker at all we fall back to status alone and
     label the finding *unverified*.
+
+    An audience probe has its own evidence — what the server returned to the
+    foreign credential — and is graded on that.
     """
+    if vuln == VulnClass.TOKEN_AUDIENCE:
+        return "high", _audience_confidence(obs)
     if vuln != VulnClass.BOLA:
         return "high", "confirmed"
     if not case.expect_markers:
@@ -123,6 +156,19 @@ def _detail(case: TestCase, obs: Observation, vuln: VulnClass, confidence: str =
             f"{case.subject} ({case.role}) read another subject's object via "
             f"{case.method} {case.path} and got {obs.status}; the matrix only "
             f"allows owners here (no content marker configured to confirm the leak)."
+        )
+    if vuln == VulnClass.TOKEN_AUDIENCE:
+        target = case.mcp.url if case.mcp else case.resource
+        served = (
+            "and served its tool catalogue"
+            if confidence == "confirmed"
+            else "and answered without an error, though it listed no tools"
+        )
+        return (
+            f"{target} accepted {case.subject}'s credential {served}, but that "
+            f"credential was issued for '{case.audience}'. A server that honours a "
+            f"token minted for somewhere else is a confused deputy: the token is "
+            f"replayable at every service trusting the same issuer."
         )
     if vuln == VulnClass.PRIVILEGE_ESCALATION:
         allowed = ", ".join(case.required_roles) or "a higher-privileged role"

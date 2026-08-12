@@ -361,6 +361,115 @@ def _build_mcp_invocation(matrix, resource, subject, variant, target, context):
     return McpInvocation(**fields)
 
 
+def _same_audience(server, audience: str) -> bool:
+    """Whether ``audience`` identifies this MCP server.
+
+    Both spellings a matrix can use are accepted — the server's name under
+    ``servers:``, and its URL — because the audience may equally have been
+    written by hand or discovered from the server's own Protected Resource
+    Metadata, which reports a URI. The prefix comparison covers the common
+    mismatch between a resource identifier written as an origin
+    (``https://host``) and the JSON-RPC endpoint under it (``https://host/mcp``);
+    reading those as different audiences would manufacture a finding against a
+    server the token is genuinely valid for, which is the one error this probe
+    cannot afford.
+    """
+    if audience == server.name:
+        return True
+    if not server.url:
+        return False
+    a, u = audience.rstrip("/"), server.url.rstrip("/")
+    return a == u or u.startswith(a + "/") or a.startswith(u + "/")
+
+
+def _declared_audience(matrix: Matrix, subject: Subject) -> Optional[str]:
+    """The audience a subject's token was issued for, or None if unknown.
+
+    An explicit ``token_audience`` wins. Otherwise it is inferred from the
+    subject's auth provider: a provider that discovers its token endpoint from an
+    MCP server obtains a token bound to that server (it sends the RFC 8707
+    resource indicator), so the server it discovered from *is* the audience. No
+    provider, or one with a hardcoded token URL, says nothing about audience —
+    and a guess here would invent probes, so None means no probe.
+    """
+    if subject.token_audience:
+        return subject.token_audience
+    if subject.auth:
+        for provider in matrix.auth.providers:
+            if provider.name == subject.auth.provider:
+                return provider.resource or provider.discover_from
+    return None
+
+
+def _audience_cases(matrix: Matrix, context: Dict[str, str]) -> List[TestCase]:
+    """Replay each subject's credential at every MCP server it was not issued for.
+
+    The MCP authorization spec is unambiguous here: a server must not accept a
+    token that was not issued for it. One that does is a confused deputy — the
+    credential a user handed to server A works at server B, and every service
+    trusting that issuer is reachable with it. Unlike BOLA or BFLA this is not a
+    question about the policy, so the matrix's allow rules are deliberately not
+    consulted: an admin's token bound to A must still be refused by B.
+
+    The probe is ``tools/list``, not a tool-call. It requires authorization,
+    takes no arguments and changes nothing, so it isolates the one question being
+    asked — was this credential accepted at all — without invoking anybody's
+    tool, and it needs no object to be resolvable. One probe per (subject,
+    server): audience validation is a property of the server, not of each tool.
+
+    Restricted to Streamable HTTP servers. On stdio the token is placed in the
+    child process's environment under a variable that server chose, so there is
+    no audience to violate and nothing to replay.
+    """
+    if not matrix.probe_token_audience:
+        return []
+
+    from overstep.models import McpInvocation
+
+    servers = [s for s in matrix.servers if s.kind == "http"]
+    cases: List[TestCase] = []
+    for subject in matrix.subjects:
+        if not subject.token:
+            continue  # nothing to replay
+        audience = _declared_audience(matrix, subject)
+        if not audience:
+            continue
+        for server in servers:
+            if _same_audience(server, audience):
+                continue
+            inv = McpInvocation(
+                kind="http",
+                url=server.url or "",
+                headers=render(dict(server.headers), context),
+                protocol_version=server.protocol_version,
+                method="tools/list",
+                matcher=matrix.mcp_access,
+            )
+            resource = f"mcp:{server.name}"
+            cases.append(
+                TestCase(
+                    id=make_test_id(resource, subject.name, Variant.AUDIENCE),
+                    resource=resource,
+                    subject=subject.name,
+                    role=subject.role,
+                    transport="mcp",
+                    method="tools/list",
+                    # The "path" of an MCP case is what the method acts on. For a
+                    # tool-call that is the tool; tools/list names none, so it is
+                    # the server being probed — which is also what tells two of
+                    # these rows apart when one credential is foreign to several.
+                    path_template=server.name,
+                    path=server.name,
+                    variant=Variant.AUDIENCE,
+                    expected=Effect.DENY,
+                    resource_type=ResourceType.FUNCTION,
+                    audience=audience,
+                    mcp=inv,
+                )
+            )
+    return cases
+
+
 def plan(matrix: Matrix, context: Optional[Dict[str, str]] = None) -> List[TestCase]:
     """Generate the full list of test cases for a matrix.
 
@@ -476,4 +585,6 @@ def plan(matrix: Matrix, context: Optional[Dict[str, str]] = None) -> List[TestC
                                 expect_markers=expect_markers,
                             )
                         )
+
+    cases.extend(_audience_cases(matrix, context))
     return cases
