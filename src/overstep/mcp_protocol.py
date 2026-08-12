@@ -55,6 +55,12 @@ DEFAULT_PROTOCOL_VERSION = "2025-06-18"
 # it saw before this module existed.
 CLIENT_INFO: Dict[str, str] = {"name": "overstep", "version": "1"}
 
+# Headers a stateless request derives from what it is sending, and which a
+# matrix therefore cannot supply: the revision requires each to agree with the
+# body, so a value set anywhere else can only disagree with it.
+PROTOCOL_VERSION_HEADER = "MCP-Protocol-Version"
+RESERVED_HEADERS = (PROTOCOL_VERSION_HEADER, "Mcp-Method", "Mcp-Name")
+
 META_PROTOCOL_VERSION = "io.modelcontextprotocol/protocolVersion"
 META_CLIENT_INFO = "io.modelcontextprotocol/clientInfo"
 META_CLIENT_CAPABILITIES = "io.modelcontextprotocol/clientCapabilities"

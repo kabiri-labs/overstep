@@ -30,6 +30,8 @@ from overstep.mcp_matching import content_text, contents_text, contents_uris, ev
 from overstep.mcp_protocol import (
     CLIENT_INFO,
     HEADER_MISMATCH,
+    PROTOCOL_VERSION_HEADER,
+    RESERVED_HEADERS,
     SUPPORTED_PROTOCOL_VERSIONS,
     UNSUPPORTED_PROTOCOL_VERSION,
     is_stateless,
@@ -116,11 +118,18 @@ def mcp_headers(inv: McpInvocation, subject: Subject) -> Dict[str, str]:
     headers.setdefault("Accept", "application/json, text/event-stream")
     headers.setdefault("MCP-Protocol-Version", inv.protocol_version)
     if is_stateless(inv.protocol_version):
-        # Assigned rather than defaulted: a stateless server must reject any
-        # request whose headers disagree with its body, so these mirror the
-        # params being sent and are not something a matrix can set to something
-        # else. They are derived from the same builder for that reason.
-        headers.update(routing_headers(inv.method, jsonrpc_params(inv)))
+        # Derived, not defaulted: a stateless server must reject any request
+        # whose headers disagree with its body, so these mirror the params being
+        # sent and a matrix cannot set them to something else. Every spelling of
+        # each is dropped first — header names are case-insensitive while dict
+        # keys are not, so a `mcp-method` from the server's own headers would
+        # otherwise travel *alongside* the derived one and the server would see
+        # exactly the contradiction these headers exist to prevent.
+        derived = {PROTOCOL_VERSION_HEADER: inv.protocol_version}
+        derived.update(routing_headers(inv.method, jsonrpc_params(inv)))
+        for name in RESERVED_HEADERS:
+            drop_header(headers, name)
+        headers.update(derived)
     return headers
 
 

@@ -273,6 +273,81 @@ def test_the_session_probe_is_not_applicable_and_sends_nothing():
         assert "no protocol-level sessions" in (obs.error or "")
 
 
+def test_reserved_headers_from_the_matrix_do_not_travel_beside_the_derived_ones():
+    """Header names are case-insensitive; dict keys are not.
+
+    A `mcp-method` set in `servers[].headers` would otherwise go out alongside
+    the derived `Mcp-Method`, and httpx sends both — which is exactly the
+    header/body contradiction these headers exist to prevent.
+    """
+    from overstep.transports.mcp import mcp_headers
+
+    matrix = _matrix(servers=[{
+        "name": "docs", "url": "http://docs.test/mcp", "protocol_version": STATELESS,
+        "headers": {"mcp-method": "tools/list", "MCP-NAME": "wrong_tool",
+                    "mcp-protocol-version": "2025-06-18"},
+    }])
+    case = next(c for c in plan(matrix)
+                if c.mcp and c.mcp.method == "tools/call" and c.variant != Variant.SESSION)
+    subject = next(s for s in matrix.subjects if s.name == case.subject)
+
+    headers = mcp_headers(case.mcp, subject)
+    for name in ("mcp-method", "mcp-name", "mcp-protocol-version"):
+        spellings = [k for k in headers if k.lower() == name]
+        assert len(spellings) == 1, f"{name}: {spellings}"
+    assert headers["Mcp-Method"] == "tools/call"
+    assert headers["Mcp-Name"] == case.mcp.tool
+    assert headers["MCP-Protocol-Version"] == STATELESS
+
+
+def test_a_matrix_supplied_routing_header_cannot_break_the_run():
+    """The same thing end to end, against a server that checks the agreement."""
+    matrix = _matrix(servers=[{
+        "name": "docs", "url": "http://docs.test/mcp", "protocol_version": STATELESS,
+        "headers": {"mcp-method": "tools/list"},
+    }])
+    result = _run(matrix, StrictStatelessServer(bola=False))
+
+    assert not result.health.inconclusive, result.health.reasons
+    assert result.findings == []
+
+
+def test_a_stateless_repro_carries_the_headers_the_server_requires():
+    """A repro the server rejects is a false all-clear pasted into a report."""
+    from overstep.repro import request_record, to_curl
+
+    matrix = _matrix()
+    case = next(c for c in plan(matrix)
+                if c.mcp and c.mcp.method == "tools/call" and c.variant != Variant.SESSION)
+    subject = next(s for s in matrix.subjects if s.name == case.subject)
+
+    record = request_record("", subject, case)
+    headers = record["headers"]
+    assert headers["MCP-Protocol-Version"] == STATELESS
+    assert headers["Mcp-Method"] == "tools/call"
+    assert headers["Mcp-Name"] == case.mcp.tool
+    # And the same values reach the pasteable command.
+    command = to_curl("", subject, case)
+    assert "MCP-Protocol-Version: 2026-07-28" in command
+    assert "Mcp-Method: tools/call" in command
+
+
+def test_a_stateful_repro_still_declares_its_protocol_version():
+    """The executor sends it on every revision, so the repro has to as well."""
+    from overstep.repro import request_record
+
+    matrix = _matrix(servers=[{"name": "docs", "url": "http://docs.test/mcp",
+                               "protocol_version": LEGACY}])
+    case = next(c for c in plan(matrix)
+                if c.mcp and c.mcp.method == "tools/call" and c.variant != Variant.SESSION)
+    subject = next(s for s in matrix.subjects if s.name == case.subject)
+
+    headers = request_record("", subject, case)["headers"]
+    assert headers["MCP-Protocol-Version"] == LEGACY
+    # Routing headers belong to the stateless wire only.
+    assert "Mcp-Method" not in headers
+
+
 # --- the reverse mismatch ---------------------------------------------------
 
 def test_a_server_that_does_not_implement_the_version_ends_the_run():
