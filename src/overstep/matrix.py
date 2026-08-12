@@ -110,6 +110,16 @@ class Matrix(BaseModel):
     # at several of the declared servers, which is the one case where a refusal
     # is not required and a probe would report a finding that isn't one.
     probe_token_audience: bool = True
+    # Whether to check that an MCP session id cannot stand in for a credential
+    # (see overstep.planner). On by default: the probe is read-only, carries its
+    # own control, and skips a server that issues no session, so it costs nothing
+    # where there is nothing to find.
+    probe_session_binding: bool = True
+    # Whether to check what each server is willing to *list* to each subject.
+    # Off by default, unlike the other two: advertising every tool and enforcing
+    # at call time is a defensible design, so this reports a policy opinion the
+    # matrix has to opt into rather than a violation of the protocol.
+    probe_tool_enumeration: bool = False
 
     def victims_for(self, resource: Resource) -> str:
         """The effective probe_victims setting for one resource."""

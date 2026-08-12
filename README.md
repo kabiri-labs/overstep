@@ -2,7 +2,7 @@
 
 **Matrix-driven authorization testing for HTTP APIs and MCP tool-calls.**
 
-![Version](https://img.shields.io/badge/version-0.28.0-blue)
+![Version](https://img.shields.io/badge/version-0.29.0-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -61,6 +61,8 @@ scope**. overstep makes that table explicit and tests every cell.
 | **BOPLA** | an allowed response exposes a *field* the caller shouldn't see | `password_hash` in a user record |
 | **Privilege escalation** | a lower-privileged role reaches something reserved for a higher one | a `member` deleting a project |
 | **Token audience** (MCP) | a server honours a credential issued for somewhere else | a token minted for server A accepted by server B |
+| **Session hijack** (MCP) | a session id is accepted in place of a credential | a `tools/list` carrying only somebody else's `Mcp-Session-Id` |
+| **Tool enumeration** (MCP) | a server advertises tools the caller may not invoke | `reset_tenant` listed to a plain user |
 | **Authorization drift** | a decision that changed since your last release | a cell that flipped deny → allow |
 
 ## What it doesn't do
@@ -75,10 +77,10 @@ Knowing the edges is part of deciding whether this fits:
   exist to catch the common mistakes, not to guess your intent.
 - **It doesn't test authentication.** Login strength, token forgery and session
   fixation are out of scope; overstep tests what an *already authenticated*
-  identity is permitted to do. The one exception is deliberate: for MCP it checks
-  whether a server accepts a credential issued for a *different* audience, which
-  the protocol makes an authorization requirement of the server —
-  see [token audience](#token-audience-the-server-that-takes-somebody-elses-credential).
+  identity is permitted to do. The exceptions are deliberate and narrow: for MCP
+  it checks the two things the protocol makes requirements *of the server* —
+  that a credential issued for a [different audience](#token-audience-the-server-that-takes-somebody-elses-credential)
+  is refused, and that a [session id is not treated as one](#session-binding-what-a-connection-alone-is-worth).
 - **It doesn't fuzz.** Every request is one the matrix asked for, which is what
   makes results deterministic and diffable.
 - **It doesn't drive an agent with natural-language prompts.** For MCP it tests
@@ -823,6 +825,52 @@ Streamable HTTP only. On stdio the token goes into the child process's
 environment under a variable that server itself named, so there is no audience to
 violate and nothing to replay.
 
+### Session binding: what a connection alone is worth
+
+Streamable HTTP hands out an `Mcp-Session-Id` at `initialize`, and the spec is
+explicit that it must not be used to authenticate. Session identifiers travel in
+headers, and headers end up in proxies, access logs and referrers — so a server
+that accepts one as proof of identity lets anybody who obtains the string become
+the user who opened it.
+
+overstep checks this on every Streamable HTTP server, without configuration:
+
+```
+│ deny  │ function │ tools/list docs │ alice (user) │ session │
+```
+
+The probe opens a session as the subject, then sends the same **anonymous**
+`tools/list` twice — once carrying the session id, once without it. The second
+request is the control, and it is what keeps the result honest: a server whose
+listing is simply public answers the first request too, and calling that session
+hijacking would be a finding about nothing. Only the difference between the two
+counts, so the probe reports a defect solely when the session is what made the
+request work.
+
+A server that issues no session id is stateless and has nothing to hijack — the
+probe is recorded as skipped rather than answered, because it never ran. Set
+`probe_session_binding: false` to switch it off entirely.
+
+### Tool enumeration: what the server is willing to list
+
+A server that advertises a tool to someone who may not invoke it discloses the
+shape of its privileged half. That is where an attack starts rather than where it
+ends, but it is not by itself a broken check — listing everything and enforcing
+at call time is a common and defensible design. So unlike the two probes above,
+this one is **opt-in**:
+
+```yaml
+probe_tool_enumeration: true
+```
+
+It calls `tools/list` as each subject and compares what came back against the
+policy you already wrote: a tool declared as a resource, listed to a subject with
+no allow rule for it, is reported as `tool-enumeration` (medium). Two deliberate
+silences — a tool the matrix doesn't declare is *undescribed* rather than
+disallowed, which is [coverage](#coverage-what-a-clean-result-is-allowed-to-mean)'s
+gap to report; and a subject that cannot list at all has nothing to disclose, so
+its refusal is not reported as an over-restriction.
+
 ### Local (stdio) MCP servers
 
 For a server that runs as a local process, declare a `command` instead of a
@@ -860,7 +908,7 @@ overstep run examples/mcp_api/matrix_stdio.yaml --out out
 
 | Value | Exits non-zero when… |
 |---|---|
-| `vuln` (default) | there is an active, non-waived vulnerability (BOLA/BFLA/BOPLA/privilege escalation/token-audience) |
+| `vuln` (default) | there is an active, non-waived vulnerability (BOLA/BFLA/BOPLA/privilege escalation, or an MCP token-audience/session-hijack/tool-enumeration finding) |
 | `drift` | a decision changed versus the `--baseline` — **only** drift, ignoring pre-existing findings |
 | `vuln-or-drift` | either a vulnerability **or** drift is present |
 | `any` | any active finding exists (including functional `unexpected-deny` regressions) |
@@ -1101,6 +1149,8 @@ SARIF rules (with a `security-severity` score) and on every JSON finding:
 | BFLA | CWE-285 | API5:2023 |
 | privilege-escalation | CWE-269 | API5:2023 |
 | token-audience | CWE-863 | API2:2023 |
+| session-hijack | CWE-287 | API2:2023 |
+| tool-enumeration | CWE-200 | API5:2023 |
 
 ## Transports & extensibility
 

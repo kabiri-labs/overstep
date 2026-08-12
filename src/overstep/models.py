@@ -33,14 +33,23 @@ class ResourceType(str, Enum):
 
 
 class Variant(str, Enum):
-    """For object resources, whose object the subject is reaching for."""
+    """What kind of probe a case is.
+
+    The first three are the original meaning — for an object resource, whose
+    object the subject is reaching for. The rest are MCP protocol probes, which
+    are not about an object at all but about the credential or the connection
+    that carried the request; each is named for the question it asks.
+    """
 
     SELF = "self"    # the subject's own object
     OTHER = "other"  # some other subject's object
     NA = "na"        # not object-scoped (function resources)
-    # Not about the object at all: the subject presents a credential issued for a
-    # *different* audience. See TOKEN_AUDIENCE below.
+    # The subject presents a credential issued for a *different* audience.
     AUDIENCE = "audience"
+    # A request carrying somebody else's session id and no credential of its own.
+    SESSION = "session"
+    # What the server is willing to *list* to this subject, as opposed to run.
+    ENUMERATE = "enumerate"
 
 
 class VulnClass(str, Enum):
@@ -53,6 +62,14 @@ class VulnClass(str, Enum):
     # credential minted for someone else is a confused deputy, and the token can
     # be replayed across every service that trusts the same issuer.
     TOKEN_AUDIENCE = "token-audience"
+    # An MCP server let a session id stand in for a credential. The spec is
+    # explicit that sessions must not be used for authentication: anyone who
+    # obtains the identifier — from a log, a proxy, a referrer — becomes the
+    # identity that opened it.
+    SESSION_HIJACK = "session-hijack"
+    # A server advertised tools to a subject the matrix does not allow to invoke
+    # them. Disclosure of the function surface rather than access to it.
+    TOOL_ENUMERATION = "tool-enumeration"
     AUTHORIZATION_DRIFT = "authorization-drift"
     UNEXPECTED_DENY = "unexpected-deny"
 
@@ -239,6 +256,15 @@ class McpInvocation(BaseModel):
     arguments: Dict[str, Any] = Field(default_factory=dict)
     matcher: McpMatcher = Field(default_factory=McpMatcher)
     mutating: bool = False
+    # Send the request itself with no identity: no subject headers, no bearer,
+    # no Authorization inherited from the server. Used by the session probe,
+    # whose whole question is what the connection alone is worth.
+    anonymous: bool = False
+    # Identity for the ``initialize`` handshake when it differs from the request
+    # that follows. Merged over the request headers, so it need only carry the
+    # difference. Set together with ``anonymous`` to open a session as one
+    # identity and then use it as nobody.
+    handshake_headers: Optional[Dict[str, str]] = None
 
 
 class AuthProvider(BaseModel):
@@ -506,6 +532,10 @@ class Observation(BaseModel):
     # Which of the test case's expected victim markers actually appeared in the
     # response body (empty when none were configured or none matched).
     matched_markers: List[str] = Field(default_factory=list)
+    # Tool names returned by a ``tools/list`` request, recorded separately rather
+    # than parsed back out of the body: the snippet is truncated, and a catalogue
+    # is exactly the kind of result long enough to lose its tail.
+    listed_tools: List[str] = Field(default_factory=list)
     # True when the request was deliberately not sent (e.g. a mutating verb under
     # --read-only). Skipped observations never produce findings.
     skipped: bool = False
@@ -651,6 +681,8 @@ class RunResult(BaseModel):
             VulnClass.BOPLA,
             VulnClass.PRIVILEGE_ESCALATION,
             VulnClass.TOKEN_AUDIENCE,
+            VulnClass.SESSION_HIJACK,
+            VulnClass.TOOL_ENUMERATION,
         }
         return [f for f in self.findings if f.vuln_class in vuln]
 

@@ -18,6 +18,8 @@ _RULE_HELP = {
     VulnClass.BOPLA: "Broken Object Property Level Authorization: an allowed response exposed a property the caller should not see.",
     VulnClass.PRIVILEGE_ESCALATION: "A subject reached a resource reserved for a more privileged role.",
     VulnClass.TOKEN_AUDIENCE: "An MCP server accepted a token that was issued for a different audience.",
+    VulnClass.SESSION_HIJACK: "An MCP server let a session id stand in for a credential.",
+    VulnClass.TOOL_ENUMERATION: "An MCP server advertised tools to a subject that may not invoke them.",
     VulnClass.AUTHORIZATION_DRIFT: "The authorization decision changed relative to the recorded baseline.",
     VulnClass.UNEXPECTED_DENY: "A subject was denied access the matrix says should be allowed.",
 }

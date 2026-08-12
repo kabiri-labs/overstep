@@ -424,9 +424,6 @@ def _audience_cases(matrix: Matrix, context: Dict[str, str]) -> List[TestCase]:
     if not matrix.probe_token_audience:
         return []
 
-    from overstep.models import McpInvocation
-
-    servers = [s for s in matrix.servers if s.kind == "http"]
     cases: List[TestCase] = []
     for subject in matrix.subjects:
         if not subject.token:
@@ -434,38 +431,118 @@ def _audience_cases(matrix: Matrix, context: Dict[str, str]) -> List[TestCase]:
         audience = _declared_audience(matrix, subject)
         if not audience:
             continue
-        for server in servers:
+        for server in (s for s in matrix.servers if s.kind == "http"):
             if _same_audience(server, audience):
                 continue
-            inv = McpInvocation(
-                kind="http",
-                url=server.url or "",
-                headers=render(dict(server.headers), context),
-                protocol_version=server.protocol_version,
-                method="tools/list",
-                matcher=matrix.mcp_access,
-            )
-            resource = f"mcp:{server.name}"
+            inv = _tools_list_invocation(matrix, server, context)
             cases.append(
-                TestCase(
-                    id=make_test_id(resource, subject.name, Variant.AUDIENCE),
-                    resource=resource,
-                    subject=subject.name,
-                    role=subject.role,
-                    transport="mcp",
-                    method="tools/list",
-                    # The "path" of an MCP case is what the method acts on. For a
-                    # tool-call that is the tool; tools/list names none, so it is
-                    # the server being probed — which is also what tells two of
-                    # these rows apart when one credential is foreign to several.
-                    path_template=server.name,
-                    path=server.name,
-                    variant=Variant.AUDIENCE,
-                    expected=Effect.DENY,
-                    resource_type=ResourceType.FUNCTION,
-                    audience=audience,
-                    mcp=inv,
+                _protocol_case(
+                    server, subject, Variant.AUDIENCE, inv,
+                    expected=Effect.DENY, audience=audience,
                 )
+            )
+    return cases
+
+
+def _protocol_case(server, subject: Subject, variant: Variant, inv, **fields) -> TestCase:
+    """One MCP protocol probe, addressed at a server rather than a resource.
+
+    These ask about the credential or the connection, not about a declared
+    operation, so they have no resource of their own. ``mcp:<server>`` stands in
+    for one: it keeps ids unique and readable, and gives the defect roll-up a key
+    that groups by the server the question is about.
+    """
+    resource = f"mcp:{server.name}"
+    return TestCase(
+        id=make_test_id(resource, subject.name, variant),
+        resource=resource,
+        subject=subject.name,
+        role=subject.role,
+        transport="mcp",
+        method=inv.method,
+        path_template=server.name,
+        path=server.name,
+        variant=variant,
+        resource_type=ResourceType.FUNCTION,
+        mcp=inv,
+        **fields,
+    )
+
+
+def _tools_list_invocation(matrix: Matrix, server, context: Dict[str, str], **fields):
+    """A ``tools/list`` invocation against one server, for the protocol probes."""
+    from overstep.models import McpInvocation
+
+    return McpInvocation(
+        kind="http",
+        url=server.url or "",
+        headers=render(dict(server.headers), context),
+        protocol_version=server.protocol_version,
+        method="tools/list",
+        matcher=matrix.mcp_access,
+        **fields,
+    )
+
+
+def _session_cases(matrix: Matrix, context: Dict[str, str]) -> List[TestCase]:
+    """Ask each server whether a session id substitutes for a credential.
+
+    MCP's Streamable HTTP transport hands out an ``Mcp-Session-Id`` at
+    ``initialize``, and the spec is explicit that it must not be used to
+    authenticate: session identifiers travel in headers, and headers end up in
+    proxies, logs and referrers, so anyone who obtains one would inherit the
+    identity that opened it.
+
+    One probe per (credentialed subject, HTTP server). The verdict is reached
+    inside the transport, which sends the anonymous request both with the
+    session and without it — the second being the control that separates a
+    hijackable session from an endpoint that was open to everyone anyway.
+    """
+    if not matrix.probe_session_binding:
+        return []
+
+    cases: List[TestCase] = []
+    for server in (s for s in matrix.servers if s.kind == "http"):
+        for subject in matrix.subjects:
+            if not subject.token and not subject.headers:
+                continue  # no identity to open a session worth stealing
+            identity = dict(subject.headers)
+            if subject.token and not any(k.lower() == "authorization" for k in identity):
+                identity["Authorization"] = f"Bearer {subject.token}"
+            inv = _tools_list_invocation(
+                matrix, server, context, anonymous=True, handshake_headers=identity,
+            )
+            cases.append(
+                _protocol_case(server, subject, Variant.SESSION, inv, expected=Effect.DENY)
+            )
+    return cases
+
+
+def _enumeration_cases(matrix: Matrix, context: Dict[str, str]) -> List[TestCase]:
+    """Ask each server what it is willing to *list* to each subject.
+
+    A server that advertises a tool to someone who may not invoke it discloses
+    its function surface: the caller learns the shape of the privileged half of
+    the API, which is where an attack starts rather than where it ends.
+
+    Opt-in, unlike the other protocol probes, and the asymmetry is deliberate.
+    Listing every tool to every caller and enforcing at call time is a common and
+    entirely defensible design, so reporting it by default would be an opinion
+    dressed as a finding. Session hijacking and a token accepted from the wrong
+    audience are never defensible, so those need no opt-in.
+    """
+    if not matrix.probe_tool_enumeration:
+        return []
+
+    cases: List[TestCase] = []
+    for server in (s for s in matrix.servers if s.kind == "http"):
+        for subject in matrix.subjects:
+            inv = _tools_list_invocation(matrix, server, context)
+            # The findings come from what the listing *contained*, so the effect
+            # carries no expectation to violate: a subject that cannot list at
+            # all simply has nothing to check, not an over-restriction to report.
+            cases.append(
+                _protocol_case(server, subject, Variant.ENUMERATE, inv, expected=Effect.ALLOW)
             )
     return cases
 
@@ -587,4 +664,6 @@ def plan(matrix: Matrix, context: Optional[Dict[str, str]] = None) -> List[TestC
                         )
 
     cases.extend(_audience_cases(matrix, context))
+    cases.extend(_session_cases(matrix, context))
+    cases.extend(_enumeration_cases(matrix, context))
     return cases
