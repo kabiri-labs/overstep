@@ -239,13 +239,16 @@ def _session_repro(subject: Subject, case: TestCase) -> str:
     url = case.mcp.url
     handshake = mask_headers(_mcp_handshake_headers(case, subject), subject.name)
     anonymous = mask_headers(_mcp_headers(case, subject), subject.name)
-    anonymous["Mcp-Session-Id"] = "$SESSION"
+    # Named with the module's own prefix so `_shell_arg` double-quotes it and the
+    # shell expands it. A name outside that convention gets single-quoted like any
+    # other literal, and step 2 sends the characters `$SESSION` to the server.
+    anonymous["Mcp-Session-Id"] = f"${_VAR_PREFIX}_SESSION"
 
     open_session = _curl(handshake, _initialize_payload(case), url, head=True)
     extract = "tr -d '\\r' | awk 'tolower($1) == \"mcp-session-id:\" { print $2 }'"
     return (
         f"# 1. open a session as {subject.name} and keep the id the server issues\n"
-        f"SESSION=$({open_session} | {extract})\n"
+        f"{_VAR_PREFIX}_SESSION=$({open_session} | {extract})\n"
         f"# 2. the same request carrying that session id and no credential at all\n"
         f"{_curl(anonymous, _mcp_payload(case), url)}"
     )

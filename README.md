@@ -2,7 +2,7 @@
 
 **Authorization testing for MCP servers. Works on HTTP APIs too.**
 
-![Version](https://img.shields.io/badge/version-0.31.3-blue)
+![Version](https://img.shields.io/badge/version-0.32.0-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -167,19 +167,32 @@ overstep run examples/mcp_api/matrix.yaml --out out
 
 ```
              overstep summary
- Tests run                            23
- Positive / negative               8 / 15
- Vulnerabilities            9 (5 defects)
+ Tests run                            27
+ Positive / negative   8 / 15 (+4 listing)
+ Vulnerabilities           16 (7 defects)
    BOLA                                4
    privilege-escalation                5
+   session-hijack                      3
+   tool-enumeration                    4
  Object resources probed             2/2
 ```
 
-Nine probes got through, tracing back to **five** distinct bugs — one row per
-thing to fix, with the subjects that reached it as evidence. Two of the BOLA
-findings come through `tools/call` and two through `resources/read`, on the same
-two documents: the demo server has the same missing ownership check on both
-doors, which is exactly the case a tools-only checker reports clean.
+Sixteen probes got through, tracing back to **seven** distinct bugs — one row per
+thing to fix, with the subjects that reached it as evidence.
+
+The four classes are two different kinds of question. `BOLA` and
+`privilege-escalation` are about a declared operation: two of the BOLA findings
+come through `tools/call` and two through `resources/read`, on the same two
+documents, because the demo server has the same missing ownership check on both
+doors — exactly the case a tools-only checker reports clean.
+
+`session-hijack` and `tool-enumeration` are about the connection instead, and
+they have no equivalent in an HTTP API scanner. The demo server hands out an
+`Mcp-Session-Id` at `initialize` and then accepts it *in place of* a credential,
+so anyone who reads one out of a log inherits the identity that opened it; and it
+lists `list_all_users` and `reset_tenant` to plain users who cannot invoke them.
+The listing probes are counted separately from the positive controls: they report
+on what a listing contained, so no credential is proven by their success.
 
 Reports land in `out/`:
 
@@ -204,8 +217,12 @@ running server to a result you can trust.
 ### 1. Scaffold the matrix
 
 ```bash
-overstep scaffold http://127.0.0.1:9000/mcp --fmt mcp --server-name docs > matrix.yaml
+overstep scaffold http://127.0.0.1:9000/mcp --fmt mcp --server-name docs \
+    --token "$TOKEN" > matrix.yaml
 ```
+
+Drop `--token` if the server lists to anyone; most require a credential, and the
+bundled demo does too.
 
 overstep asks the server what it exposes and drafts a full matrix — servers,
 roles, placeholder subjects, resources and a starter policy. It reads **both**
@@ -229,6 +246,13 @@ Two things it will **not** draft: a template using an RFC 6570 operator
 stderr rather than emitting a resource that cannot work; and concrete
 `resources/list` entries, since a fixed URI per object says nothing about which
 object belongs to whom, so no cross-owner probe follows from one.
+
+A listing that comes back **refused** is an error, not an empty server: only
+JSON-RPC `-32601` ("no such method") is read as "there is no surface of this
+kind", which is why a server without resources still scaffolds its tools. Any
+other refusal stops the command instead of drafting an empty matrix — and stops
+`coverage` too, where the number is a denominator and a `401` read as zero
+operations would report the matrix 100% complete.
 
 You can also scaffold from a saved capture, or from
 [an OpenAPI spec or HAR file](#http-apis):
@@ -602,6 +626,11 @@ A server that issues no session id is stateless and has nothing to hijack — th
 probe is recorded as skipped rather than answered, because it never ran. Set
 `probe_session_binding: false` to switch it off entirely.
 
+The [bundled demo](#quickstart-the-vulnerable-mcp-demo) has this defect on
+purpose, so the three `session-hijack` findings in its summary are a live example
+— including the repro, which really does read the tool list with nothing but a
+stolen session id.
+
 ### Tool enumeration: what the server is willing to list
 
 A server that advertises a tool to someone who may not invoke it discloses the
@@ -630,7 +659,14 @@ its refusal is not reported as an over-restriction. An enumeration probe is also
 never counted as a positive control for the
 [inconclusive check](#inconclusive-runs-the-gate-refuses-to-fail-open): a public
 listing answers with no credential at all, and letting it vouch for one would let
-a run where every token had expired report itself clean.
+a run where every token had expired report itself clean. That is why the demo's
+summary counts its four listing probes separately from its eight positive
+controls rather than folding them in.
+
+The [bundled demo](#quickstart-the-vulnerable-mcp-demo) turns this on: its server
+lists the admin-only `list_all_users` and `reset_tenant` to plain users, and its
+anonymous subject — which cannot list at all — is reported as nothing, which is
+the second silence above in action.
 
 ### OAuth-protected servers
 
@@ -719,7 +755,7 @@ instead of the number of bugs. Every report therefore carries a **defect**
 roll-up: one row per thing to fix, with the subjects as evidence of blast radius.
 
 ```
-Vulnerabilities   9 (5 defects)
+Vulnerabilities   16 (7 defects)
 ```
 
 `findings.json` gains a `defects` array (worst first, each with its `subjects`,
@@ -1204,7 +1240,7 @@ two questions after it, and neither shows up in a finding count. `overstep
 coverage` reports both, and sends nothing:
 
 ```bash
-overstep coverage matrix.yaml --spec http://127.0.0.1:9000/mcp --fmt mcp
+overstep coverage matrix.yaml --spec http://127.0.0.1:9000/mcp --fmt mcp --token "$TOKEN"
 ```
 
 ```

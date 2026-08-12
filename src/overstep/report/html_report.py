@@ -81,6 +81,7 @@ def write(result: RunResult, path: str) -> None:
             _card(s["total_tests"], "tests run"),
             _card(s["positive_tests"], "positive"),
             _card(s["negative_tests"], "negative"),
+            *([_card(s["listing_tests"], "listing")] if s["listing_tests"] else []),
             _card(s["vulnerabilities"], "vulnerabilities"),
             _card(s["defects"], "distinct defects"),
             _card(s["findings"], "total findings"),

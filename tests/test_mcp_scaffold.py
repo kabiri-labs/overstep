@@ -371,3 +371,95 @@ def test_a_transport_failure_while_listing_is_not_silently_empty():
 
     with pytest.raises(httpx.HTTPError):
         _with_server(broken, fetch_resource_templates, "http://t/mcp")
+
+
+def test_a_refused_listing_is_not_read_as_a_server_with_no_tools():
+    """The blank that used to pass for a measurement.
+
+    Most servers want a credential before they will list. Reading that `401` as
+    "this server exposes nothing" makes `coverage --fail-under 100` compute 0/0
+    and report the matrix complete — a gate going green because nothing was
+    measured, which is the one failure mode this project does not ship.
+    """
+    from overstep.loaders.mcp import McpListingError, fetch_tools
+
+    def refuses(request: httpx.Request) -> httpx.Response:
+        msg = json.loads(request.content)
+        if msg.get("method") in ("initialize", "notifications/initialized"):
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {}})
+        return httpx.Response(401, json={"jsonrpc": "2.0", "id": 2,
+                                         "error": {"code": -32001, "message": "authentication required"}})
+
+    with pytest.raises(McpListingError) as exc:
+        _with_server(refuses, fetch_tools, "http://t/mcp")
+    assert "401" in str(exc.value) and "tools/list" in str(exc.value)
+
+
+def test_an_in_band_error_that_is_not_method_not_found_is_a_failure_too():
+    """A `200` carrying a JSON-RPC error is still a listing nobody read."""
+    from overstep.loaders.mcp import McpListingError, fetch_tools
+
+    def rejects(request: httpx.Request) -> httpx.Response:
+        msg = json.loads(request.content)
+        if msg.get("method") in ("initialize", "notifications/initialized"):
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {}})
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": 2,
+                                         "error": {"code": -32603, "message": "internal error"}})
+
+    with pytest.raises(McpListingError):
+        _with_server(rejects, fetch_tools, "http://t/mcp")
+
+
+def test_method_not_found_still_means_none():
+    """The one refusal that really is an answer, and the reason resources are
+    optional: a server that does not implement the method has no such surface."""
+    from overstep.loaders.mcp import fetch_resource_templates
+
+    def unsupported(request: httpx.Request) -> httpx.Response:
+        msg = json.loads(request.content)
+        if msg.get("method") in ("initialize", "notifications/initialized"):
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {}})
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": 2,
+                                         "error": {"code": -32601, "message": "unknown method"}})
+
+    assert _with_server(unsupported, fetch_resource_templates, "http://t/mcp") == []
+
+
+def test_coverage_exits_two_when_the_surface_could_not_be_read(tmp_path):
+    """End to end: the denominator is missing, so the gate must not go green."""
+    import overstep.loaders.mcp as mcpld
+    from typer.testing import CliRunner
+
+    from overstep.cli import app
+
+    matrix = tmp_path / "m.yaml"
+    matrix.write_text(
+        "roles: [user]\n"
+        "servers:\n  - {name: docs, url: 'http://t/mcp'}\n"
+        "subjects:\n  - {name: alice, role: user, token: a}\n"
+        "resources:\n"
+        "  - name: read_document\n    transport: mcp\n"
+        "    call: {server: docs, tool: read_document}\n    type: function\n"
+        "policy:\n  read_document: {allow: [{role: user}]}\n"
+    )
+
+    def refuses(request: httpx.Request) -> httpx.Response:
+        msg = json.loads(request.content)
+        if msg.get("method") in ("initialize", "notifications/initialized"):
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {}})
+        return httpx.Response(403, json={"jsonrpc": "2.0", "id": 2,
+                                         "error": {"code": -32001, "message": "forbidden"}})
+
+    orig = httpx.Client
+    mcpld.httpx.Client = lambda *a, **kw: orig(*a, transport=httpx.MockTransport(refuses), **kw)
+    try:
+        result = CliRunner().invoke(
+            app,
+            ["coverage", str(matrix), "--spec", "http://t/mcp", "--fmt", "mcp",
+             "--fail-under", "100"],
+        )
+    finally:
+        mcpld.httpx.Client = orig
+
+    assert result.exit_code == 2
+    assert "could not read the MCP surface" in result.stdout

@@ -10,7 +10,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Callable, Dict, List
 
-from overstep.models import Effect, Finding, RunResult, VulnClass
+from overstep.models import Effect, Finding, RunResult, Variant, VulnClass
 
 WriteFn = Callable[[RunResult, str], None]
 
@@ -82,13 +82,22 @@ _CONFIDENCE_ORDER = ["confirmed", "suspected", "unverified"]
 
 def summarize(result: RunResult) -> Dict[str, object]:
     """A compact roll-up used by the CLI and the JSON/HTML reports."""
-    positive = sum(1 for c in result.cases if c.expected == Effect.ALLOW)
+    # A positive test is one whose success proves the credential works, which is
+    # what `is_positive_control` means and what `expected == ALLOW` only looks
+    # like: an enumeration probe is nominally allow-expected but reports on what
+    # a listing *contained*, so counting it here would inflate the number of
+    # controls a reader (and the README) sees. It gets its own count instead, so
+    # the three still add up to the total.
+    positive = sum(1 for c in result.cases if c.is_positive_control)
     negative = sum(1 for c in result.cases if c.expected == Effect.DENY)
+    listing = sum(1 for c in result.cases if c.variant == Variant.ENUMERATE)
     by_class = Counter(f.vuln_class.value for f in result.findings)
     return {
         "total_tests": len(result.cases),
         "positive_tests": positive,
         "negative_tests": negative,
+        # Probes that are neither: they read a listing rather than assert an effect.
+        "listing_tests": listing,
         "findings": len(result.findings),
         "vulnerabilities": len(result.vulnerabilities),
         # How many distinct defects those findings represent — the number of
