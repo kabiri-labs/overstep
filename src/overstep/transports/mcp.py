@@ -27,6 +27,15 @@ from typing import Any, Dict, List, NamedTuple, Optional
 import httpx
 
 from overstep.mcp_matching import content_text, contents_text, contents_uris, evaluate_mcp
+from overstep.mcp_protocol import (
+    CLIENT_INFO,
+    HEADER_MISMATCH,
+    SUPPORTED_PROTOCOL_VERSIONS,
+    UNSUPPORTED_PROTOCOL_VERSION,
+    is_stateless,
+    request_meta,
+    routing_headers,
+)
 from overstep.models import (
     drop_header,
     Effect,
@@ -44,13 +53,6 @@ _RETRY_STATUSES = frozenset({429, 503})
 # Upper bound on tools/list pages followed for one probe. Generous for any real
 # catalogue, and a hard stop for a server whose cursor never terminates.
 _MAX_LIST_PAGES = 20
-
-# The protocol revisions whose lifecycle this transport implements: an
-# ``initialize`` exchange, ``notifications/initialized``, and the optional
-# ``Mcp-Session-Id`` that follows. MCP 2026-07-28 retired all three and made the
-# core stateless, so a server speaking it cannot be driven by the handshake
-# below — a reason to stop, not to file its refusals as authorization denials.
-SUPPORTED_PROTOCOL_VERSIONS = frozenset({"2024-11-05", "2025-03-26", "2025-06-18"})
 
 # Statuses that answer "who are you", not "what protocol is this". A server is
 # entitled to demand a credential before it will initialize, and that refusal is
@@ -113,6 +115,12 @@ def mcp_headers(inv: McpInvocation, subject: Subject) -> Dict[str, str]:
     headers.setdefault("Content-Type", "application/json")
     headers.setdefault("Accept", "application/json, text/event-stream")
     headers.setdefault("MCP-Protocol-Version", inv.protocol_version)
+    if is_stateless(inv.protocol_version):
+        # Assigned rather than defaulted: a stateless server must reject any
+        # request whose headers disagree with its body, so these mirror the
+        # params being sent and are not something a matrix can set to something
+        # else. They are derived from the same builder for that reason.
+        headers.update(routing_headers(inv.method, jsonrpc_params(inv)))
     return headers
 
 
@@ -126,15 +134,19 @@ def listed_tool_names(inv: McpInvocation, result: Dict[str, Any]) -> List[str]:
     return [t.get("name", "") for t in tools if isinstance(t, dict) and t.get("name")]
 
 
-def jsonrpc_request(
-    inv: McpInvocation, request_id: int = 2, cursor: Optional[str] = None
-) -> Dict[str, Any]:
-    """The JSON-RPC request body for one invocation.
+def jsonrpc_params(inv: McpInvocation, cursor: Optional[str] = None) -> Dict[str, Any]:
+    """The ``params`` for one invocation.
 
     ``tools/call`` names a tool and its arguments; every other method overstep
     sends (today, ``tools/list``) names neither, so it goes out with empty params
     rather than a ``name: ""`` the server would have to reject for the wrong
     reason. ``cursor`` continues a paginated listing.
+
+    On a stateless revision the metadata that used to be agreed once at
+    ``initialize`` rides here instead, on every request. It is built in this one
+    place because the routing headers are derived from the same dict — the two
+    have to agree, and a server is entitled to reject the request when they do
+    not.
     """
     if inv.method == "tools/call":
         params: Dict[str, Any] = {"name": inv.tool, "arguments": inv.arguments}
@@ -144,7 +156,21 @@ def jsonrpc_request(
         params = {}
     if cursor:
         params["cursor"] = cursor
-    return {"jsonrpc": "2.0", "id": request_id, "method": inv.method, "params": params}
+    if is_stateless(inv.protocol_version):
+        params["_meta"] = request_meta(inv.protocol_version)
+    return params
+
+
+def jsonrpc_request(
+    inv: McpInvocation, request_id: int = 2, cursor: Optional[str] = None
+) -> Dict[str, Any]:
+    """The JSON-RPC request body for one invocation."""
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": inv.method,
+        "params": jsonrpc_params(inv, cursor),
+    }
 
 
 def result_text(inv: McpInvocation, result: Dict[str, Any]) -> str:
@@ -211,30 +237,79 @@ def _unusable_protocol(message: dict, protocol_version: str) -> Optional[str]:
     return None
 
 
-def _rejected_by_protocol(opened: _Handshake, resp: httpx.Response) -> bool:
-    """Did the protocol, rather than the policy, refuse this request?
-
-    Both halves have to agree. A handshake overstep could not complete is only
-    fatal once the request built on it was rejected too — a server that ignores
-    the lifecycle and answers anyway is testable, and its answers are real. And
-    a 401/403 on the request is the server talking about the *caller*, which is
-    a genuine authorization signal no matter what the handshake did.
-
-    The rejection is read from the status *and* the body, because JSON-RPC is
-    entitled to report a malformed request under a perfectly ordinary 200 — a
-    mismatched server can refuse everything without ever emitting an HTTP error.
-    Only the pre-defined codes count there: "any JSON-RPC error" would rewrite a
-    lax-but-working server's genuine denials into transport failures, losing real
-    findings and condemning a run that was testing exactly what it should.
-    """
-    if opened.refusal is None:
-        return False
-    if resp.status_code >= 400:
-        return resp.status_code not in _AUTH_STATUSES
+def _jsonrpc_error(resp: httpx.Response) -> Optional[Dict[str, Any]]:
+    """The JSON-RPC error object on a response, if it carries one."""
     message = _parse_message(resp)
     error = message.get("error") if isinstance(message, dict) else None
-    code = error.get("code") if isinstance(error, dict) else None
-    return code in _PROTOCOL_ERROR_CODES
+    return error if isinstance(error, dict) else None
+
+
+def _stateless_rejection(inv: McpInvocation, resp: httpx.Response) -> Optional[str]:
+    """Why a stateless server would not accept this request as a request.
+
+    There is no handshake here to have failed, so the evidence has to come from
+    the answer — and the revision defines exactly two errors that mean "not the
+    protocol you think": the version is one the server does not implement, and
+    the headers disagree with the body. Both are specified to arrive under
+    ``400``, and neither says anything about the caller.
+
+    Nothing else is read this way. ``-32601`` in particular is left alone: a
+    server answering "method not found" to ``resources/read`` is telling us it
+    has no resource surface, which is a true answer to a real question, not a
+    protocol it cannot speak.
+    """
+    if resp.status_code in _AUTH_STATUSES:
+        return None
+    error = _jsonrpc_error(resp)
+    if error is None:
+        return None
+    code = error.get("code")
+    if code == UNSUPPORTED_PROTOCOL_VERSION:
+        data = error.get("data")
+        offered = data.get("supported") if isinstance(data, dict) else None
+        detail = ""
+        if isinstance(offered, list) and all(isinstance(v, str) for v in offered) and offered:
+            detail = f" — it offers {', '.join(offered)}"
+        return (
+            f"the server does not implement MCP {inv.protocol_version}{detail}"
+        )
+    if code == HEADER_MISMATCH:
+        return (
+            f"the server rejected this request's MCP headers as not matching its body, "
+            f"so nothing it says here is about authorization"
+        )
+    return None
+
+
+def _protocol_rejection(
+    inv: McpInvocation, opened: _Handshake, resp: httpx.Response
+) -> Optional[str]:
+    """Why the protocol, rather than the policy, refused this request.
+
+    The two revisions leave different evidence. A stateless one is refused in
+    the answer alone, by a code the spec reserves for it. A stateful one is
+    refused at the handshake — and there both halves have to agree, because a
+    handshake overstep could not complete is only fatal once the request built
+    on it was rejected too: a lax server that ignores the lifecycle and answers
+    anyway is testable, and its answers are real.
+
+    On the stateful path the rejection is read from the status *and* the body,
+    because JSON-RPC is entitled to report a malformed request under a perfectly
+    ordinary 200. Only the pre-defined codes count there: "any JSON-RPC error"
+    would rewrite a lax-but-working server's genuine denials into transport
+    failures, losing real findings and condemning a run that was testing exactly
+    what it should. And a 401/403 is the server talking about the *caller*,
+    which is a genuine authorization signal on either revision.
+    """
+    if is_stateless(inv.protocol_version):
+        return _stateless_rejection(inv, resp)
+    if opened.refusal is None:
+        return None
+    if resp.status_code >= 400:
+        return None if resp.status_code in _AUTH_STATUSES else opened.refusal
+    error = _jsonrpc_error(resp)
+    code = error.get("code") if error else None
+    return opened.refusal if code in _PROTOCOL_ERROR_CODES else None
 
 
 async def _initialize(
@@ -312,6 +387,12 @@ async def _handshake(
     the request's, so the session is opened as the victim and then used by a
     request that carries nothing.
     """
+    if is_stateless(inv.protocol_version):
+        # There is no handshake to perform and no session to be issued: this
+        # revision carries all of it on the request itself. Sending one anyway
+        # would be a request the server is right to refuse, and the refusal
+        # would then be read as evidence about a protocol that is working.
+        return _Handshake()
     if inv.handshake_headers:
         headers = {**headers, **inv.handshake_headers}
     return await _initialize(client, inv.url, headers, inv.protocol_version)
@@ -450,12 +531,28 @@ async def _session_probe(
 
     A server that issues no session id is stateless and has nothing to hijack;
     the probe is skipped rather than answered, since it never ran.
+
+    A revision that has no sessions at all is skipped before any request is sent.
+    The defect this looks for was removed from the protocol, not fixed in the
+    server, so there is nothing here to pass or fail — and a probe reported as
+    passing would be credit for a control the target never had to implement.
     """
     started = time.perf_counter()
-    headers = mcp_headers(inv, subject)
 
     def elapsed() -> float:
         return round((time.perf_counter() - started) * 1000, 1)
+
+    if is_stateless(inv.protocol_version):
+        return Observation(
+            test_id=case.id, status=0, effect=Effect.DENY, skipped=True,
+            latency_ms=elapsed(),
+            error=(
+                f"MCP {inv.protocol_version} has no protocol-level sessions, so "
+                f"there is no session binding to test"
+            ),
+        )
+
+    headers = mcp_headers(inv, subject)
 
     try:
         opened = await _handshake(client, inv, subject, headers)
@@ -568,15 +665,16 @@ async def _call(
             )
 
         elapsed = (time.perf_counter() - started) * 1000
-        if _rejected_by_protocol(opened, resp):
-            # The handshake failed and the call failed with it: this request never
-            # reached the server's authorization, so it is a delivery failure and
-            # not the deny it resembles. Status 0 is what every transport reserves
-            # for that, and what stops a target answering nothing but 400 from
-            # reading as one that carefully forbids everything.
+        refusal = _protocol_rejection(inv, opened, resp)
+        if refusal:
+            # The request never reached the server's authorization, so it is a
+            # delivery failure and not the deny it resembles. Status 0 is what
+            # every transport reserves for that, and what stops a target
+            # answering nothing but 400 from reading as one that carefully
+            # forbids everything.
             return Observation(
                 test_id=case.id, status=0, effect=Effect.DENY,
-                latency_ms=round(elapsed, 1), error=opened.refusal,
+                latency_ms=round(elapsed, 1), error=refusal,
             )
         reading = _read(inv, resp)
         listed = reading.listed
@@ -635,13 +733,17 @@ async def _stdio_tools_call(inv, timeout: float = 15.0) -> dict:
                 return msg
 
     async def exchange() -> dict:
-        await send({
-            "jsonrpc": "2.0", "id": 1, "method": "initialize",
-            "params": {"protocolVersion": inv.protocol_version, "capabilities": {},
-                       "clientInfo": {"name": "overstep", "version": "1"}},
-        })
-        await read_id(1)
-        await send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        # stdio went stateless with the rest of the protocol: on those revisions
+        # the handshake is gone and the metadata rides on the request itself,
+        # which `jsonrpc_request` already puts there.
+        if not is_stateless(inv.protocol_version):
+            await send({
+                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {"protocolVersion": inv.protocol_version, "capabilities": {},
+                           "clientInfo": dict(CLIENT_INFO)},
+            })
+            await read_id(1)
+            await send({"jsonrpc": "2.0", "method": "notifications/initialized"})
         await send(jsonrpc_request(inv))
         return await read_id(2)
 

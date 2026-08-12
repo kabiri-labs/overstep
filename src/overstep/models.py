@@ -11,6 +11,10 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
+# Imports nothing from overstep, so it stays safe to pull in from the module
+# every other one depends on.
+from overstep.mcp_protocol import DEFAULT_PROTOCOL_VERSION
+
 HTTPMethod = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
 
 # Status codes we treat as "access was granted". Anything else (401/403/404 and
@@ -231,7 +235,7 @@ class McpServer(BaseModel):
     name: str
     url: Optional[str] = None
     headers: Dict[str, str] = Field(default_factory=dict)
-    protocol_version: str = "2025-06-18"
+    protocol_version: str = DEFAULT_PROTOCOL_VERSION
     # stdio transport
     command: Optional[List[str]] = None
     env: Dict[str, str] = Field(default_factory=dict)
@@ -287,7 +291,7 @@ class McpInvocation(BaseModel):
     # stdio transport (argv + resolved environment carrying this subject's identity)
     command: List[str] = Field(default_factory=list)
     env: Dict[str, str] = Field(default_factory=dict)
-    protocol_version: str = "2025-06-18"
+    protocol_version: str = DEFAULT_PROTOCOL_VERSION
     # The JSON-RPC method to send. Almost always ``tools/call``; the audience
     # probe uses ``tools/list``, which needs authorization, takes no arguments and
     # changes nothing, so it answers "was this credential accepted at all"

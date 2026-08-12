@@ -21,6 +21,7 @@ from typing import Dict, List, Optional, Tuple
 from overstep.expressions import safe_eval
 from overstep.jsonpath import set_at
 from overstep.matrix import Matrix
+from overstep.mcp_protocol import DEFAULT_PROTOCOL_VERSION
 from overstep.models import (
     Effect,
     OwnershipInjection,
@@ -348,7 +349,7 @@ def _build_mcp_invocation(matrix, resource, subject, variant, target, context):
     kind = server.kind if server else "http"
     fields = dict(
         kind=kind,
-        protocol_version=server.protocol_version if server else "2025-06-18",
+        protocol_version=server.protocol_version if server else DEFAULT_PROTOCOL_VERSION,
         matcher=matcher,
     )
 

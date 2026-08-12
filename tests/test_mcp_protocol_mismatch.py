@@ -24,6 +24,10 @@ from overstep.preflight import check
 
 _SUPPORTED = "2025-06-18"
 _RETIRED = "2026-07-28"
+# A revision this build has never heard of. Deliberately not a real one: the
+# property under test is that an unknown protocol is refused rather than guessed
+# at, which stops being testable the moment the version becomes supported.
+_UNKNOWN = "2099-01-01"
 
 
 def _matrix(**overrides) -> Matrix:
@@ -244,17 +248,17 @@ def test_a_negotiated_version_overstep_does_not_implement_is_refused():
         if body.get("method") == "initialize":
             return httpx.Response(200, json={
                 "jsonrpc": "2.0", "id": body.get("id"),
-                "result": {"protocolVersion": _RETIRED, "capabilities": {}},
+                "result": {"protocolVersion": _UNKNOWN, "capabilities": {}},
             })
         return httpx.Response(400, json={
             "jsonrpc": "2.0", "id": body.get("id"),
-            "error": {"code": -32600, "message": "missing required Mcp-Method"},
+            "error": {"code": -32600, "message": "malformed request"},
         })
 
     result = _run(_matrix(), handler)
 
     assert result.health.inconclusive
-    assert _RETIRED in " ".join(result.health.reasons)
+    assert _UNKNOWN in " ".join(result.health.reasons)
 
 
 def test_a_server_that_ignores_the_handshake_but_answers_is_still_tested():

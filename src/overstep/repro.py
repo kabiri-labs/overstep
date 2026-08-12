@@ -18,6 +18,7 @@ from typing import Any, Dict, Optional
 from urllib.parse import urlencode, urljoin
 
 from overstep.executor import build_headers
+from overstep.mcp_protocol import DEFAULT_PROTOCOL_VERSION, is_stateless, routing_headers
 from overstep.models import SECRET_HEADERS as _SECRET_HEADERS
 from overstep.models import Subject, TestCase
 
@@ -105,10 +106,18 @@ def _mcp_headers(case: TestCase, subject: Subject) -> Dict[str, str]:
     inv = case.mcp
     headers: Dict[str, str] = dict(inv.headers) if inv else {}
     if inv is not None and inv.anonymous:
-        return {k: v for k, v in headers.items() if k.lower() not in _SECRET_HEADERS}
-    headers.update(subject.headers)
-    if subject.token and not any(k.lower() == "authorization" for k in subject.headers):
-        headers["Authorization"] = f"Bearer {subject.token}"
+        headers = {k: v for k, v in headers.items() if k.lower() not in _SECRET_HEADERS}
+    else:
+        headers.update(subject.headers)
+        if subject.token and not any(k.lower() == "authorization" for k in subject.headers):
+            headers["Authorization"] = f"Bearer {subject.token}"
+    if inv is not None and is_stateless(inv.protocol_version):
+        # Required for compliance on this revision, so a repro without them is a
+        # command the server rejects before it ever reaches the authorization
+        # the finding is about — a false all-clear pasted into a bug report.
+        from overstep.transports.mcp import jsonrpc_params
+
+        headers.update(routing_headers(inv.method, jsonrpc_params(inv)))
     return headers
 
 
@@ -122,7 +131,7 @@ def _mcp_handshake_headers(case: TestCase, subject: Subject) -> Dict[str, str]:
 
 
 def _initialize_payload(case: TestCase) -> Dict[str, Any]:
-    version = case.mcp.protocol_version if case.mcp else "2025-06-18"
+    version = case.mcp.protocol_version if case.mcp else DEFAULT_PROTOCOL_VERSION
     return {
         "jsonrpc": "2.0",
         "id": 1,

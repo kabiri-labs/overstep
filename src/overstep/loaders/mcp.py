@@ -31,6 +31,13 @@ import httpx
 import yaml
 
 from overstep.documents import read_json
+from overstep.mcp_protocol import (
+    CLIENT_INFO,
+    DEFAULT_PROTOCOL_VERSION,
+    is_stateless,
+    request_meta,
+    routing_headers,
+)
 from overstep.transports.mcp import _parse_message
 
 # Argument names that identify an owned object.
@@ -167,7 +174,7 @@ def fetch_tools(
     *,
     token: Optional[str] = None,
     headers: Optional[Dict[str, str]] = None,
-    protocol_version: str = "2025-06-18",
+    protocol_version: str = DEFAULT_PROTOCOL_VERSION,
     timeout: float = 15.0,
     verify: bool = True,
 ) -> List[Dict[str, Any]]:
@@ -189,7 +196,7 @@ def fetch_resource_templates(
     *,
     token: Optional[str] = None,
     headers: Optional[Dict[str, str]] = None,
-    protocol_version: str = "2025-06-18",
+    protocol_version: str = DEFAULT_PROTOCOL_VERSION,
     timeout: float = 15.0,
     verify: bool = True,
 ) -> List[Dict[str, Any]]:
@@ -252,11 +259,11 @@ def _fetch_list(
     *,
     token: Optional[str] = None,
     headers: Optional[Dict[str, str]] = None,
-    protocol_version: str = "2025-06-18",
+    protocol_version: str = DEFAULT_PROTOCOL_VERSION,
     timeout: float = 15.0,
     verify: bool = True,
 ) -> List[Dict[str, Any]]:
-    """One ``initialize`` handshake followed by one listing call."""
+    """The listing call, preceded by a handshake on revisions that have one."""
     hdrs: Dict[str, str] = {
         "Content-Type": "application/json",
         "Accept": "application/json, text/event-stream",
@@ -266,27 +273,32 @@ def _fetch_list(
         hdrs.update(headers)
     if token and not any(k.lower() == "authorization" for k in hdrs):
         hdrs["Authorization"] = f"Bearer {token}"
+    stateless = is_stateless(protocol_version)
+    if stateless:
+        # A listing names nothing, so it carries Mcp-Method and no Mcp-Name.
+        hdrs.update(routing_headers(method))
 
     with httpx.Client(timeout=timeout, verify=verify) as client:
-        init = {
-            "jsonrpc": "2.0", "id": 1, "method": "initialize",
-            "params": {"protocolVersion": protocol_version, "capabilities": {},
-                       "clientInfo": {"name": "overstep", "version": "1"}},
-        }
-        try:
-            resp = client.post(url, json=init, headers=hdrs)
-            session = resp.headers.get("mcp-session-id")
-            if session:
-                hdrs["Mcp-Session-Id"] = session
-            # Complete the lifecycle before asking anything, so a server that
-            # enforces it answers the listing instead of refusing it.
-            client.post(
-                url,
-                json={"jsonrpc": "2.0", "method": "notifications/initialized"},
-                headers=hdrs,
-            )
-        except httpx.HTTPError:
-            pass
+        if not stateless:
+            init = {
+                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {"protocolVersion": protocol_version, "capabilities": {},
+                           "clientInfo": dict(CLIENT_INFO)},
+            }
+            try:
+                resp = client.post(url, json=init, headers=hdrs)
+                session = resp.headers.get("mcp-session-id")
+                if session:
+                    hdrs["Mcp-Session-Id"] = session
+                # Complete the lifecycle before asking anything, so a server that
+                # enforces it answers the listing instead of refusing it.
+                client.post(
+                    url,
+                    json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+                    headers=hdrs,
+                )
+            except httpx.HTTPError:
+                pass
 
         # Listings paginate. Reading only the first page would understate the
         # surface — and this number is a denominator: `coverage --fail-under`
@@ -299,6 +311,8 @@ def _fetch_list(
         seen: set = set()
         for _ in range(_MAX_LIST_PAGES):
             params: Dict[str, Any] = {"cursor": cursor} if cursor else {}
+            if stateless:
+                params["_meta"] = request_meta(protocol_version)
             resp = client.post(
                 url,
                 json={"jsonrpc": "2.0", "id": 2, "method": method, "params": params},
