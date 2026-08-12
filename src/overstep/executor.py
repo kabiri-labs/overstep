@@ -67,8 +67,15 @@ def build_headers(subject: Subject, case: TestCase) -> Dict[str, str]:
       1. the resource's own headers (carried on the test case),
       2. the subject's headers (override per identity),
       3. a bearer ``Authorization`` derived from the subject's token — but only
-         if neither of the above already set an ``Authorization`` header, so a
-         custom auth scheme is never clobbered.
+         if the *subject* set an ``Authorization`` of its own, so a custom auth
+         scheme chosen per identity is never clobbered.
+
+    The token deliberately does *not* yield to an ``Authorization`` inherited
+    from the resource. That credential belongs to no identity in particular, and
+    letting it stand would send it for every subject: each one's own token would
+    be dropped, every request would authenticate as the same caller, and a matrix
+    written to tell callers apart would be testing one caller under several
+    names — silently, because the requests still succeed.
 
     The ``Cookie`` header is the exception to (2): the case's cookie (e.g. an
     object-id ownership injection) is *merged* with the subject's session cookie
@@ -87,8 +94,10 @@ def build_headers(subject: Subject, case: TestCase) -> Dict[str, str]:
             del headers[key]
         headers["Cookie"] = _merge_cookie_values(case_cookie, subject_cookie)
 
-    has_auth = any(k.lower() == "authorization" for k in headers)
-    if subject.token and not has_auth:
+    subject_auth = any(k.lower() == "authorization" for k in subject.headers)
+    if subject.token and not subject_auth:
+        for key in [k for k in list(headers) if k.lower() == "authorization"]:
+            del headers[key]
         headers["Authorization"] = f"Bearer {subject.token}"
     return headers
 

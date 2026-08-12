@@ -7,7 +7,7 @@ negative tests and catches BOLA, BFLA, BOPLA, privilege escalation and
 authorization drift in CI/CD.
 
 **About (repo description):**
-Matrix-driven authorization testing for HTTP APIs and MCP tool-calls. Turns an
+Matrix-driven authorization testing for HTTP APIs and MCP servers. Turns an
 access-control matrix into positive & negative tests that catch BOLA, BFLA, BOPLA,
 privilege escalation and authorization drift — with CWE/OWASP-tagged SARIF for CI/CD.
 
