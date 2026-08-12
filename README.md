@@ -2,7 +2,7 @@
 
 **Matrix-driven authorization testing for HTTP APIs and MCP servers.**
 
-![Version](https://img.shields.io/badge/version-0.30.2-blue)
+![Version](https://img.shields.io/badge/version-0.31.0-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -744,18 +744,39 @@ the ones a run reports as wide open. Set `deny_status: []` for a server that
 reports real denials in-band under a non-2xx status of its own. It does not apply
 to stdio, which has no HTTP leg.
 
-**Don't write the resources by hand** — scaffold them from the server's own
-`tools/list`, with object/function type and mutating tools inferred:
+### Don't write MCP resources by hand
+
+Scaffold them from what the server says it exposes — **both** listings, because
+drafting only the tools would build in the blind spot the
+[resource surface](#resources-not-just-tools) exists to close:
 
 ```bash
 overstep scaffold http://127.0.0.1:9000/mcp --fmt mcp --server-name docs > matrix.yaml
-# or from a saved tools/list response:
-overstep scaffold tools.json --fmt mcp --server-url http://127.0.0.1:9000/mcp
+# or from a saved tools/list + resources/templates/list capture:
+overstep scaffold listing.json --fmt mcp --server-url http://127.0.0.1:9000/mcp
 ```
 
-An id-like tool argument becomes the `owner_arg` (the BOLA surface); a tool whose
-`annotations` say `destructiveHint` — or whose name reads like a write — is marked
-`mutating`. Review the starter policy, then run.
+| Source | What you get |
+|---|---|
+| `tools/list` | a `call` per tool. An id-like argument becomes the `owner_arg` (the BOLA surface); `annotations.destructiveHint` — or a name that reads like a write — marks it `mutating` |
+| `resources/templates/list` | a `read` per template. The URI placeholder is read the same way: an id-like `{doc_id}`, or a lone `{key}`, becomes the `owner_uri` |
+
+A template with several placeholders and no obvious object among them —
+`repo://{owner}/{repo}/tree` — gets one `mcp_resource_uri` injection per
+placeholder, each from its own subject attribute. Every one still has to be
+filled or the URI goes out with a literal brace in it, so the scaffold wires them
+all up and leaves you to decide which is the thing being owned. A template with
+no placeholder at all addresses one fixed object, so it is drafted as a
+`function`.
+
+Two things it will not draft: a template using an RFC 6570 operator (`{+path}`,
+`{?query}`), which ownership substitution cannot fill — it says so on stderr and
+leaves it out rather than emitting a resource that cannot work; and concrete
+`resources/list` entries, since a fixed URI per object says nothing about which
+object belongs to whom, and no cross-owner probe can be derived from that. A
+server exposing no resources at all simply scaffolds its tools.
+
+Review the starter policy, then run.
 
 Try it against the bundled vulnerable MCP demo:
 
@@ -832,8 +853,8 @@ overstep run examples/mcp_api/matrix.yaml --out out
 Two of those BOLA findings come through `tools/call` and two through
 `resources/read`, on the same two documents.
 
-Scaffolding reads from a server's `resources/templates/list` is not wired up yet
-— for now they are written by hand.
+`scaffold --fmt mcp` drafts these too, from the server's own
+`resources/templates/list` — see [below](#dont-write-mcp-resources-by-hand).
 
 ### OAuth-protected MCP servers
 
