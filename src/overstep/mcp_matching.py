@@ -51,35 +51,39 @@ def content_text(content: Any) -> str:
     return "\n".join(parts)
 
 
+def _entries(contents: Any) -> List[Any]:
+    if contents is None:
+        return []
+    return contents if isinstance(contents, list) else [contents]
+
+
 def contents_text(contents: Any) -> str:
-    """Flatten a ``resources/read`` result into searchable text.
+    """Flatten a ``resources/read`` result into the body it returned.
 
     Each entry is ``{"uri": ..., "text": ...}`` or the same with a base64
-    ``blob``. This is what the marker oracle reads, and it is what decides
-    whether a cross-owner read is a *confirmed* leak rather than a permissive
-    result guessed at from the absence of an error — so it has to see the payload
-    the way the victim's data would actually arrive.
+    ``blob``. This is the payload channel: what the marker oracle searches, what
+    a ``deny_content_regex`` is matched against, and what the BOPLA check parses
+    looking for forbidden property keys.
 
-    The entry's URI is included because it is evidence in its own right: a read
-    that answers with the victim's URI reached the victim's object, whatever the
-    body turned out to contain. A blob is decoded when it decodes as UTF-8, since
-    a text document served base64 still carries its owner's marker; one that
-    doesn't is left out rather than contributing noise a regex could match by
-    accident.
+    That last one is why the entry's URI is *not* folded in here. BOPLA reads the
+    body as JSON, and a URI on the line above turns a perfectly good JSON
+    document into something that does not parse — so prepending it would silently
+    switch off forbidden-field detection for every resource read that returns
+    JSON, which is most of them. The URI is evidence in its own right and is
+    carried separately, by :func:`contents_uris`.
+
+    A blob is decoded when it decodes as UTF-8, since a text document served
+    base64 still carries its owner's marker; one that doesn't is left out rather
+    than contributing noise a regex could match by accident.
     """
-    if contents is None:
-        return ""
     if isinstance(contents, str):
         return contents
-    entries = contents if isinstance(contents, list) else [contents]
 
     parts: List[str] = []
-    for entry in entries:
+    for entry in _entries(contents):
         if not isinstance(entry, dict):
             parts.append(str(entry))
             continue
-        if isinstance(entry.get("uri"), str):
-            parts.append(entry["uri"])
         if isinstance(entry.get("text"), str):
             parts.append(entry["text"])
         elif isinstance(entry.get("blob"), str):
@@ -88,6 +92,21 @@ def contents_text(contents: Any) -> str:
             except (ValueError, UnicodeDecodeError):
                 pass
     return "\n".join(parts)
+
+
+def contents_uris(contents: Any) -> List[str]:
+    """The URIs a ``resources/read`` result answered with.
+
+    Kept apart from the body so each can be read as what it is. A read that comes
+    back naming the victim's URI reached the victim's object whatever the body
+    turned out to hold, so this is searched for markers alongside the payload —
+    but never mixed into it, since the body has a parser of its own to satisfy.
+    """
+    return [
+        entry["uri"]
+        for entry in _entries(contents)
+        if isinstance(entry, dict) and isinstance(entry.get("uri"), str)
+    ]
 
 
 def _search(pattern: Optional[str], text: str) -> bool:

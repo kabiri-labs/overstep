@@ -179,6 +179,9 @@ def request_record(base_url: str, subject: Subject, case: TestCase) -> Dict[str,
             "env": _mask_env(case.mcp.env, subject),
             "tool": case.mcp.tool,
             "arguments": case.mcp.arguments,
+            # A stdio resource read has no tool or arguments; without this the
+            # evidence would not say which resource was actually read.
+            "uri": case.mcp.uri,
         }
     if case.mcp is not None:
         record: Dict[str, Any] = {

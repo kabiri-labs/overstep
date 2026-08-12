@@ -20,7 +20,7 @@ from typing import Any, Dict, List, NamedTuple, Optional
 
 import httpx
 
-from overstep.mcp_matching import content_text, contents_text, evaluate_mcp
+from overstep.mcp_matching import content_text, contents_text, contents_uris, evaluate_mcp
 from overstep.models import (
     Effect,
     McpInvocation,
@@ -222,6 +222,17 @@ class Reading(NamedTuple):
     listed: List[str]
     error: Optional[str]
     next_cursor: Optional[str]
+    uris: List[str] = []
+
+    @property
+    def marker_haystack(self) -> str:
+        """Everything a victim's marker could legitimately turn up in.
+
+        The body plus the URIs the result named — searched together, stored
+        apart. Folding the URIs into the body would break the JSON parse the
+        BOPLA check depends on.
+        """
+        return "\n".join([self.text, *self.uris]) if self.uris else self.text
 
 
 def _read(inv: McpInvocation, resp: httpx.Response) -> Reading:
@@ -244,6 +255,7 @@ def _read(inv: McpInvocation, resp: httpx.Response) -> Reading:
         listed_tool_names(inv, result),
         error.get("message") if isinstance(error, dict) else None,
         cursor if isinstance(cursor, str) and cursor else None,
+        contents_uris(result.get("contents")) if inv.method == "resources/read" else [],
     )
 
 
@@ -435,7 +447,8 @@ async def _call(
                 max_retries=max_retries, backoff_base=backoff_base,
             )
         effect, text, error = reading.effect, reading.text, reading.error
-        matched = [m for m in case.expect_markers if m and m in text]
+        haystack = reading.marker_haystack
+        matched = [m for m in case.expect_markers if m and m in haystack]
         return Observation(
             test_id=case.id,
             status=resp.status_code,
@@ -528,7 +541,11 @@ async def _call_stdio(case: TestCase, inv) -> Observation:
     # No status is passed: stdio has no HTTP leg, and the synthetic status below
     # is a delivery marker, not something a matcher's deny_status should read.
     effect = evaluate_mcp(inv.matcher, jsonrpc_error=error, is_error=is_error, text=text)
-    matched = [m for m in case.expect_markers if m and m in text]
+    # Same split as the HTTP path: a resource read's URIs are searched for markers
+    # alongside the body, and kept out of it so BOPLA can still parse it.
+    uris = contents_uris(result.get("contents")) if inv.method == "resources/read" else []
+    haystack = "\n".join([text, *uris]) if uris else text
+    matched = [m for m in case.expect_markers if m and m in haystack]
     # No HTTP status for stdio; 200 marks a delivered call, 0 a transport failure.
     status = 200 if message else 0
     return Observation(

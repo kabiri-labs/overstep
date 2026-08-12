@@ -14,7 +14,7 @@ import httpx
 import pytest
 
 from overstep.matrix import Matrix
-from overstep.mcp_matching import contents_text
+from overstep.mcp_matching import contents_text, contents_uris
 from overstep.models import Effect, Variant, VulnClass
 from overstep.pipeline import run_pipeline
 from overstep.planner import plan
@@ -44,22 +44,35 @@ def _matrix(**overrides) -> Matrix:
 
 # --- the oracle -------------------------------------------------------------
 
-def test_contents_text_includes_the_uri_and_the_body():
-    text = contents_text([{"uri": "doc://acme/bob", "text": "bob@corp.example"}])
-    assert "doc://acme/bob" in text and "bob@corp.example" in text
+def test_contents_text_is_the_body_and_nothing_else():
+    """The URI is carried separately; see the BOPLA test below for why."""
+    entry = [{"uri": "doc://acme/bob", "text": "bob@corp.example"}]
+    assert contents_text(entry) == "bob@corp.example"
+    assert contents_uris(entry) == ["doc://acme/bob"]
+
+
+def test_a_json_body_stays_parseable():
+    """What the BOPLA check needs: the body alone, still valid JSON.
+
+    Prepending the URI turns a perfectly good JSON document into something
+    `json.loads` rejects, and `_json_keys` returns nothing for a body it cannot
+    parse — so forbidden-field detection would switch itself off for every
+    resource read that returns JSON, which is most of them.
+    """
+    body = '{"owner": "bob", "password_hash": "x"}'
+    assert json.loads(contents_text([{"uri": "doc://acme/bob", "text": body}]))
 
 
 def test_contents_text_decodes_a_utf8_blob():
     """A text document served base64 still carries its owner's marker."""
     blob = base64.b64encode("bob@corp.example".encode()).decode()
-    assert "bob@corp.example" in contents_text([{"uri": "doc://acme/bob", "blob": blob}])
+    assert contents_text([{"uri": "doc://acme/bob", "blob": blob}]) == "bob@corp.example"
 
 
 def test_contents_text_leaves_an_undecodable_blob_out():
     """Binary noise must not become something a marker or regex matches by luck."""
     blob = base64.b64encode(b"\xff\xfe\x00\x01").decode()
-    text = contents_text([{"uri": "doc://acme/bob", "blob": blob}])
-    assert text == "doc://acme/bob"
+    assert contents_text([{"uri": "doc://acme/bob", "blob": blob}]) == ""
 
 
 # --- planning ---------------------------------------------------------------
@@ -169,8 +182,8 @@ def test_an_http_resource_cannot_carry_a_uri_injection():
 # --- operational end-to-end -------------------------------------------------
 
 _DOCS = {
-    "doc://acme/alice": "alice@corp.example — Q3 plan",
-    "doc://acme/bob": "bob@corp.example — salary review",
+    "doc://acme/alice": '{"owner": "alice", "email": "alice@corp.example", "body": "Q3 plan"}',
+    "doc://acme/bob": '{"owner": "bob", "email": "bob@corp.example", "body": "salary review"}',
 }
 
 
@@ -269,6 +282,48 @@ def test_the_repro_names_the_uri_that_leaked():
     assert "doc://acme/bob" in finding.curl
     assert "alice-token" not in finding.curl        # credential masked
     assert finding.request["uri"] == "doc://acme/bob"
+
+
+def test_forbidden_fields_are_detected_in_a_resource_read():
+    """BOPLA over a read: the body must reach the classifier as parseable JSON."""
+    m = _matrix(resources=[{
+        "name": "read_doc", "transport": "mcp",
+        "read": {"server": "docs", "uri": "doc://acme/{doc_id}"},
+        "type": "object", "owner_uri": "doc_id", "owner_attr": "doc_id",
+        "forbidden_fields": ["email"],
+    }])
+    result = _run(m)
+    bopla = [f for f in result.findings if f.vuln_class == VulnClass.BOPLA]
+    # alice's own read is allowed and still over-shares, which is the BOPLA shape.
+    assert "read_doc::alice::self" in {f.test_id for f in bopla}
+    assert "email" in bopla[0].detail
+
+
+def test_the_victims_uri_still_confirms_a_leak():
+    """Kept out of the body, but not lost: markers are searched in both."""
+    m = _matrix(subjects=[
+        {"name": "alice", "role": "user", "token": "alice-token",
+         "marker": "doc://acme/alice", "attributes": {"doc_id": "alice"}},
+        {"name": "bob", "role": "user", "token": "bob-token",
+         "marker": "doc://acme/bob", "attributes": {"doc_id": "bob"}},
+    ])
+    result = _run(m)
+    finding = next(f for f in result.findings if f.test_id == "read_doc::alice::other")
+    assert finding.confidence == "confirmed"
+    assert finding.evidence.matched_markers == ["doc://acme/bob"]
+
+
+def test_a_stdio_read_records_the_uri_it_read():
+    """Structured evidence has to say which resource was read; stdio has no tool."""
+    from overstep.models import Subject
+    from overstep.repro import request_record
+
+    m = _matrix(servers=[{"name": "docs", "command": ["python", "server.py"]}])
+    case = next(c for c in plan(m) if c.id == "read_doc::alice::other")
+    assert case.mcp.kind == "stdio"
+    record = request_record("", Subject(name="alice", token="alice-token"), case)
+    assert record["transport"] == "stdio"
+    assert record["uri"] == "doc://acme/bob"
 
 
 def test_the_read_surface_counts_towards_probe_coverage():
