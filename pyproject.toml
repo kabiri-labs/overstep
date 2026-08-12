@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "overstep"
 version = "0.31.2"
-description = "Matrix-driven authorization testing for HTTP APIs and MCP servers (BOLA/BFLA/BOPLA/privilege escalation/token audience/session binding/auth drift)."
+description = "Authorization testing for MCP servers; works on HTTP APIs too (BOLA/BFLA/BOPLA/privilege escalation/token audience/session binding/auth drift)."
 authors = [{name = "Ahmad Kabiri"}]
 readme = "README.md"
 requires-python = ">=3.10"

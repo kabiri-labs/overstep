@@ -1,6 +1,6 @@
 # overstep
 
-**Authorization testing for MCP servers — and the HTTP APIs behind them.**
+**Authorization testing for MCP servers. Works on HTTP APIs too.**
 
 ![Version](https://img.shields.io/badge/version-0.31.2-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
@@ -68,8 +68,9 @@ harder to catch than in a normal API:
 
 overstep tests the **server's** enforcement, deterministically: every request is
 one your matrix asked for, so results are diffable, gateable, and the same on
-every run. It covers all three of the above, and the same matrix file tests the
-HTTP API sitting behind the server too.
+every run. It covers all three of the above — and the same matrix file tests
+[HTTP APIs](#http-apis), whether they sit behind an MCP server or stand on their
+own.
 
 ## What overstep finds
 
@@ -985,10 +986,11 @@ never falls back to a placeholder id. A full example lives in
 
 ## HTTP APIs
 
-The matrix, the planning and the classification are **transport-agnostic**, so the
-same file tests the HTTP API behind your MCP server — or an HTTP API on its own.
-A resource declares a `request` instead of a `call`; `transport: http` is the
-default and may be omitted.
+The matrix, the planning and the classification are **transport-agnostic**. The
+same file tests an HTTP API sitting behind your MCP server, a mix of the two, or
+an HTTP API on its own with no MCP anywhere — everything in this README applies
+either way, minus the MCP-specific probes. A resource declares a `request`
+instead of a `call`; `transport: http` is the default and may be omitted.
 
 ```yaml
 base_url: http://127.0.0.1:8000
