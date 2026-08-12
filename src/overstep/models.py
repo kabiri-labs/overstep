@@ -179,6 +179,28 @@ class McpCall(BaseModel):
     mutating: bool = False
 
 
+class McpResourceRead(BaseModel):
+    """A ``resources/read`` template for an MCP (transport: mcp) resource.
+
+    Tools are one half of what an MCP server exposes; the other is *resources*,
+    addressed by URI. That makes the URI an object-level surface in exactly the
+    sense the matrix already models: one subject reaching for another's
+    ``doc://acme/bob`` is BOLA, the same bug as an id in a path parameter. A
+    server can enforce ownership perfectly on every tool and hand out the same
+    data through ``resources/read``, so testing only tools leaves the second door
+    unopened.
+
+    ``uri`` is a template. An ownership injection substitutes ``{placeholder}``
+    the way a path injection fills a path parameter, so a URI built around an
+    object id is written ``doc://acme/{doc_id}``. Writing the whole URI as one
+    placeholder — ``"{doc}"`` with the full URI in ``objects:`` — covers the case
+    where the object simply *is* the URI, with no template structure to exploit.
+    """
+
+    server: str
+    uri: str
+
+
 class McpServer(BaseModel):
     """An MCP server the matrix can reach, declared under ``servers:``.
 
@@ -260,6 +282,9 @@ class McpInvocation(BaseModel):
     # The tool being called. Empty for a method that names none (``tools/list``).
     tool: str = ""
     arguments: Dict[str, Any] = Field(default_factory=dict)
+    # The fully-resolved resource URI for ``resources/read`` — ownership already
+    # substituted, so this is the object the caller is actually reaching for.
+    uri: str = ""
     matcher: McpMatcher = Field(default_factory=McpMatcher)
     mutating: bool = False
     # Send the request itself with no identity: no subject headers, no bearer,
@@ -359,6 +384,7 @@ class OwnershipLocation(str, Enum):
     JSON = "json"
     GRAPHQL_VARIABLES = "graphql_variables"
     MCP_ARGUMENT = "mcp_argument"
+    MCP_RESOURCE_URI = "mcp_resource_uri"
 
 
 class OwnershipInjection(BaseModel):
@@ -367,8 +393,9 @@ class OwnershipInjection(BaseModel):
     ``selector`` is interpreted per ``location``: a path parameter name
     (``path``), a query/header/cookie/form key, a JSONPath into the JSON body
     (``json``, e.g. ``$.order.id``), a variable name or ``$.path`` under
-    ``variables`` (``graphql_variables``), or a tool-argument key / ``$.path``
-    (``mcp_argument``). ``owner_attr`` overrides which subject attribute supplies
+    ``variables`` (``graphql_variables``), a tool-argument key / ``$.path``
+    (``mcp_argument``), or a ``{placeholder}`` in the resource URI template
+    (``mcp_resource_uri``). ``owner_attr`` overrides which subject attribute supplies
     the value for this injection (default: the resource's ``owner_attr``), so one
     injection can carry the object id while another carries, say, a tenant.
     """
@@ -400,6 +427,9 @@ class Resource(BaseModel):
     request: Optional[Request] = None
     # The MCP tool-call template (transport: mcp).
     call: Optional[McpCall] = None
+    # The MCP resource-read template (transport: mcp). Mutually exclusive with
+    # `call` — an MCP resource invokes a tool or reads a resource, not both.
+    read: Optional[McpResourceRead] = None
     # Which delivery mechanism carries this resource's request. "http" is the
     # default; other transports (registered in overstep.transports) route through
     # their own executor without the core needing to know how.
@@ -411,6 +441,10 @@ class Resource(BaseModel):
     # is the general model. When both are present, `ownership` wins.
     owner_param: Optional[str] = None
     owner_arg: Optional[str] = None
+    # For an MCP resource-read: the {placeholder} in the URI template that
+    # identifies the owned object. The shortcut for a single mcp_resource_uri
+    # injection, as owner_param is for a path and owner_arg for a tool argument.
+    owner_uri: Optional[str] = None
     owner_attr: str = "user_id"
     # Generalized object-identifier injection (path/query/header/cookie/form/json/
     # graphql_variables/mcp_argument). Supersedes owner_param/owner_arg when set.
@@ -455,6 +489,12 @@ class Resource(BaseModel):
             legacy.append(
                 OwnershipInjection(
                     location=OwnershipLocation.MCP_ARGUMENT, selector=self.owner_arg
+                )
+            )
+        if self.owner_uri:
+            legacy.append(
+                OwnershipInjection(
+                    location=OwnershipLocation.MCP_RESOURCE_URI, selector=self.owner_uri
                 )
             )
         return legacy

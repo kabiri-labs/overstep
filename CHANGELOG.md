@@ -1,5 +1,56 @@
 # Changelog
 
+## [0.30.0] - 2026-08-12
+
+### Added
+- **MCP resources are now an authorization surface, not a blind spot.** Tools
+  were one half of what an MCP server exposes; the other is *resources*,
+  addressed by URI. A URI carrying an object id is an object-level surface in
+  exactly the sense the matrix already models — and a server can enforce
+  ownership perfectly on every tool while handing the same documents out through
+  `resources/read`. A matrix that declared only tools reported that second door
+  clean because it never knocked on it.
+
+  A resource-read declares `read:` instead of `call:`, and names the URI
+  placeholder carrying the object id:
+
+  ```yaml
+  resources:
+    - name: read_doc_resource
+      transport: mcp
+      read: { server: docs, uri: "doc://acme/{doc_id}" }
+      type: object
+      owner_uri: doc_id
+      owner_attr: doc_id
+  ```
+
+  `owner_uri` is the shortcut for a single `mcp_resource_uri` injection, the way
+  `owner_param` is for a path and `owner_arg` for a tool argument, so the general
+  `ownership.injections` model covers it too. Where a URI has no template
+  structure of its own — an S3 key, a file path — the whole URI is written as one
+  placeholder with the real values in `objects:`.
+
+  Everything downstream is unchanged: markers, confidence, `--fail-on`, drift,
+  waivers and probe coverage all treat a read like any other object resource. A
+  cross-owner read that returns the victim's marker is graded **confirmed** — the
+  oracle reads each result entry's URI *and* its body, decoding a `blob` when it
+  decodes as UTF-8, since a text document served base64 still carries its owner's
+  marker and one that is genuinely binary would only add noise a regex could
+  match by accident.
+
+  A read is never skipped by `--read-only`, having no side effects. `validate`
+  rejects a resource that sets both `call` and `read`, a URI injection naming a
+  placeholder the template does not contain (nothing would be substituted, so
+  every subject would read one fixed URI — a cross-owner probe in name only), and
+  an injection pointing at the wrong half of the resource.
+
+  The bundled demo server now serves `doc://acme/{doc_id}` with the same missing
+  check as its `read_document` tool, so `overstep run examples/mcp_api/matrix.yaml`
+  reports four BOLA findings across the two doors instead of two across one.
+
+  Not included: scaffolding reads from a server's `resources/templates/list`.
+  They are written by hand for now.
+
 ## [0.29.2] - 2026-08-12
 
 ### Fixed

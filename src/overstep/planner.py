@@ -328,37 +328,52 @@ def _variants(
 
 
 def _build_mcp_invocation(matrix, resource, subject, variant, target, context):
-    """Resolve a fully-rendered MCP tool-call for one subject/variant.
+    """Resolve a fully-rendered MCP request for one subject/variant.
 
     The server is resolved to its URL/headers and embedded on the case so the
-    executor stays self-contained. For object resources the ``owner_arg`` argument
-    is filled with the caller's (SELF) or victim's (OTHER) object id — the BOLA
-    surface — and the matcher is the resource override or the matrix default.
+    executor stays self-contained. For object resources the object identifier is
+    filled with the caller's (SELF) or victim's (OTHER) — the BOLA surface —
+    wherever that identifier lives: a tool argument for a ``call``, a
+    ``{placeholder}`` in the URI template for a ``read``. The matcher is the
+    resource override or the matrix default.
     """
     from overstep.models import McpInvocation
 
-    call = resource.call
-    server = matrix.server_map().get(call.server)
-    arguments = render(dict(call.arguments), context)
+    call, read = resource.call, resource.read
+    server = matrix.server_map().get(read.server if read is not None else call.server)
     src = None if variant == Variant.NA else (subject if variant == Variant.SELF else target)
-    for selector, value in _injections_by_location(resource, src, context).get(
-        OwnershipLocation.MCP_ARGUMENT, []
-    ):
-        if selector.startswith("$"):
-            set_at(arguments, selector, value)
-        else:
-            arguments[selector] = value
+    injections = _injections_by_location(resource, src, context)
     matcher = resource.mcp_access or matrix.mcp_access
 
     kind = server.kind if server else "http"
     fields = dict(
         kind=kind,
         protocol_version=server.protocol_version if server else "2025-06-18",
-        tool=call.tool,
-        arguments=arguments,
         matcher=matcher,
-        mutating=call.mutating,
     )
+
+    if read is not None:
+        # The URI is one string, so ownership is substituted into it the way a
+        # path parameter is filled: an object with no template structure of its
+        # own is written as a single {placeholder} covering the whole URI.
+        uri = render(read.uri, context)
+        for selector, value in injections.get(OwnershipLocation.MCP_RESOURCE_URI, []):
+            uri = uri.replace("{%s}" % selector, value)
+        # A read has no side effects, so it is never skipped under --read-only.
+        fields.update(method="resources/read", uri=uri, mutating=False)
+    else:
+        arguments = render(dict(call.arguments), context)
+        for selector, value in injections.get(OwnershipLocation.MCP_ARGUMENT, []):
+            if selector.startswith("$"):
+                set_at(arguments, selector, value)
+            else:
+                arguments[selector] = value
+        fields.update(
+            method="tools/call",
+            tool=call.tool,
+            arguments=arguments,
+            mutating=call.mutating,
+        )
     if kind == "stdio":
         # Identity for stdio is injected into the child's environment: the static
         # server env plus this subject's token under token_env.
@@ -647,12 +662,17 @@ def plan(matrix: Matrix, context: Optional[Dict[str, str]] = None) -> List[TestC
 
                 if resource.transport == "mcp":
                     inv = _build_mcp_invocation(matrix, resource, subject, variant, target, context)
+                    # What the method acts on: the tool for a call, the resolved
+                    # URI for a read. The template keeps the unfilled form, so a
+                    # report shows the surface as the matrix declared it.
                     cases.append(
                         TestCase(
                             **common,
-                            method="tools/call",
-                            path=inv.tool,
-                            path_template=inv.tool,
+                            method=inv.method,
+                            path=inv.uri if resource.read is not None else inv.tool,
+                            path_template=(
+                                resource.read.uri if resource.read is not None else inv.tool
+                            ),
                             mcp=inv,
                         )
                     )

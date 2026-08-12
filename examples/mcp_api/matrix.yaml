@@ -3,10 +3,14 @@
 #   python -m uvicorn examples.mcp_api.server:app --port 9000
 #   overstep run examples/mcp_api/matrix.yaml --out out
 #
-# MCP resources declare `transport: mcp` and a `call` (server + tool) instead of
-# an HTTP request. The `owner_arg` is the tool argument that carries the object id
-# — overstep fills it with the caller's own id (SELF) or a victim's (OTHER) to
-# probe for BOLA on tool-calls.
+# MCP resources declare `transport: mcp` and either a `call` (server + tool) or a
+# `read` (server + resource URI) instead of an HTTP request. Either way one field
+# names where the object id lives — `owner_arg` for a tool argument, `owner_uri`
+# for a {placeholder} in the URI — and overstep fills it with the caller's own id
+# (SELF) or a victim's (OTHER) to probe for BOLA.
+#
+# This server has the same missing check on both, which is the point: a matrix
+# that declared only the tool would report the resource half clean.
 roles: [anonymous, user, admin]
 
 servers:
@@ -31,6 +35,12 @@ resources:
     type: object            # object-level -> BOLA surface on the tool argument
     owner_arg: doc_id        # the argument that identifies the owned object
     owner_attr: doc_id       # matched against the subject's doc_id attribute
+  - name: read_doc_resource
+    transport: mcp
+    read: { server: docs, uri: "doc://acme/{doc_id}" }
+    type: object            # object-level -> BOLA surface on the resource URI
+    owner_uri: doc_id        # the {placeholder} that identifies the owned object
+    owner_attr: doc_id
   - name: list_all_users
     transport: mcp
     call: { server: docs, tool: list_all_users }
@@ -44,6 +54,10 @@ policy:
   read_document:
     allow:
       - { role: user, scope: own }    # a user may read only their own document
+      - { role: admin, scope: any }
+  read_doc_resource:
+    allow:
+      - { role: user, scope: own }    # the same rule as the tool above
       - { role: admin, scope: any }
   list_all_users:
     allow:

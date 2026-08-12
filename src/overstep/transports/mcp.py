@@ -20,7 +20,7 @@ from typing import Any, Dict, List, NamedTuple, Optional
 
 import httpx
 
-from overstep.mcp_matching import content_text, evaluate_mcp
+from overstep.mcp_matching import content_text, contents_text, evaluate_mcp
 from overstep.models import (
     Effect,
     McpInvocation,
@@ -89,11 +89,12 @@ def jsonrpc_request(
     rather than a ``name: ""`` the server would have to reject for the wrong
     reason. ``cursor`` continues a paginated listing.
     """
-    params: Dict[str, Any] = (
-        {"name": inv.tool, "arguments": inv.arguments}
-        if inv.method == "tools/call"
-        else {}
-    )
+    if inv.method == "tools/call":
+        params: Dict[str, Any] = {"name": inv.tool, "arguments": inv.arguments}
+    elif inv.method == "resources/read":
+        params = {"uri": inv.uri}
+    else:
+        params = {}
     if cursor:
         params["cursor"] = cursor
     return {"jsonrpc": "2.0", "id": request_id, "method": inv.method, "params": params}
@@ -109,6 +110,8 @@ def result_text(inv: McpInvocation, result: Dict[str, Any]) -> str:
     """
     if inv.method == "tools/call":
         return content_text(result.get("content"))
+    if inv.method == "resources/read":
+        return contents_text(result.get("contents"))
     return json.dumps(result, ensure_ascii=False, sort_keys=True) if result else ""
 
 

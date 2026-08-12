@@ -18,6 +18,7 @@ the ones read as having granted access.
 """
 from __future__ import annotations
 
+import base64
 import re
 from typing import Any, List, Optional
 
@@ -47,6 +48,45 @@ def content_text(content: Any) -> str:
                 parts.append(str(block))
     else:
         parts.append(str(content))
+    return "\n".join(parts)
+
+
+def contents_text(contents: Any) -> str:
+    """Flatten a ``resources/read`` result into searchable text.
+
+    Each entry is ``{"uri": ..., "text": ...}`` or the same with a base64
+    ``blob``. This is what the marker oracle reads, and it is what decides
+    whether a cross-owner read is a *confirmed* leak rather than a permissive
+    result guessed at from the absence of an error — so it has to see the payload
+    the way the victim's data would actually arrive.
+
+    The entry's URI is included because it is evidence in its own right: a read
+    that answers with the victim's URI reached the victim's object, whatever the
+    body turned out to contain. A blob is decoded when it decodes as UTF-8, since
+    a text document served base64 still carries its owner's marker; one that
+    doesn't is left out rather than contributing noise a regex could match by
+    accident.
+    """
+    if contents is None:
+        return ""
+    if isinstance(contents, str):
+        return contents
+    entries = contents if isinstance(contents, list) else [contents]
+
+    parts: List[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            parts.append(str(entry))
+            continue
+        if isinstance(entry.get("uri"), str):
+            parts.append(entry["uri"])
+        if isinstance(entry.get("text"), str):
+            parts.append(entry["text"])
+        elif isinstance(entry.get("blob"), str):
+            try:
+                parts.append(base64.b64decode(entry["blob"], validate=True).decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                pass
     return "\n".join(parts)
 
 

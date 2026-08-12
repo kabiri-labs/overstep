@@ -2,7 +2,7 @@
 
 **Matrix-driven authorization testing for HTTP APIs and MCP tool-calls.**
 
-![Version](https://img.shields.io/badge/version-0.29.2-blue)
+![Version](https://img.shields.io/badge/version-0.30.0-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -637,10 +637,11 @@ resources:
 ```
 
 `location` is one of `path`, `query`, `header`, `cookie`, `form`, `json`,
-`graphql_variables` or `mcp_argument`. `selector` is read per location: a path
-parameter name, a query/header/cookie/form key, a JSONPath into the JSON body
-(`$.order.id`, nested objects and arrays supported), a variable name (or
-`$.path`) for GraphQL, or a tool-argument key. A `form` injection sends an
+`graphql_variables`, `mcp_argument` or `mcp_resource_uri`. `selector` is read per
+location: a path parameter name, a query/header/cookie/form key, a JSONPath into
+the JSON body (`$.order.id`, nested objects and arrays supported), a variable
+name (or `$.path`) for GraphQL, a tool-argument key, or a `{placeholder}` in an
+MCP resource URI template. A `form` injection sends an
 `application/x-www-form-urlencoded` body.
 
 List several injections to exercise an object addressed in more than one place at
@@ -655,7 +656,8 @@ attribute (the tenant, say) than the object id:
 ```
 
 The shortcuts still work unchanged: `owner_param: id` is exactly a single `path`
-injection, and `owner_arg: doc_id` (MCP) a single `mcp_argument` injection. An
+injection, `owner_arg: doc_id` (MCP) a single `mcp_argument` injection, and
+`owner_uri: doc_id` (MCP) a single `mcp_resource_uri` injection. An
 object resource must declare at least one locator; `validate` flags an injection
 whose location doesn't match the transport, a `path` selector that isn't a
 parameter of the path, and an object no subject can resolve — so overstep never
@@ -666,8 +668,8 @@ falls back to a placeholder id. A full example lives in
 
 The same matrix tests **MCP servers** and the tool-calls an agent makes through
 them. The bugs map one-to-one: a subject reading another subject's object via a
-tool argument is **BOLA**; invoking a tool its role shouldn't is **BFLA /
-privilege escalation**.
+tool argument — or via a [resource URI](#resources-not-just-tools) — is **BOLA**;
+invoking a tool its role shouldn't is **BFLA / privilege escalation**.
 
 A resource sets `transport: mcp` and a `call` instead of an HTTP `request`, and
 `servers:` declares the endpoints. Two server kinds are supported — **Streamable
@@ -740,6 +742,73 @@ Try it against the bundled vulnerable MCP demo:
 python -m uvicorn examples.mcp_api.server:app --port 9000
 overstep run examples/mcp_api/matrix.yaml --out out
 ```
+
+### Resources, not just tools
+
+Tools are one half of what an MCP server exposes. The other is **resources**,
+addressed by URI — and a URI carrying an object id is an object-level surface in
+exactly the sense the matrix already models. A server can enforce ownership
+perfectly on every tool and hand the same documents out through
+`resources/read`, so a matrix that declares only tools reports the second door
+clean because it never knocked on it.
+
+A resource-read declares `read:` instead of `call:`, and names the URI
+placeholder that carries the object id:
+
+```yaml
+resources:
+  - name: read_doc_resource
+    transport: mcp
+    read: { server: docs, uri: "doc://acme/{doc_id}" }
+    type: object            # object-level -> BOLA surface on the URI
+    owner_uri: doc_id       # the {placeholder} filled with the caller's / a victim's object
+    owner_attr: doc_id
+```
+
+```
+│ deny │ object │ resources/read doc://acme/d-bob │ alice (user) │ other │
+```
+
+Everything downstream is unchanged — markers, confidence, `--fail-on`, drift,
+waivers, coverage. A cross-owner read that returns the victim's marker is graded
+**confirmed**, because the oracle reads the URI *and* the body of each entry in
+the result (decoding a `blob` when it decodes as UTF-8, since a text document
+served base64 still carries its owner's marker).
+
+When the URI has no template structure of its own — an S3 key, a file path — make
+the whole thing one placeholder and put the real URIs in `objects:`:
+
+```yaml
+    read: { server: docs, uri: "{doc}" }
+    owner_uri: doc
+    objects: { alice: "s3://bucket/a.txt", bob: "file:///srv/b.txt" }
+```
+
+A read is never skipped by `--read-only`: reading has no side effects, so there
+is nothing to protect against. `validate` flags a resource that sets both `call`
+and `read`, a URI injection naming a placeholder the template doesn't contain
+(nothing would be substituted, so every subject would read one fixed URI), and an
+injection pointing at the wrong half — a `mcp_argument` on a read or a
+`mcp_resource_uri` on a call.
+
+The bundled demo has the same missing check on both doors, which is the point:
+
+```bash
+python -m uvicorn examples.mcp_api.server:app --port 9000
+overstep run examples/mcp_api/matrix.yaml --out out
+```
+
+```
+ Vulnerabilities            9 (5 defects)
+   BOLA                                4
+   privilege-escalation                5
+```
+
+Two of those BOLA findings come through `tools/call` and two through
+`resources/read`, on the same two documents.
+
+Scaffolding reads from a server's `resources/templates/list` is not wired up yet
+— for now they are written by hand.
 
 ### OAuth-protected MCP servers
 

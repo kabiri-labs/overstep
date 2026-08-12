@@ -60,6 +60,8 @@ def _label(resource: Resource) -> str:
         return f"{resource.request.method.upper()} {resource.request.path}"
     if resource.call is not None:
         return f"tool {resource.call.tool}"
+    if resource.read is not None:
+        return f"resource {resource.read.uri}"
     return resource.name
 
 
@@ -119,6 +121,10 @@ def _key(resource: Resource) -> str:
     """The identity an operation is matched on across the two sides."""
     if resource.transport == "mcp" and resource.call is not None:
         return f"MCP {resource.call.tool}"
+    if resource.transport == "mcp" and resource.read is not None:
+        # Parameter names are the author's choice on both sides, so a URI is
+        # matched by its shape rather than by what the placeholders are called.
+        return f"MCP resource {_PARAM_RE.sub('{}', resource.read.uri)}"
     if resource.request is None:
         # Nothing deliverable to compare; fall back to the name so the resource
         # is still accounted for rather than silently matching everything.
