@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.31.3] - 2026-08-12
+
+### Fixed
+- **Release notes now cover every version since the last published tag.** The
+  workflow extracted the CHANGELOG section for the version being released and
+  nothing else. That is correct when every version is released and quietly wrong
+  when several are bundled: `v0.31.2` was published describing two listing
+  fixes, while the eleven versions it actually contained — the whole MCP surface,
+  the oracle fix, the credential bugs — went unmentioned. Nothing failed. The
+  notes were simply the wrong ones, and read like a small patch release.
+
+  The range is now the unit rather than the version: from the version being
+  released back to the highest tag below it, each section keeping its own
+  heading so a reader can tell which change arrived when. A single-version
+  release produces byte-identical output to before.
+
+  Two guards come with it. A version with no CHANGELOG section now fails the
+  build instead of publishing an empty page — the way the old extraction failed,
+  silently. And the previous version is chosen as the highest tag *strictly
+  below* the one being released, so a stray later tag cannot make the range run
+  backwards and come out empty.
+
+  The logic moved out of an inline `awk` one-liner into `scripts/release_notes.py`
+  so it can be tested; `tests/test_release_notes.py` covers the range, the
+  guards, numeric version ordering (`v0.9.0` before `v0.10.0`, which string
+  comparison gets backwards) and the CLI as the workflow invokes it. Writing
+  those tests caught a bug in the replacement before it shipped.
+
+### Changed
+- Documentation landed on `main` after `v0.31.2` was tagged, so it is recorded
+  here rather than being lost between releases:
+  - the tagline said "and the HTTP APIs behind them", which claimed the HTTP API
+    sits behind an MCP server. It often does, but need not, and overstep tests a
+    standalone API with no MCP anywhere. Now "Works on HTTP APIs too", in the
+    README, the packaging description and `ABOUT.md`.
+  - the capability comparison was rewritten as a comparison of *approaches* —
+    static description scanning, gateways, generic DAST, hand-written scripts —
+    each with what it does **not** answer, overstep included. The old table
+    compared against two HTTP testers, so its MCP rows were a clean sweep against
+    tools that never claimed to do the thing.
+
 ## [0.31.2] - 2026-08-12
 
 ### Fixed

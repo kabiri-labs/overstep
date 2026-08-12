@@ -49,6 +49,13 @@ Supporting:
 - `overstep/waivers.py`, `taxonomy.py` — accepted risk; CWE/OWASP mapping.
 - `overstep/expressions.py` — the restricted evaluator behind policy conditions.
 
+Outside the package:
+
+- `scripts/` — repository tooling, not shipped in the wheel. `release_notes.py`
+  builds a release's notes from the CHANGELOG. It lives here rather than inline
+  in the workflow so it can be tested: the logic it replaced published a release
+  describing the wrong versions, and nothing failed.
+
 ## Coding standards
 - Keep it simple and composable; the planner/executor/classifier split should
   stay clean (generation, transport and judgement are separate concerns), and
