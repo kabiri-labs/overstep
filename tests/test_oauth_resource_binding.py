@@ -67,9 +67,9 @@ class Backend:
             if self.claimed_resource is not None:
                 body["resource"] = self.claimed_resource
             return httpx.Response(200, json=body)
-        if path.endswith("/.well-known/openid-configuration"):
+        if "/.well-known/openid-configuration" in path:
             return httpx.Response(404)
-        if path.endswith("/.well-known/oauth-authorization-server"):
+        if "/.well-known/oauth-authorization-server" in path:
             return httpx.Response(200, json={
                 "issuer": AS, "token_endpoint": f"{AS}/token",
             })

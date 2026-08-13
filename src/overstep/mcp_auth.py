@@ -114,10 +114,38 @@ def _resource_identifiers(server_url: str) -> List[str]:
 
 
 def _as_metadata_candidates(issuer: str) -> List[str]:
-    base = issuer.rstrip("/")
+    """Where an authorization server's metadata may live, in the spec's order.
+
+    RFC 8414 §3.1 *inserts* the well-known string between host and path rather
+    than appending it, so an issuer identifying a tenant at
+    ``https://auth.example.com/tenant1`` is described at
+    ``https://auth.example.com/.well-known/oauth-authorization-server/tenant1``.
+    OpenID Connect Discovery appends instead, and RFC 8414 §5 keeps that form for
+    interoperability, which is why a path-bearing issuer has three candidates and
+    not one — the MCP authorization spec requires all three, in this order.
+
+    Appending the OAuth suffix, which is what this did before, produces a URL no
+    specification defines. It happened to work against the identity providers
+    whose OIDC document answers the appended form — Keycloak's ``/realms/x``,
+    Entra's ``/{tenant}/v2.0`` — and silently failed to discover anything for a
+    plain OAuth authorization server serving a tenant under a path.
+
+    Adding candidates cannot widen trust here: :func:`_validate_issuer` refuses
+    any document that does not claim the identifier the URL was built from, so a
+    new address is a new place to be told "no" rather than a new thing to accept.
+    """
+    parts = urlsplit(issuer)
+    origin = urlunsplit((parts.scheme, parts.netloc, "", "", ""))
+    path = parts.path.rstrip("/")
+    if not path:
+        return [
+            f"{origin}/.well-known/oauth-authorization-server",
+            f"{origin}/.well-known/openid-configuration",
+        ]
     return [
-        f"{base}/.well-known/oauth-authorization-server",
-        f"{base}/.well-known/openid-configuration",
+        f"{origin}/.well-known/oauth-authorization-server{path}",
+        f"{origin}/.well-known/openid-configuration{path}",
+        f"{origin}{path}/.well-known/openid-configuration",
     ]
 
 

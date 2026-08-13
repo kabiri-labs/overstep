@@ -2,7 +2,7 @@
 
 **Authorization testing for MCP servers. Works on HTTP APIs too.**
 
-![Version](https://img.shields.io/badge/version-0.36.1-blue)
+![Version](https://img.shields.io/badge/version-0.37.0-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -836,6 +836,12 @@ fallback. `validate` warns when a provider sends a secret without one.
 
 If you only ever point overstep at servers you operate, the warning is noise and
 you can ignore it. If you point it at anything you are assessing, pin the issuer.
+
+Discovery follows the spec's addresses, which matters if your issuer names a
+tenant under a path (`https://login.example.com/contoso/v2.0`). RFC 8414 *inserts*
+the well-known string between host and path where OpenID Connect appends it, so
+three addresses are tried in priority order rather than one — you do not have to
+know which shape your identity provider serves.
 
 The `resource` check closes the same hole on the other side of the token request.
 The identifier in the server's own metadata becomes the RFC 8707 `resource`

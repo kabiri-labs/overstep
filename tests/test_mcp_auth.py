@@ -30,9 +30,17 @@ def test_prm_candidates_include_origin_and_path():
 
 
 def test_as_metadata_candidates():
+    """RFC 8414 §3.1 inserts the well-known string; only OIDC appends it.
+
+    This previously asserted an appended OAuth suffix —
+    `https://host/as/.well-known/oauth-authorization-server` — which is a URL no
+    specification defines. See `test_oauth_as_metadata_paths.py` for the full
+    ordering the MCP authorization spec requires.
+    """
     urls = _as_metadata_candidates("https://host/as")
-    assert "https://host/as/.well-known/oauth-authorization-server" in urls
+    assert "https://host/.well-known/oauth-authorization-server/as" in urls
     assert "https://host/as/.well-known/openid-configuration" in urls
+    assert "https://host/as/.well-known/oauth-authorization-server" not in urls
 
 
 # --- a combined OAuth AS + MCP resource server ------------------------------
@@ -49,12 +57,14 @@ class _Backend:
                 "resource": "http://mcp.test/mcp",
                 "authorization_servers": ["https://mcp.test/as"],
             })
-        if path == "/as/.well-known/oauth-authorization-server":
+        # The issuer is `https://mcp.test/as`, so RFC 8414 §3.1 puts its metadata
+        # at the *inserted* path — not appended after the issuer's own.
+        if path == "/.well-known/oauth-authorization-server/as":
             return httpx.Response(200, json={
                 "issuer": "https://mcp.test/as",
                 "token_endpoint": "https://mcp.test/as/token",
             })
-        if path == "/as/.well-known/openid-configuration":
+        if path.endswith("/.well-known/openid-configuration"):
             return httpx.Response(404)
         if path == "/as/token":
             form = {k: v[0] for k, v in parse_qs(request.content.decode()).items()}

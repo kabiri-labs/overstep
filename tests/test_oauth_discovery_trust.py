@@ -56,9 +56,9 @@ class Backend:
             return httpx.Response(200, json={
                 "resource": MCP, "authorization_servers": self.authorization_servers,
             })
-        if path.endswith("/.well-known/openid-configuration"):
+        if "/.well-known/openid-configuration" in path:
             return httpx.Response(404)
-        if path.endswith("/.well-known/oauth-authorization-server"):
+        if "/.well-known/oauth-authorization-server" in path:
             # Redirect once, from the host that was asked for — redirecting the
             # destination too would just be a loop httpx reports as a transport
             # error, and the check under test would never be reached.
