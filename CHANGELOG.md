@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.36.1] - 2026-08-13
+
+### Fixed
+- **The README stopped contradicting itself about the CI gate.** `0.34.1` added
+  the *Authorization regression* section, which argues for `--fail-on
+  vuln-or-drift` and explains why `drift` alone goes green on exactly the case
+  that motivates it — a newly added tool has nothing in the baseline to differ
+  from. Two places further down still recommended `drift`: the runnable example
+  under *Catching authorization drift*, and the advice below the `--fail-on`
+  table. A reader who scrolled to either got the gate the section above had just
+  finished arguing against.
+
+  *Catching authorization drift* is now the mechanics only, pointing up at the
+  reasoning rather than restating it — which is what `0.34.1` said it was doing
+  and did not finish.
+- **Session hijack is qualified where it is first claimed.** The opening section
+  and the *What overstep finds* table both stated the rule flatly, and only a
+  reader who reached *Protocol revisions* learned that `2026-07-28` removed
+  sessions from the protocol. Both now say so where the claim is made.
+
+### Added
+- **A test that every README cross-reference resolves.** The document routes the
+  reader by anchor and is long enough that sections get renamed without the links
+  pointing at them being noticed; a broken `](#...)` renders as ordinary text and
+  silently goes nowhere. Note that GitHub replaces each space with a hyphen rather
+  than each run of whitespace, so `tokens & secrets` anchors as `tokens--secrets`
+  — collapsing them reports a working link as broken.
+
 ## [0.36.0] - 2026-08-13
 
 ### Added
