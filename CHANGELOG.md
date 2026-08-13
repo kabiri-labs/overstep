@@ -24,9 +24,15 @@
 - **A test that every README cross-reference resolves.** The document routes the
   reader by anchor and is long enough that sections get renamed without the links
   pointing at them being noticed; a broken `](#...)` renders as ordinary text and
-  silently goes nowhere. Note that GitHub replaces each space with a hyphen rather
-  than each run of whitespace, so `tokens & secrets` anchors as `tokens--secrets`
-  — collapsing them reports a working link as broken.
+  silently goes nowhere.
+
+  Two details the check has to get right, both of which cost a wrong answer
+  first. GitHub replaces each space with a hyphen rather than each run of
+  whitespace, so `tokens & secrets` anchors as `tokens--secrets` — collapsing them
+  reports a working link as broken. And a shell comment is spelled exactly like a
+  heading, so headings are read outside fenced code blocks only; counting
+  `# once, after triaging findings` as a heading would let a link resolve against
+  a code comment and pass while pointing nowhere.
 
 ## [0.36.0] - 2026-08-13
 
