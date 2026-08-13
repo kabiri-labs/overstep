@@ -45,6 +45,11 @@
   closed in `0.32.1`, reintroduced one layer up. The scaffold warns, writes what
   the server said, and lets the run refuse out loud.
 
+  This holds however the answer arrived. A `supportedVersions` list naming only
+  revisions overstep lacks is still an answer: detection falls through to
+  `initialize` in case there is common ground to find, but if there is none it
+  reports what the server said rather than discarding it.
+
 ## [0.35.0] - 2026-08-13
 
 ### Security
