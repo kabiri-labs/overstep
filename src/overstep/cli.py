@@ -539,6 +539,11 @@ def scaffold(
     server_name: str = typer.Option("mcp", help="MCP: name for the scaffolded server."),
     server_url: Optional[str] = typer.Option(None, help="MCP: server URL to embed (defaults to the source URL)."),
     token: Optional[str] = typer.Option(None, help="MCP: bearer token for fetching tools/list from a live server."),
+    protocol_version: Optional[str] = typer.Option(
+        None,
+        "--protocol-version",
+        help="MCP: revision to speak and record. Detected from a live server when omitted.",
+    ),
 ):
     """Emit a starter resources block — or a full matrix — from OpenAPI, HAR or MCP."""
     from overstep.loaders.openapi import resources_to_yaml
@@ -555,10 +560,46 @@ def scaffold(
         def _warn(message: str) -> None:
             err_console.print(f"[yellow]warning:[/] {message}")
 
+        from overstep.mcp_protocol import (
+            DEFAULT_PROTOCOL_VERSION,
+            SUPPORTED_PROTOCOL_VERSIONS,
+            is_supported,
+        )
+
+        if protocol_version is not None and not is_supported(protocol_version):
+            known = ", ".join(sorted(SUPPORTED_PROTOCOL_VERSIONS))
+            console.print(
+                f"[bold red]error:[/] --protocol-version '{protocol_version}' is not a "
+                f"revision overstep implements. Known: {known}"
+            )
+            raise typer.Exit(code=2)
+
         if spec_file.startswith("http://") or spec_file.startswith("https://"):
             url = server_url or spec_file
+            if protocol_version is None:
+                from overstep.loaders.mcp import detect_protocol_version
+
+                protocol_version = detect_protocol_version(spec_file, token=token)
+                if protocol_version is None:
+                    protocol_version = DEFAULT_PROTOCOL_VERSION
+                    _warn(
+                        f"could not tell which MCP revision this server speaks, so the "
+                        f"matrix says {protocol_version} — set protocol_version on the "
+                        f"server if that is wrong, or pass --protocol-version"
+                    )
+                elif not is_supported(protocol_version):
+                    # Recorded rather than replaced: a run against a revision
+                    # overstep cannot drive refuses out loud, where silently
+                    # writing the default would send a handshake the server may
+                    # have retired and read the refusals as denials.
+                    _warn(
+                        f"this server speaks {protocol_version}, which overstep does not "
+                        f"implement — the matrix records it, and a run against it will "
+                        f"report the mismatch rather than test anything"
+                    )
             try:
-                tools = fetch_tools(spec_file, token=token)
+                tools = fetch_tools(spec_file, token=token,
+                                    protocol_version=protocol_version)
             except Exception as exc:  # network / protocol errors
                 console.print(f"[bold red]error:[/] could not reach MCP server: {exc}")
                 raise typer.Exit(code=2)
@@ -569,7 +610,8 @@ def scaffold(
             # pass over in silence either: the draft would be missing exactly
             # the surface a tools-only matrix is blind to.
             try:
-                templates = fetch_resource_templates(spec_file, token=token)
+                templates = fetch_resource_templates(spec_file, token=token,
+                                                     protocol_version=protocol_version)
             except Exception as exc:
                 templates = []
                 _warn(
@@ -579,6 +621,11 @@ def scaffold(
                 )
         else:
             url = server_url or "http://localhost:8000/mcp"
+            # A saved listing has nobody to ask, so the default stands unless the
+            # user said otherwise. It is still written into the matrix: the file
+            # the scaffold produces should mean the same thing next release.
+            if protocol_version is None:
+                protocol_version = DEFAULT_PROTOCOL_VERSION
             try:
                 tools = load_tools_from_file(spec_file)
                 templates = load_resource_templates_from_file(spec_file)
@@ -591,6 +638,7 @@ def scaffold(
                 tools,
                 server_name=server_name,
                 server_url=url,
+                protocol_version=protocol_version,
                 templates=templates,
                 warn=_warn,
             )

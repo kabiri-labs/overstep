@@ -1,5 +1,50 @@
 # Changelog
 
+## [0.36.0] - 2026-08-13
+
+### Added
+- **`scaffold --fmt mcp` now asks the server which revision it speaks, and writes
+  the answer into the matrix.** Adopting `2026-07-28` previously required knowing
+  in advance that you needed it and then editing the file by hand, because
+  `scaffold` had no way to be told: there was no `--protocol-version` flag at all,
+  and every scaffolded matrix came out pinned to the default whatever the target
+  actually spoke.
+
+  That is a bad thing to have to guess. The revisions disagree about whether a
+  request opens with a handshake, carries a session id, repeats its metadata in
+  `params._meta`, or names itself in routing headers — and sending the wrong shape
+  does not fail cleanly, it comes back as refusals that look like the server
+  denying access. Since `0.32.1` a run reports that mismatch instead of scoring
+  it, but reporting it is still a wasted run.
+
+  Detection asks two questions, in the order that gets the authoritative answer
+  first:
+
+  1. `server/discover`, which `2026-07-28` requires every server to implement, and
+     which replies with the server's own `supportedVersions` list;
+  2. failing that, a legacy `initialize`, whose result carries the negotiated
+     `protocolVersion`.
+
+  The second value was already on the wire. Every scaffold ever run sent
+  `initialize` and read the response for a session id, discarding the negotiated
+  version sitting beside it.
+
+  A `--protocol-version` flag states the answer directly and skips the probe. An
+  unknown value is rejected at the flag rather than written into a matrix that
+  could not run.
+
+### Changed
+- **The scaffolded matrix records `protocol_version` explicitly**, including when
+  it is the default and when the source was a saved listing with nobody to ask.
+  The revision decides the shape of every request, so a matrix that does not say
+  which one it means is a matrix whose results move when the default does — and
+  the point of writing the file down is that they do not.
+- **A server speaking a revision overstep does not implement is recorded, not
+  overwritten.** Substituting the default would send a handshake that server may
+  have retired and read the refusals as authorization denials — the fail-open
+  closed in `0.32.1`, reintroduced one layer up. The scaffold warns, writes what
+  the server said, and lets the run refuse out loud.
+
 ## [0.35.0] - 2026-08-13
 
 ### Security

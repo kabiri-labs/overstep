@@ -29,7 +29,7 @@ authorization denials.
 from __future__ import annotations
 
 import base64
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Iterable, Mapping, Optional
 
 # Revisions built on the initialize/initialized lifecycle, with an optional
 # server-issued session id carried on subsequent requests.
@@ -93,6 +93,23 @@ def is_stateless(protocol_version: str) -> bool:
 def is_supported(protocol_version: str) -> bool:
     """Can either code path here actually drive this revision?"""
     return protocol_version in SUPPORTED_PROTOCOL_VERSIONS
+
+
+def preferred_version(offered: Iterable[str]) -> Optional[str]:
+    """The newest revision in ``offered`` that this module can actually drive.
+
+    Membership is filtered first and ordering applied only to what survives, so
+    the comparison never decides whether a version is usable — a server offering
+    ``9999-01-01`` cannot talk its way in by sorting highest. Among versions
+    already known to be supported, the revision identifiers are ``YYYY-MM-DD``
+    and order lexicographically, which is why ``max`` is the newest rather than
+    merely the last.
+
+    Returns ``None`` when nothing offered is supported, which is a different
+    answer from "the server did not say" and is left to the caller to phrase.
+    """
+    usable = [v for v in offered if isinstance(v, str) and is_supported(v)]
+    return max(usable) if usable else None
 
 
 def request_meta(protocol_version: str) -> Dict[str, Any]:
