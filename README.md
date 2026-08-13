@@ -2,7 +2,7 @@
 
 **Authorization testing for MCP servers. Works on HTTP APIs too.**
 
-![Version](https://img.shields.io/badge/version-0.35.0-blue)
+![Version](https://img.shields.io/badge/version-0.36.0-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -283,9 +283,11 @@ Drop `--token` if the server lists to anyone; most require a credential, and the
 bundled demo does too.
 
 overstep asks the server what it exposes and drafts a full matrix — servers,
-roles, placeholder subjects, resources and a starter policy. It reads **both**
-listings, because drafting only the tools would build in the blind spot from the
-start:
+roles, placeholder subjects, resources and a starter policy. It also asks which
+[protocol revision](#protocol-revisions) the server speaks and writes that into
+the file, so a `2026-07-28` server is set up correctly without you having to know
+that in advance. It reads **both** listings, because drafting only the tools would
+build in the blind spot from the start:
 
 | Source | What you get |
 |---|---|
@@ -596,6 +598,21 @@ servers:
     url: https://mcp.example.com/mcp
     protocol_version: "2026-07-28"     # default: 2025-06-18
 ```
+
+**You do not have to know which one to write.** `scaffold` asks the server and
+records the answer, so the value lands in the file already correct:
+
+```bash
+overstep scaffold https://mcp.example.com/mcp --fmt mcp > matrix.yaml
+```
+
+It asks `server/discover` first — `2026-07-28` requires every server to implement
+it, and it replies with the server's own list of supported versions — then falls
+back to negotiating a legacy `initialize`. Pass `--protocol-version` to state the
+answer yourself and skip the probe. Either way the version is written out
+explicitly, including when it is the default: the revision decides the shape of
+every request, so a matrix that leaves it implicit is one whose results move when
+the default does.
 
 Two consequences worth knowing:
 

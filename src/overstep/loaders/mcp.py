@@ -34,7 +34,10 @@ from overstep.documents import read_json
 from overstep.mcp_protocol import (
     CLIENT_INFO,
     DEFAULT_PROTOCOL_VERSION,
+    PROTOCOL_VERSION_HEADER,
+    STATELESS_PROTOCOL_VERSIONS,
     is_stateless,
+    preferred_version,
     request_meta,
     routing_headers,
 )
@@ -252,6 +255,92 @@ def _refusal(method: str, resp, message) -> None:
         raise McpListingError(f"{method} returned no JSON-RPC result")
 
 
+def detect_protocol_version(
+    url: str,
+    *,
+    token: Optional[str] = None,
+    headers: Optional[Dict[str, str]] = None,
+    timeout: float = 15.0,
+    verify: bool = True,
+) -> Optional[str]:
+    """Ask a live server which revision it speaks. ``None`` if it would not say.
+
+    Scaffolding is the one moment where guessing the revision is avoidable. A
+    run has to be told, because a matrix pinned to a version is what makes the
+    result reproducible — but the person writing that matrix should not have to
+    know the answer in advance, and getting it wrong is not a quiet failure:
+    a legacy handshake sent at a server that retired it comes back as refusals.
+
+    Two questions, in the order that gets the authoritative answer first:
+
+    1. ``server/discover``, which the stateless revision requires every server to
+       implement, and which replies with ``supportedVersions`` — the server's own
+       list rather than an inference from one exchange.
+    2. failing that, a legacy ``initialize``, whose result carries the version the
+       server negotiated. That value was already on the wire for every scaffold
+       ever run; it was simply being read for the session id and thrown away.
+
+    Errors are answers here, not failures: a legacy-only server replies
+    ``-32601`` to the first, and a stateless server refuses the second. Only a
+    server that answers neither yields ``None``.
+    """
+    base: Dict[str, str] = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+    }
+    if headers:
+        base.update(headers)
+    if token and not any(k.lower() == "authorization" for k in base):
+        base["Authorization"] = f"Bearer {token}"
+
+    def _result(resp) -> Optional[Dict[str, Any]]:
+        message = _parse_message(resp)
+        result = message.get("result") if isinstance(message, dict) else None
+        return result if isinstance(result, dict) else None
+
+    with httpx.Client(timeout=timeout, verify=verify) as client:
+        probe = max(STATELESS_PROTOCOL_VERSIONS)
+        hdrs = dict(base)
+        hdrs[PROTOCOL_VERSION_HEADER] = probe
+        hdrs.update(routing_headers("server/discover"))
+        try:
+            resp = client.post(
+                url,
+                json={"jsonrpc": "2.0", "id": 1, "method": "server/discover",
+                      "params": {"_meta": request_meta(probe)}},
+                headers=hdrs,
+            )
+            result = _result(resp)
+            if result is not None:
+                offered = result.get("supportedVersions")
+                if isinstance(offered, list):
+                    chosen = preferred_version(offered)
+                    if chosen:
+                        return chosen
+        except httpx.HTTPError:
+            pass
+
+        hdrs = dict(base)
+        hdrs[PROTOCOL_VERSION_HEADER] = DEFAULT_PROTOCOL_VERSION
+        try:
+            resp = client.post(
+                url,
+                json={"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                      "params": {"protocolVersion": DEFAULT_PROTOCOL_VERSION,
+                                 "capabilities": {}, "clientInfo": dict(CLIENT_INFO)}},
+                headers=hdrs,
+            )
+            result = _result(resp)
+            if result is not None:
+                negotiated = result.get("protocolVersion")
+                if isinstance(negotiated, str) and negotiated:
+                    return negotiated
+        except httpx.HTTPError:
+            pass
+
+    return None
+
+
 def _fetch_list(
     url: str,
     method: str,
@@ -398,6 +487,7 @@ def scaffold_matrix_from_tools(
     *,
     server_name: str = "mcp",
     server_url: str = "http://localhost:8000/mcp",
+    protocol_version: str = DEFAULT_PROTOCOL_VERSION,
     templates: Optional[List[Dict[str, Any]]] = None,
     warn: Optional[Callable[[str], None]] = None,
 ) -> str:
@@ -408,6 +498,12 @@ def scaffold_matrix_from_tools(
     ownership on every tool and hand the same objects out through
     ``resources/read``, so a scaffold that drafted only the first would build in
     that blind spot from the start.
+
+    ``protocol_version`` is written out explicitly rather than left to the
+    default. The revision decides whether a request carries a handshake, a
+    session id, ``_meta`` or routing headers, so a matrix that does not say which
+    one it means is a matrix whose results move when the default does — and the
+    point of writing the file down is that they do not.
     """
     resources: List[Dict[str, Any]] = []
     policy: Dict[str, Any] = {}
@@ -489,7 +585,11 @@ def scaffold_matrix_from_tools(
 
     matrix = {
         "roles": ["anonymous", "user", "admin"],
-        "servers": [{"name": server_name, "url": server_url}],
+        "servers": [{
+            "name": server_name,
+            "url": server_url,
+            "protocol_version": protocol_version,
+        }],
         "mcp_access": {"is_error_is_deny": True, "jsonrpc_error_is_deny": True},
         "subjects": [
             {"name": "anon", "role": "anonymous", "token": None},
