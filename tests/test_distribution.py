@@ -149,6 +149,40 @@ def test_readme_version_badge_matches_package_version():
     )
 
 
+def _github_slug(heading: str) -> str:
+    """GitHub's anchor for a heading.
+
+    Each space becomes a hyphen individually rather than each *run* of
+    whitespace, which is why `Credentials: dynamic tokens & secrets` anchors as
+    `...tokens--secrets` — the removed `&` leaves two spaces behind and therefore
+    two hyphens. Collapsing them reports a working link as broken.
+    """
+    slug = heading.strip().lower()
+    slug = re.sub(r"[`*]", "", slug)
+    slug = re.sub(r"[^\w\s-]", "", slug)
+    return slug.replace(" ", "-")
+
+
+def test_every_readme_cross_reference_resolves():
+    """The README routes the reader by anchor, and a dead one is a dead end.
+
+    It is long enough that sections get renamed without the links that point at
+    them being noticed, and nothing else in the build would say so — a broken
+    `](#...)` renders as ordinary text and simply goes nowhere when clicked.
+    """
+    text = _read("README.md")
+    headings = {
+        _github_slug(m.group(1))
+        for m in re.finditer(r"(?m)^#{1,6}\s+(.*)$", text)
+    }
+    links = set(re.findall(r"\]\(#([^)]+)\)", text))
+
+    assert links, "no internal links found — the regex is probably wrong"
+    assert not links - headings, (
+        f"README links point at headings that do not exist: {sorted(links - headings)}"
+    )
+
+
 def test_toml_parser_keeps_a_comma_inside_a_version_specifier():
     """`urllib3>=1.26,<3` is one dependency. Splitting on commas would make it
     two, and the sync check would then fail on a perfectly valid pyproject."""

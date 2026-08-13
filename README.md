@@ -2,7 +2,7 @@
 
 **Authorization testing for MCP servers. Works on HTTP APIs too.**
 
-![Version](https://img.shields.io/badge/version-0.36.0-blue)
+![Version](https://img.shields.io/badge/version-0.36.1-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -71,7 +71,8 @@ harder to catch than in a normal API:
   through `resources/read` by URI. A server can enforce ownership perfectly on
   every tool and hand the data out through the other door.
 - **The protocol has authorization rules of its own.** A server must refuse a
-  token that was not issued for it, and must not let a session id stand in for a
+  token that was not issued for it — and, on the [revisions that have
+  sessions](#protocol-revisions), must not let a session id stand in for a
   credential. Neither is a question about your policy, and neither shows up in
   any test of your tools.
 
@@ -95,7 +96,7 @@ scope**. overstep makes that table explicit and tests every cell.
 | **Privilege escalation** | a lower-privileged role reaches something reserved for a higher one | a `user` calling `reset_tenant` |
 | **BOPLA** | an allowed response exposes a *field* the caller shouldn't see | `password_hash` in a document |
 | **Token audience** | a server honours a credential issued for somewhere else | a token minted for server A accepted by server B |
-| **Session hijack** | a session id is accepted in place of a credential | a call carrying only somebody else's `Mcp-Session-Id` |
+| **Session hijack** | a session id is accepted in place of a credential — on the [revisions that have sessions](#protocol-revisions); `2026-07-28` removed them | a call carrying only somebody else's `Mcp-Session-Id` |
 | **Tool enumeration** | a server advertises tools the caller may not invoke | `reset_tenant` listed to a plain user |
 | **Authorization drift** | a decision that changed since your last release | a cell that flipped deny → allow |
 
@@ -1341,8 +1342,13 @@ crAPI for a realistic BOLA/BFLA showcase.
 | `never` | always exits zero (report-only) |
 
 An unrecognized value fails immediately with exit code 2. Use `vuln` on a fresh
-target to block new holes, and `drift` once you have a triaged baseline so CI
-gates on *change* rather than on a backlog of accepted risk.
+target to block new holes, and `vuln-or-drift` once you have a triaged baseline.
+Not `drift` alone: a diff can only speak about cells that existed on both sides,
+so a newly added tool shipped without an owner check is reported as a
+vulnerability and not as drift, and a drift-only gate goes green on it. See
+[authorization regression](#authorization-regression-the-question-you-ask-every-release)
+for the tradeoff and for [waivers](#waivers-accepted-risk-without-turning-off-gating),
+which are how a backlog of accepted risk stays out of the gate without hiding it.
 
 ### Inconclusive runs: the gate refuses to fail open
 
@@ -1462,24 +1468,26 @@ could have seen it. `--fail-under N` exits `1` when either percentage falls belo
 
 ### Catching authorization drift
 
-Bake the known-good state into a baseline, then fail only when authorization
-*changes*:
+The mechanics of the workflow described under
+[authorization regression](#authorization-regression-the-question-you-ask-every-release),
+which is where the reasoning lives — including why the gate is `vuln-or-drift`
+rather than `drift`.
 
 ```bash
 # once, after triaging findings
 overstep snapshot matrix.yaml --out baseline.json
 
 # on every pull request
-overstep run matrix.yaml --baseline baseline.json --fail-on drift
+overstep run matrix.yaml --baseline baseline.json --fail-on vuln-or-drift
 ```
 
 A cell that flips **deny → allow** is a newly opened hole; **allow → deny** is a
-new restriction. Findings that were already present when you took the baseline
-don't fail the build — that's what lets a legacy target adopt overstep without an
-impossible green-from-day-one requirement. Use `--fail-on vuln-or-drift` when you
-also want any vulnerability to fail regardless of the baseline. Keep `matrix.yaml`
-and `baseline.json` in version control and authorization gets reviewed like any
-other code.
+new restriction. What the baseline buys is that findings already present when you
+took it are recorded rather than re-litigated every run — though under
+`vuln-or-drift` they still fail the build, and
+[waivers](#waivers-accepted-risk-without-turning-off-gating) rather than the
+baseline are what excuse them. Keep `matrix.yaml` and `baseline.json` in version
+control and authorization gets reviewed like any other code.
 
 Because `snapshot` runs through the same pipeline as `run`, baselines are accurate
 for MCP, HTTP and mixed matrices alike, and `teardown:` fixtures are cleaned up
