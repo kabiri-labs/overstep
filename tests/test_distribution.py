@@ -163,6 +163,29 @@ def _github_slug(heading: str) -> str:
     return slug.replace(" ", "-")
 
 
+def _markdown_headings(text: str) -> set:
+    """Heading slugs, ignoring anything inside a fenced code block.
+
+    A shell comment is spelled exactly like a heading, and this README has
+    several — `# once, after triaging findings`, `# 1. start the demo server`.
+    GitHub creates no anchor for them, so counting them would let a link resolve
+    against a code comment: rename a real section while a fence keeps the old
+    wording, and the check that exists to catch that would pass.
+    """
+    headings = set()
+    in_fence = False
+    for line in text.splitlines():
+        if line.lstrip().startswith(("```", "~~~")):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        match = re.match(r"^#{1,6}\s+(.*)$", line)
+        if match:
+            headings.add(_github_slug(match.group(1)))
+    return headings
+
+
 def test_every_readme_cross_reference_resolves():
     """The README routes the reader by anchor, and a dead one is a dead end.
 
@@ -171,16 +194,33 @@ def test_every_readme_cross_reference_resolves():
     `](#...)` renders as ordinary text and simply goes nowhere when clicked.
     """
     text = _read("README.md")
-    headings = {
-        _github_slug(m.group(1))
-        for m in re.finditer(r"(?m)^#{1,6}\s+(.*)$", text)
-    }
+    headings = _markdown_headings(text)
     links = set(re.findall(r"\]\(#([^)]+)\)", text))
 
     assert links, "no internal links found — the regex is probably wrong"
     assert not links - headings, (
         f"README links point at headings that do not exist: {sorted(links - headings)}"
     )
+
+
+def test_a_shell_comment_in_a_fence_is_not_a_heading():
+    """Otherwise a link could resolve against a code comment.
+
+    Asserted directly rather than only through the README, so the guarantee
+    survives the day the README happens to contain no such comment.
+    """
+    document = (
+        "## Real Section\n"
+        "```bash\n"
+        "# Fake Section\n"
+        "overstep run matrix.yaml\n"
+        "```\n"
+        "~~~\n"
+        "# Also Fake\n"
+        "~~~\n"
+    )
+
+    assert _markdown_headings(document) == {"real-section"}
 
 
 def test_toml_parser_keeps_a_comma_inside_a_version_specifier():
