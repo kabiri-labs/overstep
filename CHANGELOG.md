@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.37.0] - 2026-08-13
+
+### Fixed
+- **Authorization server metadata is looked for where the spec puts it.** RFC 8414
+  §3.1 *inserts* the well-known string between host and path rather than appending
+  it, so an issuer identifying a tenant at `https://auth.example.com/tenant1` is
+  described at
+  `https://auth.example.com/.well-known/oauth-authorization-server/tenant1`.
+  OpenID Connect Discovery appends instead, and RFC 8414 §5 keeps that form for
+  interoperability, which is why the MCP authorization spec requires clients to
+  try three addresses for a path-bearing issuer, in a fixed priority order.
+
+  overstep built one of them — the appended OIDC form — and paired it with an
+  appended OAuth suffix that no specification defines. So discovery against a
+  multi-tenant authorization server tried a URL that names nothing, then one legal
+  address, and gave up. That is invisible for Keycloak (`/realms/x`) and Entra
+  (`/{tenant}/v2.0`), whose OIDC documents answer the appended form — which is why
+  it went unnoticed — and total for a plain OAuth authorization server serving a
+  tenant under a path.
+
+  All three addresses are now tried, in the spec's order. Adding them cannot widen
+  trust: `_validate_issuer` refuses any document that does not claim the identifier
+  the URL was built from, so a new candidate is a new place to be told "no" rather
+  than a new thing to believe.
+
+  An issuer without a path is unaffected — the two addresses it had are the two
+  the spec requires, in the same order. This is a fix for tenants, not for
+  everyone.
+
 ## [0.36.1] - 2026-08-13
 
 ### Fixed
