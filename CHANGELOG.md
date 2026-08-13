@@ -1,5 +1,62 @@
 # Changelog
 
+## [0.35.0] - 2026-08-13
+
+### Security
+- **The server under test no longer chooses what the token it receives is valid
+  for.** Protected Resource Metadata carries a `resource` identifier, and overstep
+  used whatever the document claimed — falling back to the server URL only when
+  the field was absent entirely. That value does not stay in the metadata: it
+  becomes the RFC 8707 `resource` indicator on the token request, so it decides
+  what the authorization server audience-binds the issued token to. And the
+  document is served by the MCP server under test.
+
+  So a target could name a third party — `resource: https://banking.internal/api`
+  — wait for the honest, correctly pinned authorization server to mint a token
+  bound to it, and then be handed that token in the `Authorization` header of the
+  very next request. Nothing in the chain is inconsistent, and no metadata check
+  catches it, which is why the issuer work in 0.34.0 did not: an issuer pin
+  settles *which* authorization server the client secret goes to and says nothing
+  about *what* the token that comes back is good for. The two halves are now both
+  closed.
+
+  Per RFC 9728 §3.3 the returned `resource` must be identical to the identifier
+  the well-known URL was built from. overstep now requires the field to be present
+  — it is REQUIRED by RFC 9728 §2, and substituting a value of our own hid a
+  malformed document from a tool whose job is to report what the target actually
+  does — and requires it to match an identifier the run already believed. The
+  accepted set is derived from the server URL in the matrix (its path form, its
+  origin, and both spellings of a trailing slash) plus an explicit `resource:`
+  pin, so every candidate comes from the operator and none from the target.
+
+  Comparison is exact, for the same reason the issuer comparison is: normalising
+  an attacker-supplied value is how two different identifiers are talked into
+  looking like one.
+
+### Changed
+- **Protected Resource Metadata is now read from the path-scoped document first.**
+  RFC 9728 §3.1 inserts the well-known string between host and path, so a server
+  at `/mcp` is described at `/.well-known/oauth-protected-resource/mcp`, with the
+  root form as the fallback for a resource that is the whole origin. overstep tried
+  them in the opposite order. On a host serving several MCP endpoints that asked
+  the wrong question — the root document describes a different resource — and now
+  that the answer is checked, it would fail the run outright.
+
+### Fixed
+- **Metadata that is valid JSON but not an object no longer crashes discovery.**
+  Both readers of a fetched document went straight to `.get`, so a target
+  answering the well-known URL with an array, or a bare string, produced an
+  unhandled `AttributeError` instead of the refusal every other malformed
+  response produces. Found while hardening the document above it — a target
+  should not get to choose which exception type comes out of a security check.
+  A non-object body is now treated as "this candidate did not answer".
+
+### Migration
+- A run whose PRM omits `resource`, or claims an identifier unrelated to the
+  server URL in the matrix, now fails discovery instead of proceeding. Set the
+  provider's `resource:` when the server is legitimately known to its issuer by
+  another name, or its `token_url:` to skip discovery altogether.
+
 ## [0.34.1] - 2026-08-12
 
 ### Changed

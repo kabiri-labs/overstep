@@ -170,6 +170,10 @@ def authenticate(
                             server_url,
                             client=client,
                             expected_issuer=provider.issuer,
+                            # A pinned resource is an identifier the run already
+                            # trusts, so metadata claiming it is not the target
+                            # choosing its own audience.
+                            expected_resource=provider.resource,
                             # A run that already accepted unverified TLS has made
                             # its own call about transport security; anything else
                             # must not be handed a secret over plaintext.

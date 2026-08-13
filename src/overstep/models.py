@@ -354,7 +354,9 @@ class AuthProvider(BaseModel):
     # that discovery, and it is the host under test.
     issuer: Optional[str] = None
     # RFC 8707 resource indicator sent with the token request so the token is
-    # audience-bound to the MCP server. Defaults to the discovered resource.
+    # audience-bound to the MCP server. Defaults to the discovered resource, and
+    # doubles as the identifier discovery is allowed to come back with when the
+    # server is legitimately known by something other than its URL.
     resource: Optional[str] = None
 
     # How to read and place the resulting token.

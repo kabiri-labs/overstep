@@ -22,6 +22,10 @@ endpoint, which is where overstep sends ``client_secret`` (and, on the password
 grant, a real username and password). Every hop is therefore checked before it is
 used:
 
+* the resource metadata's ``resource`` must be identical to the identifier the
+  well-known URL was built from, per RFC 9728 §3.3 — it becomes the RFC 8707
+  indicator on the token request, so an unchecked value lets the target choose
+  what the returned token is valid for and then receive it;
 * the authorization server must be reached over HTTPS;
 * its metadata's ``issuer`` must be identical to the identifier used to build the
   well-known URL, per RFC 8414 §3.3 — the spec's own example is a document served
@@ -29,9 +33,11 @@ used:
 * a redirect must not move a metadata fetch to another origin;
 * and the token endpoint must be HTTPS too.
 
-A provider may additionally pin ``issuer:``, which is the direct expression of the
-rule that client credentials belong to the authorization server that minted them
-and must not be presented to another one.
+A provider may additionally pin ``issuer:`` and ``resource:``. The two close the
+same hole on either side of the token request: the issuer pin is the rule that
+client credentials belong to the authorization server that minted them and must
+not be presented to another one, and the resource check is the rule that the
+token those credentials buy must be spent where the run intended.
 """
 from __future__ import annotations
 
@@ -61,13 +67,42 @@ def _origin(url: str) -> str:
 
 
 def _prm_candidates(server_url: str) -> List[str]:
+    """Where a resource's metadata may live, most specific first.
+
+    RFC 9728 §3.1 inserts the well-known string between host and path, so a
+    server at ``/public/mcp`` is described at
+    ``/.well-known/oauth-protected-resource/public/mcp``. The root form is the
+    fallback for a resource that is the whole origin. The order matters: a host
+    serving several MCP endpoints describes each at its own path, and the root
+    document — if it answers at all — is about a different resource than the one
+    under test.
+    """
     origin = _origin(server_url)
     path = urlsplit(server_url).path.rstrip("/")
-    urls = [f"{origin}/.well-known/oauth-protected-resource"]
-    # RFC 9728 also allows the resource path appended after the well-known suffix.
+    urls = []
     if path:
         urls.append(f"{origin}/.well-known/oauth-protected-resource{path}")
+    urls.append(f"{origin}/.well-known/oauth-protected-resource")
     return urls
+
+
+def _resource_identifiers(server_url: str) -> List[str]:
+    """The resource identifiers this server URL could honestly be called.
+
+    Every one of these is derived from the matrix, never from the target, which
+    is the whole point: whatever the discovered metadata claims has to match
+    something the run already believed. Both spellings of a trailing slash are
+    allowed because the matrix wrote the URL, and which one it used is not a
+    security question.
+    """
+    parts = urlsplit(server_url)
+    origin = urlunsplit((parts.scheme, parts.netloc, "", "", ""))
+    trimmed = parts.path.rstrip("/")
+    ids = [f"{origin}{trimmed}"] if trimmed else []
+    if parts.path and parts.path != trimmed:
+        ids.append(f"{origin}{parts.path}")
+    ids.append(origin)
+    return ids
 
 
 def _as_metadata_candidates(issuer: str) -> List[str]:
@@ -158,9 +193,15 @@ def _get_json(client: httpx.Client, urls: List[str]) -> Optional[Tuple[str, dict
             )
         if resp.status_code < 400:
             try:
-                return url, resp.json()
+                body = resp.json()
             except ValueError:
                 continue
+            # Valid JSON is not yet a metadata document. Both callers go straight
+            # to ``.get``, so an array or a bare string would reach them as an
+            # AttributeError rather than the refusal every other malformed
+            # response produces — a crash where the contract is a clean error.
+            if isinstance(body, dict):
+                return url, body
     return None
 
 
@@ -187,6 +228,42 @@ def _select_issuer(
         f"pinned issuer '{expected}' — client credentials belong to the issuer that "
         f"registered them and are not sent elsewhere"
     )
+
+
+def _validate_resource(prm: dict, accepted: List[str], source_url: str) -> str:
+    """RFC 9728 §3.3: the document must describe the resource we asked about.
+
+    This value does not stay in the metadata. It becomes the RFC 8707
+    ``resource`` indicator on the token request, so it decides *what the token
+    overstep is about to fetch will be valid for* — and that token is then sent
+    to the server that supplied this document. Left unchecked, a target names a
+    third-party resource, waits for the authorization server to mint a token
+    audience-bound to it, and is handed the result. Pinning the issuer closed the
+    matching hole one hop earlier: it settles which authorization server the
+    client secret goes to, and says nothing about what comes back.
+
+    ``accepted`` therefore holds only identifiers the run already believed —
+    derived from the server URL in the matrix, plus an explicit ``resource:``
+    pin. Compared as strings for the same reason the issuer is: normalising an
+    attacker-supplied value is how two different identifiers are talked into
+    looking like one.
+    """
+    claimed = prm.get("resource")
+    if not isinstance(claimed, str) or not claimed:
+        raise DiscoveryError(
+            f"Protected Resource Metadata at '{source_url}' declares no resource, which "
+            f"RFC 9728 requires — set the provider's 'token_url' to skip discovery if "
+            f"this server cannot be fixed"
+        )
+    if claimed not in accepted:
+        allowed = ", ".join(f"'{a}'" for a in accepted)
+        raise DiscoveryError(
+            f"Protected Resource Metadata at '{source_url}' claims resource '{claimed}', "
+            f"which is not the resource under test ({allowed}) — refusing to request a "
+            f"token bound to somewhere else (RFC 9728 section 3.3). Set the provider's "
+            f"'resource' if this server is legitimately known by another identifier."
+        )
+    return claimed
 
 
 def _validate_issuer(meta: dict, issuer: str, source_url: str) -> None:
@@ -218,6 +295,7 @@ def discover_token_endpoint(
     verify: bool = True,
     timeout: float = 15.0,
     expected_issuer: Optional[str] = None,
+    expected_resource: Optional[str] = None,
     allow_plaintext: bool = False,
 ) -> DiscoveryResult:
     """Resolve an MCP server's token endpoint + resource via PRM and AS metadata.
@@ -234,11 +312,14 @@ def discover_token_endpoint(
                 f"no Protected Resource Metadata for '{server_url}' "
                 f"(RFC 9728 /.well-known/oauth-protected-resource)"
             )
-        _, prm = found
+        prm_url, prm = found
         auth_servers = [s for s in (prm.get("authorization_servers") or []) if isinstance(s, str)]
         if not auth_servers:
             raise DiscoveryError(f"PRM for '{server_url}' lists no authorization_servers")
-        resource = prm.get("resource") or server_url
+        accepted = _resource_identifiers(server_url)
+        if expected_resource:
+            accepted.append(expected_resource)
+        resource = _validate_resource(prm, accepted, prm_url)
         issuer = _select_issuer(auth_servers, expected_issuer, server_url)
         require_https(issuer, "authorization server", allow_plaintext=allow_plaintext)
 
