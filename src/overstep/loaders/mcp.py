@@ -283,6 +283,14 @@ def detect_protocol_version(
     Errors are answers here, not failures: a legacy-only server replies
     ``-32601`` to the first, and a stateless server refuses the second. Only a
     server that answers neither yields ``None``.
+
+    A server that names *only* revisions this tool cannot drive has still
+    answered the question, and that answer is kept rather than dropped. Falling
+    through to ``initialize`` is the right next question — it may yet find common
+    ground — but if it finds none, returning ``None`` would let the caller record
+    the default and then send a handshake at a server that retired it. The
+    returned value is therefore not a promise that the revision is usable; the
+    caller checks that and says so.
     """
     base: Dict[str, str] = {
         "Content-Type": "application/json",
@@ -297,6 +305,11 @@ def detect_protocol_version(
         message = _parse_message(resp)
         result = message.get("result") if isinstance(message, dict) else None
         return result if isinstance(result, dict) else None
+
+    # A revision the server offered that this tool cannot drive. Only ever
+    # recorded and warned about, never spoken, so ordering it by string is a
+    # choice of which one to report rather than a capability decision.
+    unusable: Optional[str] = None
 
     with httpx.Client(timeout=timeout, verify=verify) as client:
         probe = max(STATELESS_PROTOCOL_VERSIONS)
@@ -317,6 +330,9 @@ def detect_protocol_version(
                     chosen = preferred_version(offered)
                     if chosen:
                         return chosen
+                    named = [v for v in offered if isinstance(v, str) and v]
+                    if named:
+                        unusable = max(named)
         except httpx.HTTPError:
             pass
 
@@ -338,7 +354,7 @@ def detect_protocol_version(
         except httpx.HTTPError:
             pass
 
-    return None
+    return unusable
 
 
 def _fetch_list(

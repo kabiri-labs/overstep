@@ -56,7 +56,8 @@ class Server:
     def __init__(self, *, generation, negotiates=None, supported_versions=None,
                  tools=None):
         # "stateless" answers server/discover and refuses initialize;
-        # "legacy" the reverse; "mute" answers neither.
+        # "legacy" the reverse; "both" answers each, which is how a server
+        # mid-migration looks; "mute" answers neither.
         self.generation = generation
         self.negotiates = negotiates or DEFAULT_PROTOCOL_VERSION
         self.supported_versions = supported_versions
@@ -83,14 +84,14 @@ class Server:
                 "error": {"code": code, "message": message}})
 
         if method == "server/discover":
-            if self.generation != "stateless":
+            if self.generation not in ("stateless", "both"):
                 return error(_METHOD_NOT_FOUND, "unknown method")
             versions = (self.supported_versions if self.supported_versions is not None
                         else ["2026-07-28"])
             return result({"supportedVersions": versions, "capabilities": {"tools": {}}})
 
         if method == "initialize":
-            if self.generation != "legacy":
+            if self.generation not in ("legacy", "both"):
                 return error(_UNSUPPORTED_PROTOCOL_VERSION, "initialize was retired")
             return result({"protocolVersion": self.negotiates, "capabilities": {}})
 
@@ -207,16 +208,37 @@ def test_a_server_that_answers_neither_yields_no_answer():
     assert _detect(Server(generation="mute")) is None
 
 
-def test_a_server_offering_only_versions_overstep_lacks_falls_through():
-    """`supportedVersions` naming nothing usable is not a stateless detection.
+def test_a_server_offering_only_versions_overstep_lacks_still_answered():
+    """`supportedVersions` naming nothing usable is still an answer, and is kept.
 
-    Falling through to `initialize` is the honest next question rather than
-    pinning the matrix to a revision the run could not drive.
+    Falling through to `initialize` is the right next question — it may yet find
+    common ground. But if it finds none, discarding what the server plainly said
+    would let the caller record the default and then send a handshake at a server
+    that retired it, which is the mismatch this whole area exists to avoid.
     """
     server = Server(generation="stateless", supported_versions=["2099-01-01"])
 
-    assert _detect(server) is None
+    assert _detect(server) == "2099-01-01"
     assert [s["method"] for s in server.seen] == ["server/discover", "initialize"]
+
+
+def test_a_usable_revision_found_late_beats_an_unusable_one_offered_early():
+    """The unusable answer is a fallback, not a short circuit."""
+    server = Server(generation="both", negotiates="2025-03-26",
+                    supported_versions=["2099-01-01"])
+
+    assert _detect(server) == "2025-03-26"
+    assert [s["method"] for s in server.seen] == ["server/discover", "initialize"]
+
+
+def test_an_unusable_offered_revision_reaches_the_matrix():
+    """The end-to-end shape of the same thing: recorded, not replaced by the default."""
+    server = Server(generation="stateless", supported_versions=["2099-01-01"])
+
+    result = _scaffold(server)
+
+    assert result.exit_code == 0
+    assert _servers_block(result.stdout)["protocol_version"] == "2099-01-01"
 
 
 def test_the_token_is_offered_to_a_server_that_requires_one_to_answer():
