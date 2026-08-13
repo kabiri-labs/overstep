@@ -216,11 +216,35 @@ def test_the_server_url_itself_is_accepted():
     assert result.resource == MCP
 
 
-def test_the_origin_is_accepted_for_a_root_hosted_resource():
-    """A resource that is the whole origin describes itself that way."""
+def test_the_origin_is_accepted_when_the_matrix_named_the_origin():
+    """A resource that really is the whole origin describes itself that way."""
     backend = Backend(claimed_resource="https://mcp.test")
 
-    assert _discover(backend).resource == "https://mcp.test"
+    assert _discover(backend, server_url="https://mcp.test").resource == "https://mcp.test"
+
+
+def test_the_origin_is_refused_when_the_matrix_named_a_path():
+    """Widening to the origin is still the target choosing its own audience.
+
+    A matrix naming `https://mcp.test/mcp` named a path-scoped service. If the
+    authorization server issues origin-audience tokens, accepting the origin here
+    hands the target a token every sibling application on that host would also
+    honour — the same class this file exists to refuse, one step closer to home.
+    """
+    backend = Backend(claimed_resource="https://mcp.test")
+
+    with pytest.raises(DiscoveryError, match="not the resource under test"):
+        _discover(backend, server_url="https://mcp.test/mcp")
+
+
+def test_widening_to_the_origin_is_available_but_only_by_asking():
+    """The operator may still opt into it — that is what the pin is for."""
+    backend = Backend(claimed_resource="https://mcp.test")
+
+    result = _discover(backend, server_url="https://mcp.test/mcp",
+                       expected_resource="https://mcp.test")
+
+    assert result.resource == "https://mcp.test"
 
 
 @pytest.mark.parametrize("server_url,claimed", [

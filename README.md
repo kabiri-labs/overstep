@@ -827,8 +827,10 @@ else's API and then receive it, in the `Authorization` header of the next reques
 Pinning the issuer does not help: it settles *which* authorization server the
 secret goes to, not *what* the token it returns is good for. Only identifiers your
 matrix already named are accepted, so unlike `issuer:` there is nothing to opt
-into. Set `resource:` on the provider when the server is legitimately known to its
-issuer by a different name:
+into — and a URL with a path does not admit its own origin, since a token for
+`https://gateway.example` is one every sibling application on that host would also
+honour. Set `resource:` on the provider when the server is legitimately known to
+its issuer by a different name, or when that wider audience is what you want:
 
 ```yaml
 auth:

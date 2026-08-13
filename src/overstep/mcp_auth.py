@@ -91,17 +91,25 @@ def _resource_identifiers(server_url: str) -> List[str]:
 
     Every one of these is derived from the matrix, never from the target, which
     is the whole point: whatever the discovered metadata claims has to match
-    something the run already believed. Both spellings of a trailing slash are
-    allowed because the matrix wrote the URL, and which one it used is not a
-    security question.
+    something the run already believed.
+
+    The origin is *not* among them when the URL carries a path. A matrix naming
+    ``https://gateway.example/mcp`` named a path-scoped service, and accepting
+    ``https://gateway.example`` would let the target widen its own audience to
+    the whole origin — a token then usable against every sibling application
+    sharing it, which is the exfiltration this check exists to refuse, only
+    closer to home. Widening is what ``resource:`` is for, and it has to be the
+    operator who asks for it.
+
+    Both spellings of a trailing slash are allowed, because the matrix wrote the
+    URL and which one it used is not a security question.
     """
     parts = urlsplit(server_url)
     origin = urlunsplit((parts.scheme, parts.netloc, "", "", ""))
     trimmed = parts.path.rstrip("/")
-    ids = [f"{origin}{trimmed}"] if trimmed else []
-    if parts.path and parts.path != trimmed:
+    ids = [f"{origin}{trimmed}"]
+    if parts.path != trimmed:
         ids.append(f"{origin}{parts.path}")
-    ids.append(origin)
     return ids
 
 

@@ -25,9 +25,18 @@
   — it is REQUIRED by RFC 9728 §2, and substituting a value of our own hid a
   malformed document from a tool whose job is to report what the target actually
   does — and requires it to match an identifier the run already believed. The
-  accepted set is derived from the server URL in the matrix (its path form, its
-  origin, and both spellings of a trailing slash) plus an explicit `resource:`
-  pin, so every candidate comes from the operator and none from the target.
+  accepted set is derived from the server URL in the matrix — both spellings of a
+  trailing slash, and the bare origin only when the matrix named the bare origin —
+  plus an explicit `resource:` pin, so every candidate comes from the operator and
+  none from the target.
+
+  A path-scoped URL does not admit its own origin. A matrix naming
+  `https://gateway.example/mcp` named a path-scoped service, and where the
+  authorization server issues origin-audience tokens, accepting
+  `https://gateway.example` would let the target widen its own audience to a token
+  every sibling application on that host also honours — the same exfiltration,
+  only closer to home. Widening is what `resource:` is for, and the operator has
+  to ask for it.
 
   Comparison is exact, for the same reason the issuer comparison is: normalising
   an attacker-supplied value is how two different identifiers are talked into
