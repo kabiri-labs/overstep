@@ -2,7 +2,7 @@
 
 **Authorization testing for MCP servers. Works on HTTP APIs too.**
 
-![Version](https://img.shields.io/badge/version-0.34.1-blue)
+![Version](https://img.shields.io/badge/version-0.35.0-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -806,6 +806,8 @@ checks are automatic:
 - its metadata's `issuer` must be **identical** to the identifier used to build
   the well-known URL (RFC 8414 §3.3) — this is what stops one authorization server
   impersonating another;
+- the resource metadata's `resource` must be **identical** to the server URL your
+  matrix declared (RFC 9728 §3.3) — see below;
 - a metadata request must not be **redirected to another origin**.
 
 None of those catches a target that names an authorization server it simply owns
@@ -816,6 +818,27 @@ fallback. `validate` warns when a provider sends a secret without one.
 
 If you only ever point overstep at servers you operate, the warning is noise and
 you can ignore it. If you point it at anything you are assessing, pin the issuer.
+
+The `resource` check closes the same hole on the other side of the token request.
+The identifier in the server's own metadata becomes the RFC 8707 `resource`
+indicator, which is what the authorization server audience-binds the issued token
+to — so an unchecked value lets the target ask for a token valid for somebody
+else's API and then receive it, in the `Authorization` header of the next request.
+Pinning the issuer does not help: it settles *which* authorization server the
+secret goes to, not *what* the token it returns is good for. Only identifiers your
+matrix already named are accepted, so unlike `issuer:` there is nothing to opt
+into. Set `resource:` on the provider when the server is legitimately known to its
+issuer by a different name:
+
+```yaml
+auth:
+  providers:
+    - name: idp
+      type: oauth2_client_credentials
+      discover_from: docs            # the MCP server that drives discovery
+      issuer: https://login.example  # where these credentials were registered
+      resource: https://api.example  # if not the server's own URL
+```
 
 ### Local (stdio) servers
 
