@@ -14,14 +14,21 @@ module computes the real import graph and holds it to two rules:
   "shared core" a description rather than a wish;
 * **neither surface may import the other** — the direction that makes them peers.
 
-`KNOWN_VIOLATIONS` is what remains, each entry naming why it is there. It is a
-ratchet: a violation may be removed from the list, never added, and a fixed one
-must be deleted from it the same day. The test fails on a stale entry as loudly
-as on a new violation, so the list cannot quietly become documentation for a
-problem nobody is fixing.
+`SCHEMA_COMPOSITION` is the exception, and at 1.0.0 it is a decision rather than
+a backlog. Every edge that was core *logic* reaching into a surface is gone —
+eight were measured, six were given seams and two were misplaced primitives.
+What is left is core *schema* composing a surface's schema, which is what a
+typed plugin configuration looks like: `Matrix.modules.mcp` is an `McpModule`,
+`TestCase.mcp` an `McpInvocation`.
 
-Which modules belong to which surface is now read off the package layout rather
-than listed here, so the rule and the tree cannot disagree.
+Removing those would mean making the module blocks opaque to the core — a dict
+each surface parses — which costs validation and typing at the one place a
+matrix is checked, to buy a tidier graph. That trade was considered and declined.
+The set is asserted exactly, in both directions, so the exception cannot grow and
+cannot be quietly left behind if it is ever closed.
+
+Which modules belong to which surface is read off the package layout rather than
+listed here, so the rule and the tree cannot disagree.
 """
 import ast
 import os
@@ -56,25 +63,9 @@ MODULE_OWNED = REST_MODULES | MCP_MODULES
 # The entry point wires everything together on purpose; it is not core logic.
 EXEMPT = {"cli", "__main__", ""}
 
-# Every core -> module import still standing, and what it is waiting on. Removing
-# an entry is the unit of progress here.
-KNOWN_VIOLATIONS = {
-    # These two are a different kind from the six that were removed, and saying
-    # so is more useful than counting them down to zero.
-    #
-    # Those were core *logic* reaching into a surface to do work — rendering a
-    # repro, running a tool-call, resolving a discovery — and each had a seam it
-    # was missing. These are core *schema* composing a surface's schema:
-    # `Matrix.modules.mcp` is typed `McpModule`, which holds `McpServer` and
-    # `McpMatcher`, and `TestCase.mcp` is an `McpInvocation`. Both read
-    # `DEFAULT_PROTOCOL_VERSION` as a field default.
-    #
-    # Moving the models under `modules/mcp/` would relocate the edge, not remove
-    # it: `matrix` and `planner` would import the new location instead. Removing
-    # it for real means making the module blocks opaque to the core — a dict the
-    # surface parses — which costs validation and typing at the one place a
-    # matrix is checked, to buy a cleaner graph. That is a trade worth making
-    # deliberately or not at all, so it is recorded rather than quietly done.
+# The two edges the 1.0.0 surface keeps on purpose. `models` and `planner` read
+# `DEFAULT_PROTOCOL_VERSION` because the MCP models they compose default with it.
+SCHEMA_COMPOSITION = {
     ("models", "modules.mcp.protocol"),
     ("planner", "modules.mcp.protocol"),
 }
@@ -132,9 +123,9 @@ def test_the_graph_is_actually_being_read():
     assert "modules.mcp.protocol" in graph["models"], "the import parser missed a known edge"
 
 
-def test_no_core_module_imports_a_module_beyond_the_known_list():
-    """The rule that makes "shared core" true, enforced where it is not yet."""
-    new = _core_to_module_edges() - KNOWN_VIOLATIONS
+def test_no_core_module_imports_a_surface_beyond_the_schema_exception():
+    """The rule that makes "shared core" a description rather than a wish."""
+    new = _core_to_module_edges() - SCHEMA_COMPOSITION
 
     assert not new, (
         "core modules gained a dependency on a surface module: "
@@ -142,17 +133,18 @@ def test_no_core_module_imports_a_module_beyond_the_known_list():
     )
 
 
-def test_the_known_violation_list_has_no_stale_entries():
-    """A ratchet only ratchets if a fixed violation leaves the list.
+def test_the_schema_exception_is_exactly_what_it_claims():
+    """Asserted in both directions, so the exception can neither grow nor rot.
 
-    Without this the list decays into a description of a problem nobody is
-    fixing, and the count stops meaning anything.
+    An entry that no longer holds is as much a problem as one that should not be
+    there: it would mean the list describes a shape the code left behind, and
+    nobody reading it could tell which entries were still real.
     """
-    fixed = KNOWN_VIOLATIONS - _core_to_module_edges()
+    stale = SCHEMA_COMPOSITION - _core_to_module_edges()
 
-    assert not fixed, (
-        "these are fixed and must be removed from KNOWN_VIOLATIONS: "
-        + ", ".join(f"{a} -> {b}" for a, b in sorted(fixed))
+    assert not stale, (
+        "these no longer exist and must be removed from SCHEMA_COMPOSITION: "
+        + ", ".join(f"{a} -> {b}" for a, b in sorted(stale))
     )
 
 

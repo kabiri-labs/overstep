@@ -2,7 +2,7 @@
 
 **Authorization testing for REST APIs and MCP servers — one problem class, two surfaces.**
 
-![Version](https://img.shields.io/badge/version-0.41.0-blue)
+![Version](https://img.shields.io/badge/version-1.0.0-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -919,7 +919,20 @@ Short and honest. Nothing here is scheduled.
 | Interactive OAuth authorization-code flow for subjects that cannot use a machine grant | **planned** |
 | Delegation-chain testing: on-behalf-of token shape, actor claims, re-checking at each hop | **planned** |
 | Scope-attenuation checks: proving a delegated credential carries strictly fewer privileges than the one it was derived from | **planned** |
-| Further surfaces behind the transport registry | **planned**, unscheduled — the architecture is module-based, and `rest` and `mcp` are the two modules that exist. A third needs an executor, a body shape and a config block; the registry alone is no longer enough to reach one |
+| Further surfaces | **planned**, unscheduled — `rest` and `mcp` are the two modules that exist. A third is a package under `overstep/modules/`, an executor, a body shape and a config block; the registries carry the rest |
+
+### What 1.0.0 means
+
+The matrix format, the `test_id` shape, the finding classes and their wire values,
+the exit codes and the report documents are the surface this version freezes.
+They are pinned by golden files that fail on any change, so a release that moves
+one has to say so.
+
+It does not mean the roadmap above is finished, or that the tool covers every
+authorization question — the non-goals are as true at 1.0.0 as they were before
+it. It means the parts you would build a pipeline against have stopped moving
+underneath you, and that breaking one is now a decision with a version number
+rather than an ordinary release.
 
 ## Contributing
 
