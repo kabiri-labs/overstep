@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="overstep" tests="18" failures="8">
+  <testcase classname="get_user" name="GET /users/u1 [alice/self]"/>
+  <testcase classname="get_user" name="GET /users/u2 [alice/other]">
+    <failure type="BOLA" message="BOLA: alice (user) read another subject's object via GET /users/u2 and got 200; the matrix only allows owners here (no content marker configured to confirm the leak).">alice (user) read another subject's object via GET /users/u2 and got 200; the matrix only allows owners here (no content marker configured to confirm the leak).</failure>
+  </testcase>
+  <testcase classname="get_user" name="GET /users/u2 [bob/self]"/>
+  <testcase classname="get_user" name="GET /users/u1 [bob/other]">
+    <failure type="BOLA" message="BOLA: bob (user) read another subject's object via GET /users/u1 and got 200; the matrix only allows owners here (no content marker configured to confirm the leak).">bob (user) read another subject's object via GET /users/u1 and got 200; the matrix only allows owners here (no content marker configured to confirm the leak).</failure>
+  </testcase>
+  <testcase classname="get_user" name="GET /users/u9 [root/self]"/>
+  <testcase classname="get_user" name="GET /users/u1 [root/other]"/>
+  <testcase classname="get_user" name="GET /users/u1 [anon/other]"/>
+  <testcase classname="delete_user" name="DELETE /users/u1 [alice/self]">
+    <failure type="privilege-escalation" message="privilege-escalation: alice (user) reached DELETE /users/u1 (status 200) which the matrix reserves for admin.">alice (user) reached DELETE /users/u1 (status 200) which the matrix reserves for admin.</failure>
+  </testcase>
+  <testcase classname="delete_user" name="DELETE /users/u2 [alice/other]">
+    <failure type="privilege-escalation" message="privilege-escalation: alice (user) reached DELETE /users/u2 (status 200) which the matrix reserves for admin.">alice (user) reached DELETE /users/u2 (status 200) which the matrix reserves for admin.</failure>
+  </testcase>
+  <testcase classname="delete_user" name="DELETE /users/u2 [bob/self]">
+    <failure type="privilege-escalation" message="privilege-escalation: bob (user) reached DELETE /users/u2 (status 200) which the matrix reserves for admin.">bob (user) reached DELETE /users/u2 (status 200) which the matrix reserves for admin.</failure>
+  </testcase>
+  <testcase classname="delete_user" name="DELETE /users/u1 [bob/other]">
+    <failure type="privilege-escalation" message="privilege-escalation: bob (user) reached DELETE /users/u1 (status 200) which the matrix reserves for admin.">bob (user) reached DELETE /users/u1 (status 200) which the matrix reserves for admin.</failure>
+  </testcase>
+  <testcase classname="delete_user" name="DELETE /users/u9 [root/self]"/>
+  <testcase classname="delete_user" name="DELETE /users/u1 [root/other]"/>
+  <testcase classname="delete_user" name="DELETE /users/u1 [anon/other]"/>
+  <testcase classname="admin_list_users" name="GET /admin/users [alice/na]">
+    <failure type="privilege-escalation" message="privilege-escalation: alice (user) reached GET /admin/users (status 200) which the matrix reserves for admin.">alice (user) reached GET /admin/users (status 200) which the matrix reserves for admin.</failure>
+  </testcase>
+  <testcase classname="admin_list_users" name="GET /admin/users [bob/na]">
+    <failure type="privilege-escalation" message="privilege-escalation: bob (user) reached GET /admin/users (status 200) which the matrix reserves for admin.">bob (user) reached GET /admin/users (status 200) which the matrix reserves for admin.</failure>
+  </testcase>
+  <testcase classname="admin_list_users" name="GET /admin/users [root/na]"/>
+  <testcase classname="admin_list_users" name="GET /admin/users [anon/na]"/>
+</testsuite>

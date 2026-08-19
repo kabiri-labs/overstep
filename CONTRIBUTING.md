@@ -15,6 +15,24 @@ Thanks for considering a contribution!
 - `python -m uvicorn examples.mock_api.server:app --port 8000`
 - `overstep run examples/mock_api/matrix.yaml --out out`
 
+### Golden files
+
+`tests/test_wire_contract.py` compares every document a run writes — findings,
+SARIF, JUnit, HTML and a drift baseline — against a stored copy under
+`tests/golden/`, because nothing else in the suite would notice the serialized
+form moving. When a change to that form is intended:
+
+```bash
+OVERSTEP_UPDATE_GOLDEN=1 pytest tests/test_wire_contract.py   # rewrite the copies
+git diff tests/golden/                                        # then read it
+```
+
+The diff is the point. It is the list of what the change breaks for anyone
+consuming those documents — a committed `baseline.json`, a waivers file keyed on
+`test_id`, a dashboard reading `findings.json`, a SARIF suppression. Regenerating
+without reading it turns the whole module into a rubber stamp, and a change that
+belongs in the CHANGELOG under a heading that says so goes out unannounced.
+
 ## Project layout
 
 The package uses a `src/` layout, so everything below lives under `src/`.

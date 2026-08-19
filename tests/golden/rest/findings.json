@@ -1,0 +1,416 @@
+{
+  "base_url": "http://127.0.0.1:8000",
+  "summary": {
+    "total_tests": 18,
+    "positive_tests": 7,
+    "negative_tests": 11,
+    "listing_tests": 0,
+    "findings": 8,
+    "vulnerabilities": 8,
+    "defects": 3,
+    "vulnerability_defects": 3,
+    "drift": 0,
+    "waived": 0,
+    "by_class": {
+      "privilege-escalation": 6,
+      "BOLA": 2
+    },
+    "inconclusive": false,
+    "inconclusive_reasons": [],
+    "object_resources": 2,
+    "object_resources_probed": 2,
+    "object_resources_unprobed": []
+  },
+  "defects": [
+    {
+      "group": "delete_user::DELETE::privilege-escalation",
+      "vuln_class": "privilege-escalation",
+      "resource": "delete_user",
+      "method": "DELETE",
+      "severity": "high",
+      "confidence": "confirmed",
+      "findings": 4,
+      "subjects": [
+        "alice",
+        "bob"
+      ],
+      "example_test_id": "delete_user::alice::other"
+    },
+    {
+      "group": "admin_list_users::GET::privilege-escalation",
+      "vuln_class": "privilege-escalation",
+      "resource": "admin_list_users",
+      "method": "GET",
+      "severity": "high",
+      "confidence": "confirmed",
+      "findings": 2,
+      "subjects": [
+        "alice",
+        "bob"
+      ],
+      "example_test_id": "admin_list_users::alice::na"
+    },
+    {
+      "group": "get_user::GET::BOLA",
+      "vuln_class": "BOLA",
+      "resource": "get_user",
+      "method": "GET",
+      "severity": "high",
+      "confidence": "unverified",
+      "findings": 2,
+      "subjects": [
+        "alice",
+        "bob"
+      ],
+      "example_test_id": "get_user::alice::other"
+    }
+  ],
+  "findings": [
+    {
+      "test_id": "admin_list_users::alice::na",
+      "vuln_class": "privilege-escalation",
+      "severity": "high",
+      "resource": "admin_list_users",
+      "subject": "alice",
+      "role": "user",
+      "method": "GET",
+      "path": "/admin/users",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200,
+      "variant": "na",
+      "detail": "alice (user) reached GET /admin/users (status 200) which the matrix reserves for admin.",
+      "evidence": {
+        "test_id": "admin_list_users::alice::na",
+        "status": 200,
+        "effect": "allow",
+        "latency_ms": "<VOLATILE>",
+        "headers": {
+          "content-length": "170",
+          "content-type": "application/json"
+        },
+        "body_snippet": "{\"users\":[{\"id\":\"u1\",\"name\":\"Alice\",\"email\":\"alice@example.com\"},{\"id\":\"u2\",\"name\":\"Bob\",\"email\":\"bob@example.com\"},{\"id\":\"u9\",\"name\":\"Root\",\"email\":\"root@example.com\"}]}",
+        "error": null,
+        "matched_markers": [],
+        "listed_tools": [],
+        "skipped": false
+      },
+      "curl": "curl -sS -X GET -H \"Authorization: Bearer $OVERSTEP_TOKEN_ALICE\" http://127.0.0.1:8000/admin/users",
+      "request": {
+        "method": "GET",
+        "url": "http://127.0.0.1:8000/admin/users",
+        "headers": {
+          "Authorization": "Bearer $OVERSTEP_TOKEN_ALICE"
+        },
+        "body": null
+      },
+      "confidence": "confirmed",
+      "group": "admin_list_users::GET::privilege-escalation",
+      "cwe": "CWE-269",
+      "owasp_api": "API5:2023 Broken Function Level Authorization"
+    },
+    {
+      "test_id": "admin_list_users::bob::na",
+      "vuln_class": "privilege-escalation",
+      "severity": "high",
+      "resource": "admin_list_users",
+      "subject": "bob",
+      "role": "user",
+      "method": "GET",
+      "path": "/admin/users",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200,
+      "variant": "na",
+      "detail": "bob (user) reached GET /admin/users (status 200) which the matrix reserves for admin.",
+      "evidence": {
+        "test_id": "admin_list_users::bob::na",
+        "status": 200,
+        "effect": "allow",
+        "latency_ms": "<VOLATILE>",
+        "headers": {
+          "content-length": "170",
+          "content-type": "application/json"
+        },
+        "body_snippet": "{\"users\":[{\"id\":\"u1\",\"name\":\"Alice\",\"email\":\"alice@example.com\"},{\"id\":\"u2\",\"name\":\"Bob\",\"email\":\"bob@example.com\"},{\"id\":\"u9\",\"name\":\"Root\",\"email\":\"root@example.com\"}]}",
+        "error": null,
+        "matched_markers": [],
+        "listed_tools": [],
+        "skipped": false
+      },
+      "curl": "curl -sS -X GET -H \"Authorization: Bearer $OVERSTEP_TOKEN_BOB\" http://127.0.0.1:8000/admin/users",
+      "request": {
+        "method": "GET",
+        "url": "http://127.0.0.1:8000/admin/users",
+        "headers": {
+          "Authorization": "Bearer $OVERSTEP_TOKEN_BOB"
+        },
+        "body": null
+      },
+      "confidence": "confirmed",
+      "group": "admin_list_users::GET::privilege-escalation",
+      "cwe": "CWE-269",
+      "owasp_api": "API5:2023 Broken Function Level Authorization"
+    },
+    {
+      "test_id": "delete_user::alice::other",
+      "vuln_class": "privilege-escalation",
+      "severity": "high",
+      "resource": "delete_user",
+      "subject": "alice",
+      "role": "user",
+      "method": "DELETE",
+      "path": "/users/u2",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200,
+      "variant": "other",
+      "detail": "alice (user) reached DELETE /users/u2 (status 200) which the matrix reserves for admin.",
+      "evidence": {
+        "test_id": "delete_user::alice::other",
+        "status": 200,
+        "effect": "allow",
+        "latency_ms": "<VOLATILE>",
+        "headers": {
+          "content-length": "16",
+          "content-type": "application/json"
+        },
+        "body_snippet": "{\"deleted\":\"u2\"}",
+        "error": null,
+        "matched_markers": [],
+        "listed_tools": [],
+        "skipped": false
+      },
+      "curl": "curl -sS -X DELETE -H \"Authorization: Bearer $OVERSTEP_TOKEN_ALICE\" http://127.0.0.1:8000/users/u2",
+      "request": {
+        "method": "DELETE",
+        "url": "http://127.0.0.1:8000/users/u2",
+        "headers": {
+          "Authorization": "Bearer $OVERSTEP_TOKEN_ALICE"
+        },
+        "body": null
+      },
+      "confidence": "confirmed",
+      "group": "delete_user::DELETE::privilege-escalation",
+      "cwe": "CWE-269",
+      "owasp_api": "API5:2023 Broken Function Level Authorization"
+    },
+    {
+      "test_id": "delete_user::alice::self",
+      "vuln_class": "privilege-escalation",
+      "severity": "high",
+      "resource": "delete_user",
+      "subject": "alice",
+      "role": "user",
+      "method": "DELETE",
+      "path": "/users/u1",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200,
+      "variant": "self",
+      "detail": "alice (user) reached DELETE /users/u1 (status 200) which the matrix reserves for admin.",
+      "evidence": {
+        "test_id": "delete_user::alice::self",
+        "status": 200,
+        "effect": "allow",
+        "latency_ms": "<VOLATILE>",
+        "headers": {
+          "content-length": "16",
+          "content-type": "application/json"
+        },
+        "body_snippet": "{\"deleted\":\"u1\"}",
+        "error": null,
+        "matched_markers": [],
+        "listed_tools": [],
+        "skipped": false
+      },
+      "curl": "curl -sS -X DELETE -H \"Authorization: Bearer $OVERSTEP_TOKEN_ALICE\" http://127.0.0.1:8000/users/u1",
+      "request": {
+        "method": "DELETE",
+        "url": "http://127.0.0.1:8000/users/u1",
+        "headers": {
+          "Authorization": "Bearer $OVERSTEP_TOKEN_ALICE"
+        },
+        "body": null
+      },
+      "confidence": "confirmed",
+      "group": "delete_user::DELETE::privilege-escalation",
+      "cwe": "CWE-269",
+      "owasp_api": "API5:2023 Broken Function Level Authorization"
+    },
+    {
+      "test_id": "delete_user::bob::other",
+      "vuln_class": "privilege-escalation",
+      "severity": "high",
+      "resource": "delete_user",
+      "subject": "bob",
+      "role": "user",
+      "method": "DELETE",
+      "path": "/users/u1",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200,
+      "variant": "other",
+      "detail": "bob (user) reached DELETE /users/u1 (status 200) which the matrix reserves for admin.",
+      "evidence": {
+        "test_id": "delete_user::bob::other",
+        "status": 200,
+        "effect": "allow",
+        "latency_ms": "<VOLATILE>",
+        "headers": {
+          "content-length": "16",
+          "content-type": "application/json"
+        },
+        "body_snippet": "{\"deleted\":\"u1\"}",
+        "error": null,
+        "matched_markers": [],
+        "listed_tools": [],
+        "skipped": false
+      },
+      "curl": "curl -sS -X DELETE -H \"Authorization: Bearer $OVERSTEP_TOKEN_BOB\" http://127.0.0.1:8000/users/u1",
+      "request": {
+        "method": "DELETE",
+        "url": "http://127.0.0.1:8000/users/u1",
+        "headers": {
+          "Authorization": "Bearer $OVERSTEP_TOKEN_BOB"
+        },
+        "body": null
+      },
+      "confidence": "confirmed",
+      "group": "delete_user::DELETE::privilege-escalation",
+      "cwe": "CWE-269",
+      "owasp_api": "API5:2023 Broken Function Level Authorization"
+    },
+    {
+      "test_id": "delete_user::bob::self",
+      "vuln_class": "privilege-escalation",
+      "severity": "high",
+      "resource": "delete_user",
+      "subject": "bob",
+      "role": "user",
+      "method": "DELETE",
+      "path": "/users/u2",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200,
+      "variant": "self",
+      "detail": "bob (user) reached DELETE /users/u2 (status 200) which the matrix reserves for admin.",
+      "evidence": {
+        "test_id": "delete_user::bob::self",
+        "status": 200,
+        "effect": "allow",
+        "latency_ms": "<VOLATILE>",
+        "headers": {
+          "content-length": "16",
+          "content-type": "application/json"
+        },
+        "body_snippet": "{\"deleted\":\"u2\"}",
+        "error": null,
+        "matched_markers": [],
+        "listed_tools": [],
+        "skipped": false
+      },
+      "curl": "curl -sS -X DELETE -H \"Authorization: Bearer $OVERSTEP_TOKEN_BOB\" http://127.0.0.1:8000/users/u2",
+      "request": {
+        "method": "DELETE",
+        "url": "http://127.0.0.1:8000/users/u2",
+        "headers": {
+          "Authorization": "Bearer $OVERSTEP_TOKEN_BOB"
+        },
+        "body": null
+      },
+      "confidence": "confirmed",
+      "group": "delete_user::DELETE::privilege-escalation",
+      "cwe": "CWE-269",
+      "owasp_api": "API5:2023 Broken Function Level Authorization"
+    },
+    {
+      "test_id": "get_user::alice::other",
+      "vuln_class": "BOLA",
+      "severity": "high",
+      "resource": "get_user",
+      "subject": "alice",
+      "role": "user",
+      "method": "GET",
+      "path": "/users/u2",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200,
+      "variant": "other",
+      "detail": "alice (user) read another subject's object via GET /users/u2 and got 200; the matrix only allows owners here (no content marker configured to confirm the leak).",
+      "evidence": {
+        "test_id": "get_user::alice::other",
+        "status": 200,
+        "effect": "allow",
+        "latency_ms": "<VOLATILE>",
+        "headers": {
+          "content-length": "50",
+          "content-type": "application/json"
+        },
+        "body_snippet": "{\"id\":\"u2\",\"name\":\"Bob\",\"email\":\"bob@example.com\"}",
+        "error": null,
+        "matched_markers": [],
+        "listed_tools": [],
+        "skipped": false
+      },
+      "curl": "curl -sS -X GET -H \"Authorization: Bearer $OVERSTEP_TOKEN_ALICE\" http://127.0.0.1:8000/users/u2",
+      "request": {
+        "method": "GET",
+        "url": "http://127.0.0.1:8000/users/u2",
+        "headers": {
+          "Authorization": "Bearer $OVERSTEP_TOKEN_ALICE"
+        },
+        "body": null
+      },
+      "confidence": "unverified",
+      "group": "get_user::GET::BOLA",
+      "cwe": "CWE-639",
+      "owasp_api": "API1:2023 Broken Object Level Authorization"
+    },
+    {
+      "test_id": "get_user::bob::other",
+      "vuln_class": "BOLA",
+      "severity": "high",
+      "resource": "get_user",
+      "subject": "bob",
+      "role": "user",
+      "method": "GET",
+      "path": "/users/u1",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200,
+      "variant": "other",
+      "detail": "bob (user) read another subject's object via GET /users/u1 and got 200; the matrix only allows owners here (no content marker configured to confirm the leak).",
+      "evidence": {
+        "test_id": "get_user::bob::other",
+        "status": 200,
+        "effect": "allow",
+        "latency_ms": "<VOLATILE>",
+        "headers": {
+          "content-length": "54",
+          "content-type": "application/json"
+        },
+        "body_snippet": "{\"id\":\"u1\",\"name\":\"Alice\",\"email\":\"alice@example.com\"}",
+        "error": null,
+        "matched_markers": [],
+        "listed_tools": [],
+        "skipped": false
+      },
+      "curl": "curl -sS -X GET -H \"Authorization: Bearer $OVERSTEP_TOKEN_BOB\" http://127.0.0.1:8000/users/u1",
+      "request": {
+        "method": "GET",
+        "url": "http://127.0.0.1:8000/users/u1",
+        "headers": {
+          "Authorization": "Bearer $OVERSTEP_TOKEN_BOB"
+        },
+        "body": null
+      },
+      "confidence": "unverified",
+      "group": "get_user::GET::BOLA",
+      "cwe": "CWE-639",
+      "owasp_api": "API1:2023 Broken Object Level Authorization"
+    }
+  ],
+  "waived": [],
+  "warnings": []
+}
