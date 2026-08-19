@@ -843,4 +843,20 @@ def run_mcp(base_url: str, subjects: List[Subject], cases: List[TestCase], **kwa
     return asyncio.run(execute_mcp(base_url, subjects, cases, **kwargs))
 
 
-register("mcp", run_mcp)
+def _register() -> None:
+    """Imported at call time: mcp_repro imports this module's protocol helpers."""
+    from overstep.discovery import register as register_resolver
+    from overstep.mcp_auth import resolve_discovery
+    from overstep.mcp_fixtures import run_step
+    from overstep.mcp_repro import build_record, build_repro
+
+    register(
+        "mcp", run_mcp,
+        build_record=build_record,
+        build_repro=build_repro,
+        run_step=run_step,
+    )
+    register_resolver("mcp", resolve_discovery)
+
+
+_register()

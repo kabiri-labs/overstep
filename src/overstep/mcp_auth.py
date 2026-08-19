@@ -379,3 +379,38 @@ def discover_token_endpoint(
     finally:
         if owns:
             client.close()
+
+
+def resolve_discovery(matrix, provider, *, client, verify_tls: bool):
+    """Resolve a provider's `discover_from` against this matrix's MCP servers.
+
+    Returns ``None`` when the reference is neither a declared MCP server nor an
+    absolute URL — that is "not mine", and the core moves on to the next surface
+    rather than treating it as a failure.
+    """
+    from overstep.discovery import Discovered, DiscoveryFailed
+
+    server = matrix.server_map().get(provider.discover_from)
+    server_url = server.url if server and server.url else provider.discover_from
+    if not server_url or "://" not in server_url:
+        return None
+
+    try:
+        found = discover_token_endpoint(
+            server_url,
+            client=client,
+            expected_issuer=provider.issuer,
+            # A pinned resource is an identifier the run already trusts, so
+            # metadata claiming it is not the target choosing its own audience.
+            expected_resource=provider.resource,
+            # A run that already accepted unverified TLS has made its own call
+            # about transport security; anything else must not be handed a
+            # secret over plaintext.
+            allow_plaintext=not verify_tls,
+        )
+    except DiscoveryError as exc:
+        # Recognised and failed, which must stop the run rather than fall
+        # through to another resolver's guess.
+        raise DiscoveryFailed(str(exc)) from exc
+
+    return Discovered(token_endpoint=found.token_endpoint, resource=found.resource)

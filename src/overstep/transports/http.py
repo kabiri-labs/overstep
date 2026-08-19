@@ -7,6 +7,7 @@ the executor where it was preserves every existing import.
 from __future__ import annotations
 
 from overstep.executor import run as _http_run
+from overstep.http_repro import build_record, build_repro
 from overstep.transports.base import register
 
-register("http", _http_run)
+register("http", _http_run, build_record=build_record, build_repro=build_repro)

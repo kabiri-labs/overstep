@@ -17,14 +17,6 @@ import shlex
 from typing import Any, Dict, Optional
 from urllib.parse import urlencode, urljoin
 
-from overstep.executor import build_headers
-from overstep.mcp_protocol import (
-    DEFAULT_PROTOCOL_VERSION,
-    PROTOCOL_VERSION_HEADER,
-    RESERVED_HEADERS,
-    is_stateless,
-    routing_headers,
-)
 from overstep.models import SECRET_HEADERS as _SECRET_HEADERS
 from overstep.models import Subject, TestCase, drop_header
 
@@ -101,72 +93,8 @@ def _full_url(base_url: str, path: str, query: Dict[str, Any]) -> str:
     return url
 
 
-def _mcp_headers(case: TestCase, subject: Subject) -> Dict[str, str]:
-    """The headers the executor actually sent — including sending none.
-
-    Mirrors :func:`overstep.transports.mcp.mcp_headers`. An ``anonymous``
-    invocation must come out credential-free here too: a repro that quietly adds
-    the subject's token would succeed against a server that correctly refuses the
-    request the finding is about, which is worse than having no repro at all.
-    """
-    inv = case.mcp
-    headers: Dict[str, str] = dict(inv.headers) if inv else {}
-    if inv is not None and inv.anonymous:
-        headers = {k: v for k, v in headers.items() if k.lower() not in _SECRET_HEADERS}
-    else:
-        headers.update(subject.headers)
-        if subject.token and not any(k.lower() == "authorization" for k in subject.headers):
-            headers["Authorization"] = f"Bearer {subject.token}"
-    if inv is not None:
-        # The executor sends the protocol version on every revision, and the
-        # routing headers on the stateless one, where both are required for
-        # compliance. A repro missing either is a command the server rejects
-        # before it ever reaches the authorization the finding is about — a
-        # false all-clear pasted into a bug report.
-        from overstep.transports.mcp import jsonrpc_params
-
-        for name in RESERVED_HEADERS:
-            drop_header(headers, name)
-        headers[PROTOCOL_VERSION_HEADER] = inv.protocol_version
-        if is_stateless(inv.protocol_version):
-            headers.update(routing_headers(inv.method, jsonrpc_params(inv)))
-    return headers
 
 
-def _mcp_handshake_headers(case: TestCase, subject: Subject) -> Dict[str, str]:
-    """Headers for the ``initialize`` that opens the session being reused."""
-    inv = case.mcp
-    headers = dict(inv.headers) if inv else {}
-    headers.update(inv.handshake_headers or {} if inv else {})
-    headers.setdefault("Content-Type", "application/json")
-    return headers
-
-
-def _initialize_payload(case: TestCase) -> Dict[str, Any]:
-    version = case.mcp.protocol_version if case.mcp else DEFAULT_PROTOCOL_VERSION
-    return {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "initialize",
-        "params": {
-            "protocolVersion": version,
-            "capabilities": {},
-            "clientInfo": {"name": "overstep", "version": "1"},
-        },
-    }
-
-
-def _mcp_payload(case: TestCase) -> Dict[str, Any]:
-    """The JSON-RPC body to paste, matching what the executor actually sent."""
-    inv = case.mcp
-    if inv is None:
-        return {
-            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-            "params": {"name": case.path, "arguments": {}},
-        }
-    from overstep.transports.mcp import jsonrpc_request
-
-    return jsonrpc_request(inv, request_id=1)
 
 
 def _mask_env(env: Dict[str, str], subject: Subject, runnable: bool = True) -> Dict[str, str]:
@@ -190,127 +118,38 @@ def _mask_env(env: Dict[str, str], subject: Subject, runnable: bool = True) -> D
     return masked
 
 
+
+def _capability(case: TestCase, name: str):
+    """The transport's implementation of one rendering capability.
+
+    Imported inside the call rather than at module scope: each surface's
+    renderer imports the masking helpers from here, so a module-level import of
+    the registry — which pulls those renderers in — would be a cycle. By the
+    time a finding is being rendered, everything has loaded.
+    """
+    from overstep.transports import capability
+
+    return capability(case.transport, name)
+
+
 def request_record(base_url: str, subject: Subject, case: TestCase) -> Dict[str, Any]:
     """A structured, secret-masked description of the request that was sent."""
-    if case.mcp is not None and case.mcp.kind == "stdio":
-        return {
-            "method": case.mcp.method,
-            "transport": "stdio",
-            "command": case.mcp.command,
-            "env": _mask_env(case.mcp.env, subject),
-            "tool": case.mcp.tool,
-            "arguments": case.mcp.arguments,
-            # A stdio resource read has no tool or arguments; without this the
-            # evidence would not say which resource was actually read.
-            "uri": case.mcp.uri,
-        }
-    if case.mcp is not None:
-        record: Dict[str, Any] = {
-            "method": case.mcp.method,
-            "url": case.mcp.url,
-            "tool": case.mcp.tool,
-            "arguments": case.mcp.arguments,
-            "uri": case.mcp.uri,
-            "headers": mask_headers(_mcp_headers(case, subject), subject.name),
-        }
-        if case.mcp.handshake_headers:
-            # The request above carries no credential; this is what opened the
-            # session it rides on, and the pair is the finding.
-            record["handshake"] = {
-                "method": "initialize",
-                "headers": mask_headers(
-                    _mcp_handshake_headers(case, subject), subject.name
-                ),
-            }
-        return record
-    record = {
-        "method": case.method,
-        "url": _full_url(base_url, case.path, case.query),
-        "headers": mask_headers(build_headers(subject, case), subject.name),
-        "body": case.body,
-    }
-    if case.form:
-        record["form"] = case.form
-    return record
-
-
-def _curl(headers: Dict[str, str], payload: Dict[str, Any], url: str, *, head: bool = False) -> str:
-    parts = ["curl", "-sS"]
-    if head:
-        parts += ["-D", "-", "-o", "/dev/null"]
-    parts += ["-X", "POST"]
-    for key, value in headers.items():
-        parts += ["-H", _shell_arg(f"{key}: {value}")]
-    parts += ["--data", shlex.quote(json.dumps(payload))]
-    parts.append(shlex.quote(url))
-    return " ".join(parts)
-
-
-def _session_repro(subject: Subject, case: TestCase) -> str:
-    """Two steps, because the defect only exists across both.
-
-    A single command cannot show this one. The finding is that a session opened
-    by one identity is honoured for a request carrying no credential, so the
-    repro has to open the session as that identity, keep the id the server
-    issued, and then send the request without the credential. Collapsing it into
-    one authenticated call — which is what the generic MCP repro produced — is a
-    command that succeeds against a correctly secured server and demonstrates
-    nothing.
-    """
-    url = case.mcp.url
-    handshake = mask_headers(_mcp_handshake_headers(case, subject), subject.name)
-    anonymous = mask_headers(_mcp_headers(case, subject), subject.name)
-    # Named with the module's own prefix so `_shell_arg` double-quotes it and the
-    # shell expands it. A name outside that convention gets single-quoted like any
-    # other literal, and step 2 sends the characters `$SESSION` to the server.
-    anonymous["Mcp-Session-Id"] = f"${_VAR_PREFIX}_SESSION"
-
-    open_session = _curl(handshake, _initialize_payload(case), url, head=True)
-    extract = "tr -d '\\r' | awk 'tolower($1) == \"mcp-session-id:\" { print $2 }'"
-    return (
-        f"# 1. open a session as {subject.name} and keep the id the server issues\n"
-        f"{_VAR_PREFIX}_SESSION=$({open_session} | {extract})\n"
-        f"# 2. the same request carrying that session id and no credential at all\n"
-        f"{_curl(anonymous, _mcp_payload(case), url)}"
-    )
+    build = _capability(case, "build_record")
+    if build is None:
+        # A transport that registered only delivery. Say what is known rather
+        # than raising in the middle of writing a report.
+        return {"method": case.method, "transport": case.transport}
+    return build(base_url, subject, case)
 
 
 def to_curl(base_url: str, subject: Subject, case: TestCase) -> str:
-    """Render the request as a ``curl`` command with masked credentials.
+    """Render the request as a command with credentials masked.
 
-    For a stdio MCP call there is no curl; we render a shell repro that sets the
-    identity environment and pipes the tools/call into the server process.
+    What that command *is* belongs to the surface — a curl over HTTP, a process
+    with an environment over stdio, two steps for a session-binding finding —
+    so the surface renders it and this only asks.
     """
-    if case.mcp is not None and case.mcp.kind == "stdio":
-        env = " ".join(f"{k}={_shell_arg(v)}" for k, v in _mask_env(case.mcp.env, subject).items())
-        cmd = " ".join(shlex.quote(c) for c in case.mcp.command)
-        call = json.dumps(_mcp_payload(case))
-        prefix = f"{env} " if env else ""
-        return f"{prefix}{cmd}  # then send JSON-RPC: {call}"
-
-    if case.mcp is not None and case.mcp.handshake_headers:
-        return _session_repro(subject, case)
-
-    if case.mcp is not None:
-        parts = ["curl", "-sS", "-X", "POST"]
-        headers = mask_headers(_mcp_headers(case, subject), subject.name)
-        headers.setdefault("Content-Type", "application/json")
-        for key, value in headers.items():
-            parts += ["-H", _shell_arg(f"{key}: {value}")]
-        parts += ["--data", shlex.quote(json.dumps(_mcp_payload(case)))]
-        parts.append(shlex.quote(case.mcp.url))
-        return " ".join(parts)
-
-    parts = ["curl", "-sS", "-X", case.method]
-    for key, value in mask_headers(build_headers(subject, case), subject.name).items():
-        parts += ["-H", _shell_arg(f"{key}: {value}")]
-    if case.form:
-        for key, value in case.form.items():
-            parts += ["--data-urlencode", shlex.quote(f"{key}={value}")]
-    elif case.body is not None:
-        payload = case.body if isinstance(case.body, str) else json.dumps(case.body)
-        parts += ["--data", shlex.quote(payload)]
-        if not any(p.lower().startswith("content-type") for p in parts):
-            parts += ["-H", shlex.quote("Content-Type: application/json")]
-    parts.append(shlex.quote(_full_url(base_url, case.path, case.query)))
-    return " ".join(parts)
+    build = _capability(case, "build_repro")
+    if build is None:
+        return f"# no repro available for transport '{case.transport}'"
+    return build(base_url, subject, case)
