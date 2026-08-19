@@ -1,5 +1,71 @@
 # Changelog
 
+## [1.0.0] - 2026-08-19
+
+The end of the reorganisation that began at 0.37.1. Nothing new is added here;
+what changes is that the surface stops moving.
+
+### What 1.0.0 freezes
+
+The matrix format, the `test_id` shape, the finding classes and their wire
+values, the exit codes (`0` clean, `1` findings, `2` bad input, `3` inconclusive)
+and the four report documents. Each is pinned by a golden file that fails on any
+change, so a release that moves one has to say so rather than discover it later.
+
+### Migrating from 0.36.x or earlier, in one place
+
+Every break in the 0.37–0.41 series, since a matrix written before it needs all
+of them. The loader refuses each removed key by name and says what to write
+instead, so a stale matrix is an error with instructions rather than a silent
+misread — but the list is here to be done in one pass.
+
+**Matrix layout** — surface-specific configuration moved under `modules:`:
+
+| Was | Is now |
+|---|---|
+| `base_url` | `modules.rest.base_url` |
+| `access` | `modules.rest.access` |
+| `servers` | `modules.mcp.servers` |
+| `mcp_access` | `modules.mcp.access` |
+| `probe_token_audience` | `modules.mcp.probes.token_audience` |
+| `probe_session_binding` | `modules.mcp.probes.session_binding` |
+| `probe_tool_enumeration` | `modules.mcp.probes.tool_enumeration` |
+
+**Resources** — three removals, each because the body already says it:
+
+| Was | Is now |
+|---|---|
+| `transport: mcp` | delete it; a `call` or `read` is MCP, a `request` is REST |
+| `mcp_access:` on a resource | `access:`, parsed as the module its body implies |
+| `owner_param` / `owner_arg` / `owner_uri` | `owner:`, placed by the body |
+
+**Everything else**: an unknown key anywhere in a matrix is now an error rather
+than ignored — including inside `modules.mcp.probes`, where a transposed letter
+used to switch a security probe off and let the run report clean.
+
+**Paths**: `examples/mock_api` is `examples/rest_api`. Internal import paths moved
+under `overstep.modules.rest` and `overstep.modules.mcp`; `overstep`'s documented
+exports are unchanged.
+
+### Changed
+- **The module boundary is a decision rather than a backlog.** Every core-to-surface
+  edge that was *logic* is gone: eight were measured at 0.38.2, six were given seams
+  and two were misplaced primitives. The two that remain are core schema composing a
+  surface's schema, kept deliberately — making the module blocks opaque to the core
+  would cost validation at the one place a matrix is checked. The test asserts that
+  set exactly, in both directions, so the exception can neither grow nor rot.
+
+### Added
+- `tests/test_cli_surface.py` — every command invoked the way a user invokes it,
+  on the path that works.
+
+  An audit found this was the suite's largest blind spot. Every `run` and
+  `snapshot` invocation pointed at a dead target; `plan` and `version` were never
+  invoked at all; `coverage` was only ever pointed at a server that refuses. The
+  pipeline was covered thoroughly and the layer between a terminal and it —
+  argument parsing, report paths, the summary, the exit code — only where it
+  fails. That is exactly how `coverage --fmt mcp` shipped broken for two releases.
+
 ## [0.41.0] - 2026-08-19
 
 ### Changed
