@@ -502,3 +502,30 @@ def test_a_validation_failure_names_the_place_to_fill_in():
 
     assert any("path parameter" in p for p in rest.validate_refs())
     assert any("URI placeholder" in p for p in mcp.validate_refs())
+
+
+def test_no_bundled_example_teaches_a_removed_key():
+    """Prose in an example is copied as readily as the YAML under it.
+
+    The MCP demo's header explained `owner_arg` and `owner_uri` for two releases
+    after the values beneath it had been migrated — so a reader following the
+    example would have written a matrix the loader rejects. Found in review,
+    because migrating values and migrating the comments that describe them are
+    two different edits and only one of them fails a test.
+    """
+    import glob
+    import os
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    removed = ("owner_param", "owner_arg", "owner_uri", "transport:", "mcp_access")
+
+    offences = []
+    for path in glob.glob(os.path.join(root, "examples", "**", "*.yaml"), recursive=True):
+        with open(path, "r", encoding="utf-8") as handle:
+            for number, line in enumerate(handle, 1):
+                for key in removed:
+                    if key in line:
+                        rel = os.path.relpath(path, root)
+                        offences.append(f"{rel}:{number}: {key} — {line.strip()}")
+
+    assert not offences, "bundled examples name removed keys:\n" + "\n".join(offences)

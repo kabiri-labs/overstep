@@ -5,10 +5,10 @@
 #
 # An MCP resource declares either a `call` (server + tool) or a `read` (server +
 # resource URI) instead of an HTTP request, and that body is what puts it in the
-# MCP module — there is nothing else to declare. Either way one field names where
-# the object id lives — `owner_arg` for a tool argument, `owner_uri` for a
-# {placeholder} in the URI — and overstep fills it with the caller's own id
-# (SELF) or a victim's (OTHER) to probe for BOLA.
+# MCP module — there is nothing else to declare. `owner` names what identifies the
+# owned object, and where it goes follows from that same body: a tool argument
+# for a `call`, the {placeholder} for a `read`. overstep fills it with the
+# caller's own id (SELF) or a victim's (OTHER) to probe for BOLA.
 #
 # This server has the same missing check on both, which is the point: a matrix
 # that declared only the tool would report the resource half clean.
