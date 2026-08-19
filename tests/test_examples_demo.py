@@ -47,7 +47,7 @@ def demo_app():
 
 
 def _run(app):
-    import overstep.transports.mcp as mcpmod
+    import overstep.modules.mcp.transport as mcpmod
 
     orig = httpx.AsyncClient
 

@@ -4,7 +4,7 @@ Speaks MCP over Streamable HTTP (JSON-RPC 2.0) with the same httpx client the HT
 transport uses — no extra dependency. For each case it performs a best-effort
 ``initialize`` handshake (capturing a session id if the server issues one) and
 then a ``tools/call``, turning the result into an allow/deny Observation via
-:mod:`overstep.mcp_matching`. Identity comes from the subject exactly as in HTTP:
+:mod:`overstep.modules.mcp.matching`. Identity comes from the subject exactly as in HTTP:
 the subject's bearer token / headers, merged over the server's own headers.
 
 That handshake is what pins this transport to a protocol revision (see
@@ -26,8 +26,8 @@ from typing import Any, Dict, List, NamedTuple, Optional
 
 import httpx
 
-from overstep.mcp_matching import content_text, contents_text, contents_uris, evaluate_mcp
-from overstep.mcp_protocol import (
+from overstep.modules.mcp.matching import content_text, contents_text, contents_uris, evaluate_mcp
+from overstep.modules.mcp.protocol import (
     CLIENT_INFO,
     HEADER_MISMATCH,
     PROTOCOL_VERSION_HEADER,
@@ -846,9 +846,10 @@ def run_mcp(base_url: str, subjects: List[Subject], cases: List[TestCase], **kwa
 def _register() -> None:
     """Imported at call time: mcp_repro imports this module's protocol helpers."""
     from overstep.discovery import register as register_resolver
-    from overstep.mcp_auth import resolve_discovery
-    from overstep.mcp_fixtures import run_step
-    from overstep.mcp_repro import build_record, build_repro
+    from overstep.modules.mcp.taxonomy import register_all as register_taxonomy
+    from overstep.modules.mcp.auth import resolve_discovery
+    from overstep.modules.mcp.fixtures import run_step
+    from overstep.modules.mcp.repro import build_record, build_repro
 
     register(
         "mcp", run_mcp,
@@ -857,6 +858,7 @@ def _register() -> None:
         run_step=run_step,
     )
     register_resolver("mcp", resolve_discovery)
+    register_taxonomy()
 
 
 _register()

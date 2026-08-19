@@ -250,7 +250,7 @@ def _handler(*, billing_validates_audience: bool, billing_lists: list):
 
 
 def _run(matrix, handler):
-    import overstep.transports.mcp as mcpmod
+    import overstep.modules.mcp.transport as mcpmod
 
     transport = httpx.MockTransport(handler)
     orig = httpx.AsyncClient

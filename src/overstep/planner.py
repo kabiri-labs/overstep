@@ -21,7 +21,7 @@ from typing import Dict, List, Optional, Tuple
 from overstep.expressions import safe_eval
 from overstep.jsonpath import set_at
 from overstep.matrix import Matrix
-from overstep.mcp_protocol import DEFAULT_PROTOCOL_VERSION
+from overstep.modules.mcp.protocol import DEFAULT_PROTOCOL_VERSION
 from overstep.models import (
     Effect,
     OwnershipInjection,

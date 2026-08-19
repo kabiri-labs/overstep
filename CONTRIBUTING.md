@@ -50,7 +50,6 @@ Core path of a run — matrix in, findings out:
 - `overstep/matrix.py` — the matrix model, loading and validation (`validate_refs`).
 - `overstep/models.py` — every shared pydantic model (subjects, cases, findings).
 - `overstep/planner.py` — matrix → positive/negative test cases.
-- `overstep/executor.py` — fire HTTP requests, record observations.
 - `overstep/classifier.py` — observations → classified findings.
 - `overstep/health.py` — decides whether a run proved anything at all; a run that
   never reached its target must never report clean (see *Coding standards*).
@@ -59,20 +58,41 @@ Core path of a run — matrix in, findings out:
   `write_reports`).
 - `overstep/cli.py` — thin argument parsing / rendering over the pipeline.
 
+The surfaces — everything only one of them understands:
+
+- `overstep/modules/rest/` — the HTTP executor, the response matcher, the curl
+  repro, and the OpenAPI and HAR scaffolders.
+- `overstep/modules/mcp/` — the JSON-RPC transport over Streamable HTTP and
+  stdio, the protocol revisions, OAuth discovery, the tool-call repro, the
+  `tools/list` scaffolder, and the three finding classes only this surface can
+  report.
+
+Neither is at the package root, and neither may import the other. A module may
+depend on the core; the core may not depend on a module.
+`tests/test_module_boundary.py` measures both rules against the real import
+graph, and reads which module belongs to which surface off this layout — so
+moving a file is how you change the answer.
+
 Pluggable seams — add capability here, not in the core:
 
-- `overstep/transports/` — how a case is delivered (`http`, `mcp`); register one
-  with `register(...)` in `transports/base.py`.
+- `overstep/transports/base.py` — the registry a surface registers into: how a
+  case is delivered, plus the optional `build_record`, `build_repro` and
+  `run_step` a surface answers for itself. Round-trip a spec with `restore(...)`,
+  never by re-registering its executor.
+- `overstep/discovery.py` — resolving a provider's `discover_from`. Returning
+  `None` means "not mine"; raising `DiscoveryFailed` stops the run.
+- `overstep/taxonomy.py` — the classes both surfaces report. A surface adds its
+  own with `register(...)`, and its SARIF help with `report.sarif.register_help`.
 - `overstep/report/` — output formats; add one with `@register(...)` in
   `report/base.py`.
-- `overstep/loaders/` — scaffolding a matrix from OpenAPI, HAR or a live MCP
-  server's `tools/list`.
 
 Supporting:
 
 - `overstep/auth.py`, `fixtures.py` — obtaining tokens; setup/teardown steps.
-- `overstep/repro.py` — the `curl` / tool-call reproduction on each finding.
-- `overstep/waivers.py`, `taxonomy.py` — accepted risk; CWE/OWASP mapping.
+- `overstep/repro.py` — masking and shell quoting, and the dispatch to whichever
+  surface can render the finding.
+- `overstep/waivers.py` — accepted risk.
+- `overstep/statuses.py` — reading a status specification, for either surface.
 - `overstep/expressions.py` — the restricted evaluator behind policy conditions.
 
 Outside the package:

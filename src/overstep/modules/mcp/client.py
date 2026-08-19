@@ -1,6 +1,6 @@
 """A small *synchronous* MCP client used by setup/teardown fixtures.
 
-The main run executes tool-calls asynchronously (see overstep.transports.mcp), but
+The main run executes tool-calls asynchronously (see overstep.modules.mcp.transport), but
 setup and teardown run once, sequentially, before/after the suite — so a blocking
 client is simpler here. Supports both server kinds: Streamable HTTP (httpx) and
 stdio (a subprocess speaking newline-delimited JSON-RPC). Given a server and the
@@ -16,9 +16,9 @@ from typing import Any, Dict, Optional
 
 import httpx
 
-from overstep.mcp_protocol import CLIENT_INFO, is_stateless, request_meta, routing_headers
+from overstep.modules.mcp.protocol import CLIENT_INFO, is_stateless, request_meta, routing_headers
 from overstep.models import McpServer, Subject, drop_header
-from overstep.transports.mcp import _parse_message
+from overstep.modules.mcp.transport import _parse_message
 
 
 def _http_call(

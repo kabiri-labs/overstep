@@ -25,7 +25,7 @@ be told "no", not a new thing to believe.
 import httpx
 import pytest
 
-from overstep.mcp_auth import (
+from overstep.modules.mcp.auth import (
     DiscoveryError,
     _as_metadata_candidates,
     discover_token_endpoint,

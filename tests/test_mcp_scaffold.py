@@ -5,7 +5,7 @@ import httpx
 import pytest
 import yaml
 
-from overstep.loaders.mcp import (
+from overstep.modules.mcp.loader import (
     fetch_tools,
     guess_owner_arg,
     is_mutating,
@@ -109,7 +109,7 @@ def test_fetch_tools_over_http():
             return httpx.Response(200, json={"jsonrpc": "2.0", "id": msg["id"], "result": {"tools": _TOOLS}})
         return httpx.Response(200, json={"jsonrpc": "2.0", "id": msg.get("id"), "error": {"code": -32601, "message": "x"}})
 
-    import overstep.loaders.mcp as mcpld
+    import overstep.modules.mcp.loader as mcpld
 
     orig = httpx.Client
 
@@ -151,7 +151,7 @@ _TEMPLATES = [
 
 
 def test_guess_owner_uri_prefers_an_id_like_placeholder():
-    from overstep.loaders.mcp import guess_owner_uri
+    from overstep.modules.mcp.loader import guess_owner_uri
 
     assert guess_owner_uri("doc://acme/{doc_id}") == "doc_id"
     assert guess_owner_uri("repo://{org_id}/{branch}") == "org_id"
@@ -164,7 +164,7 @@ def test_guess_owner_uri_prefers_an_id_like_placeholder():
 
 def test_operator_templates_are_reported_not_drafted():
     """Ownership is plain {name} substitution, so an operator cannot be filled."""
-    from overstep.loaders.mcp import has_uri_operator
+    from overstep.modules.mcp.loader import has_uri_operator
 
     assert has_uri_operator("file:///{+path}") is True
     assert has_uri_operator("search://x{?q,lang}") is True
@@ -235,7 +235,7 @@ def test_the_scaffolded_read_matrix_is_structurally_valid():
 
 
 def test_load_resource_templates_from_file(tmp_path):
-    from overstep.loaders.mcp import load_resource_templates_from_file
+    from overstep.modules.mcp.loader import load_resource_templates_from_file
 
     p = tmp_path / "listing.json"
     p.write_text(json.dumps({"result": {"resourceTemplates": _TEMPLATES}}))
@@ -248,7 +248,7 @@ def test_load_resource_templates_from_file(tmp_path):
 
 
 def test_fetch_resource_templates_over_http():
-    from overstep.loaders.mcp import fetch_resource_templates
+    from overstep.modules.mcp.loader import fetch_resource_templates
 
     seen = []
 
@@ -263,7 +263,7 @@ def test_fetch_resource_templates_over_http():
         return httpx.Response(200, json={"jsonrpc": "2.0", "id": 2,
                                          "result": {"resourceTemplates": _TEMPLATES}})
 
-    import overstep.loaders.mcp as mod
+    import overstep.modules.mcp.loader as mod
 
     orig = httpx.Client
 
@@ -306,7 +306,7 @@ def _listing_server(pages, *, method="resources/templates/list", key="resourceTe
 
 
 def _with_server(handler, fn, *args, **kwargs):
-    import overstep.loaders.mcp as mod
+    import overstep.modules.mcp.loader as mod
 
     orig = httpx.Client
     mod.httpx.Client = lambda *a, **kw: orig(*a, transport=httpx.MockTransport(handler), **kw)
@@ -319,7 +319,7 @@ def _with_server(handler, fn, *args, **kwargs):
 def test_a_paginated_listing_is_followed_to_the_end():
     """This count is a denominator: a template on page two is not one that
     does not exist, and `coverage --fail-under` must not treat it as absent."""
-    from overstep.loaders.mcp import fetch_resource_templates
+    from overstep.modules.mcp.loader import fetch_resource_templates
 
     pages = {
         None: {"resourceTemplates": [{"uriTemplate": "a://{id}"}], "nextCursor": "p2"},
@@ -331,7 +331,7 @@ def test_a_paginated_listing_is_followed_to_the_end():
 
 
 def test_tools_paginate_too():
-    from overstep.loaders.mcp import fetch_tools
+    from overstep.modules.mcp.loader import fetch_tools
 
     pages = {
         None: {"tools": [{"name": "one"}], "nextCursor": "p2"},
@@ -343,7 +343,7 @@ def test_tools_paginate_too():
 
 
 def test_a_cursor_that_never_terminates_does_not_hang():
-    from overstep.loaders.mcp import fetch_tools
+    from overstep.modules.mcp.loader import fetch_tools
 
     pages = {None: {"tools": [{"name": "x"}], "nextCursor": "always"},
              "always": {"tools": [{"name": "x"}], "nextCursor": "always"}}
@@ -354,14 +354,14 @@ def test_a_cursor_that_never_terminates_does_not_hang():
 
 def test_a_server_without_resources_returns_none_rather_than_raising():
     """Which is why an exception from this call means a real failure to read."""
-    from overstep.loaders.mcp import fetch_resource_templates
+    from overstep.modules.mcp.loader import fetch_resource_templates
 
     handler = _listing_server({None: {"tools": []}}, method="tools/list", key="tools")
     assert _with_server(handler, fetch_resource_templates, "http://t/mcp") == []
 
 
 def test_a_transport_failure_while_listing_is_not_silently_empty():
-    from overstep.loaders.mcp import fetch_resource_templates
+    from overstep.modules.mcp.loader import fetch_resource_templates
 
     def broken(request: httpx.Request) -> httpx.Response:
         msg = json.loads(request.content)
@@ -381,7 +381,7 @@ def test_a_refused_listing_is_not_read_as_a_server_with_no_tools():
     and report the matrix complete — a gate going green because nothing was
     measured, which is the one failure mode this project does not ship.
     """
-    from overstep.loaders.mcp import McpListingError, fetch_tools
+    from overstep.modules.mcp.loader import McpListingError, fetch_tools
 
     def refuses(request: httpx.Request) -> httpx.Response:
         msg = json.loads(request.content)
@@ -397,7 +397,7 @@ def test_a_refused_listing_is_not_read_as_a_server_with_no_tools():
 
 def test_an_in_band_error_that_is_not_method_not_found_is_a_failure_too():
     """A `200` carrying a JSON-RPC error is still a listing nobody read."""
-    from overstep.loaders.mcp import McpListingError, fetch_tools
+    from overstep.modules.mcp.loader import McpListingError, fetch_tools
 
     def rejects(request: httpx.Request) -> httpx.Response:
         msg = json.loads(request.content)
@@ -413,7 +413,7 @@ def test_an_in_band_error_that_is_not_method_not_found_is_a_failure_too():
 def test_method_not_found_still_means_none():
     """The one refusal that really is an answer, and the reason resources are
     optional: a server that does not implement the method has no such surface."""
-    from overstep.loaders.mcp import fetch_resource_templates
+    from overstep.modules.mcp.loader import fetch_resource_templates
 
     def unsupported(request: httpx.Request) -> httpx.Response:
         msg = json.loads(request.content)
@@ -427,7 +427,7 @@ def test_method_not_found_still_means_none():
 
 def test_coverage_exits_two_when_the_surface_could_not_be_read(tmp_path):
     """End to end: the denominator is missing, so the gate must not go green."""
-    import overstep.loaders.mcp as mcpld
+    import overstep.modules.mcp.loader as mcpld
     from typer.testing import CliRunner
 
     from overstep.cli import app
@@ -463,3 +463,63 @@ def test_coverage_exits_two_when_the_surface_could_not_be_read(tmp_path):
 
     assert result.exit_code == 2
     assert "could not read the MCP surface" in result.stdout
+
+
+def test_coverage_reads_a_reachable_mcp_surface(tmp_path):
+    """The happy path of `coverage --fmt mcp`, which nothing exercised.
+
+    Everything around it was covered — the comparison logic against
+    hand-built resources, and the refusal path above — but nothing ran the CLI
+    against a server that actually answers. So when `Resource` stopped accepting
+    a `transport` field in 0.38.0 and this construction was missed, the command
+    started raising a validation error on every reachable MCP server and the
+    suite stayed green through a release.
+
+    Reaching for the surface and getting a real listing back is the assertion.
+    """
+    import overstep.modules.mcp.loader as mcpld
+    from typer.testing import CliRunner
+
+    from overstep.cli import app
+
+    matrix = tmp_path / "m.yaml"
+    matrix.write_text(
+        "roles: [user]\n"
+        "modules:\n  mcp:\n    servers:\n      - {name: docs, url: 'http://t/mcp'}\n"
+        "subjects:\n  - {name: alice, role: user, token: a}\n"
+        "resources:\n"
+        "  - name: read_document\n"
+        "    call: {server: docs, tool: read_document}\n    type: function\n"
+        "policy:\n  read_document: {allow: [{role: user}]}\n"
+    )
+
+    def answers(request: httpx.Request) -> httpx.Response:
+        msg = json.loads(request.content)
+        method = msg.get("method")
+        if method in ("initialize", "notifications/initialized"):
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {}})
+        if method == "tools/list":
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 2, "result": {
+                "tools": [{"name": "read_document"}, {"name": "delete_document"}]
+            }})
+        if method == "resources/templates/list":
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 3, "result": {
+                "resourceTemplates": [{"uriTemplate": "doc://acme/{doc_id}"}]
+            }})
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": 4, "result": {}})
+
+    orig = httpx.Client
+    mcpld.httpx.Client = lambda *a, **kw: orig(*a, transport=httpx.MockTransport(answers), **kw)
+    try:
+        result = CliRunner().invoke(
+            app,
+            ["coverage", str(matrix), "--spec", "http://t/mcp", "--fmt", "mcp",
+             "--token", "t"],
+        )
+    finally:
+        mcpld.httpx.Client = orig
+
+    assert result.exit_code == 0, result.output
+    # One of three operations declared: the two extras are the gap it reports.
+    assert "1/3" in result.output
+    assert "delete_document" in result.output

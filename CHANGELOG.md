@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.40.0] - 2026-08-19
+
+### Changed
+- **Each surface is a package, and neither is at the package root.** MCP had a
+  consistent `mcp_` prefix while REST occupied the root unmarked, so the file
+  listing said one was the tool and the other an addition — the same shape 0.37.1
+  removed from the README and 0.38.0 from the matrix format. Fourteen modules move
+  under `overstep/modules/rest/` and `overstep/modules/mcp/`, and the `mcp_`
+  prefix goes with them: it was only ever there to mark one of two peers.
+
+  The core stays where it is. Extracting the surfaces is what leaves
+  `overstep/` as the core, and moving twenty more files would have been diff
+  without meaning.
+
+  `tests/test_module_boundary.py` now reads which module belongs to which surface
+  off the layout instead of a hand-kept list, so the rule and the tree cannot
+  disagree.
+
+- **The MCP surface owns the three finding classes only it can report.**
+  Credential audience, session binding and tool enumeration are requirements the
+  MCP specification places on a server; nothing else produces them. They sat in
+  the shared taxonomy beside BOLA, which meant the table every surface reads
+  described one surface's protocol — down to SARIF help beginning "An MCP
+  server…". The core keeps what both surfaces report; a surface registers its own
+  with `taxonomy.register` and `report.sarif.register_help`.
+
+- **SARIF rules are ordered by declaration, not registration.** With a surface
+  contributing classes on import, insertion order decided where they landed in
+  the document, so the move reshuffled a file people diff between runs. Ordering
+  by the `VulnClass` declaration makes it independent of import order. Caught by
+  the golden files, which is what they are for.
+
+### Fixed
+- **`overstep coverage --fmt mcp` against a reachable server has been broken
+  since 0.38.0.** Removing `transport` from `Resource` missed two constructions in
+  `cli.py`, so reading a live MCP surface raised a validation error instead of
+  reporting coverage. Everything around it was tested — the comparison logic, and
+  the path where the server refuses — but nothing ran the command against a server
+  that answers, so a release went out with it. Found by running the command, not
+  by the suite; the test that would have caught it now exists.
+
 ## [0.39.0] - 2026-08-19
 
 ### Changed

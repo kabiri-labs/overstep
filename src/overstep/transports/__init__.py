@@ -1,8 +1,9 @@
-"""Transports: the pluggable seam between the core and the system under test.
+"""The registry the core reaches the surfaces through.
 
-Importing this package registers every built-in transport (currently HTTP) into
-the shared registry in :mod:`overstep.transports.base`, mirroring how
-:mod:`overstep.report` registers reporters.
+The registry itself is core — it knows that *a* surface delivers cases, renders
+evidence and runs setup steps, and nothing about how any of them does it.
+Importing this package pulls in the built-in modules so they register
+themselves, mirroring how :mod:`overstep.report` registers reporters.
 """
 from __future__ import annotations
 
@@ -18,9 +19,9 @@ from overstep.transports.base import (
     transport_names,
 )
 
-# Import for side effects: each module registers its transport on import.
-from overstep.transports import http  # noqa: E402,F401
-from overstep.transports import mcp  # noqa: E402,F401
+# Import for side effects: each surface registers itself on import.
+from overstep.modules.mcp import transport as _mcp  # noqa: E402,F401
+from overstep.modules.rest import transport as _rest  # noqa: E402,F401
 
 __all__ = [
     "DEFAULT_TRANSPORT",

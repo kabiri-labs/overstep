@@ -90,7 +90,7 @@ def test_dispatch_over_http_end_to_end(matrix):
     transport = httpx.MockTransport(handler)
     cases = plan(matrix)
 
-    import overstep.executor as ex
+    import overstep.modules.rest.executor as ex
 
     orig = httpx.AsyncClient
 

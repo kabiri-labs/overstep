@@ -8,7 +8,7 @@ import pytest
 from typer.testing import CliRunner
 
 from overstep.cli import app
-from overstep.loaders.openapi import scaffold_matrix
+from overstep.modules.rest.openapi import scaffold_matrix
 from overstep.matrix import Matrix, Problem, Severity
 from overstep.placeholders import scan
 

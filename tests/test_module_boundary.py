@@ -19,6 +19,9 @@ ratchet: a violation may be removed from the list, never added, and a fixed one
 must be deleted from it the same day. The test fails on a stale entry as loudly
 as on a new violation, so the list cannot quietly become documentation for a
 problem nobody is fixing.
+
+Which modules belong to which surface is now read off the package layout rather
+than listed here, so the rule and the tree cannot disagree.
 """
 import ast
 import os
@@ -29,15 +32,25 @@ SRC = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "overstep"
 )
 
-# Delivery, and everything only one surface understands.
-REST_MODULES = {
-    "executor", "matching", "http_repro", "transports.http",
-    "loaders.openapi", "loaders.har",
-}
-MCP_MODULES = {
-    "mcp_auth", "mcp_client", "mcp_fixtures", "mcp_matching", "mcp_protocol",
-    "mcp_repro", "transports.mcp", "loaders.mcp",
-}
+def _surface_modules(surface: str) -> set:
+    """Every module under one surface's package, read off the tree.
+
+    Derived rather than listed. The first version of this file carried two
+    literal sets, because the packages did not exist yet and there was no other
+    way to say which module belonged to whom — which made the boundary itself
+    something that could silently drift from the layout it described. Now a file
+    is a surface's the moment it is placed there.
+    """
+    root = os.path.join(SRC, "modules", surface)
+    return {
+        f"modules.{surface}." + os.path.splitext(name)[0]
+        for name in os.listdir(root)
+        if name.endswith(".py") and name != "__init__.py"
+    }
+
+
+REST_MODULES = _surface_modules("rest")
+MCP_MODULES = _surface_modules("mcp")
 MODULE_OWNED = REST_MODULES | MCP_MODULES
 
 # The entry point wires everything together on purpose; it is not core logic.
@@ -46,12 +59,24 @@ EXEMPT = {"cli", "__main__", ""}
 # Every core -> module import still standing, and what it is waiting on. Removing
 # an entry is the unit of progress here.
 KNOWN_VIOLATIONS = {
-    # All that is left. `DEFAULT_PROTOCOL_VERSION` defaults two MCP models that
-    # still live in the shared models module, and the planner reads the same
-    # constant to build an invocation. Both go when those models move to the MCP
-    # module — a relocation, not a seam, and the last thing on this list.
-    ("models", "mcp_protocol"),
-    ("planner", "mcp_protocol"),
+    # These two are a different kind from the six that were removed, and saying
+    # so is more useful than counting them down to zero.
+    #
+    # Those were core *logic* reaching into a surface to do work — rendering a
+    # repro, running a tool-call, resolving a discovery — and each had a seam it
+    # was missing. These are core *schema* composing a surface's schema:
+    # `Matrix.modules.mcp` is typed `McpModule`, which holds `McpServer` and
+    # `McpMatcher`, and `TestCase.mcp` is an `McpInvocation`. Both read
+    # `DEFAULT_PROTOCOL_VERSION` as a field default.
+    #
+    # Moving the models under `modules/mcp/` would relocate the edge, not remove
+    # it: `matrix` and `planner` would import the new location instead. Removing
+    # it for real means making the module blocks opaque to the core — a dict the
+    # surface parses — which costs validation and typing at the one place a
+    # matrix is checked, to buy a cleaner graph. That is a trade worth making
+    # deliberately or not at all, so it is recorded rather than quietly done.
+    ("models", "modules.mcp.protocol"),
+    ("planner", "modules.mcp.protocol"),
 }
 
 
@@ -104,7 +129,7 @@ def test_the_graph_is_actually_being_read():
     graph = _graph()
 
     assert len(graph) > 20, f"only {len(graph)} modules found; the walk is wrong"
-    assert "mcp_protocol" in graph["models"], "the import parser missed a known edge"
+    assert "modules.mcp.protocol" in graph["models"], "the import parser missed a known edge"
 
 
 def test_no_core_module_imports_a_module_beyond_the_known_list():
@@ -162,9 +187,11 @@ def test_both_surfaces_read_a_status_specification_from_the_same_place():
     describe the same thing. Sharing the parser is right; sharing it by importing
     the other surface's module was not.
     """
-    from overstep import matching, mcp_matching, statuses
+    from overstep import statuses
+    from overstep.modules.mcp import matching as mcp_matching
+    from overstep.modules.rest import matching as rest_matching
 
-    assert matching.status_matches is statuses.status_matches
+    assert rest_matching.status_matches is statuses.status_matches
     assert mcp_matching.status_matches is statuses.status_matches
     assert statuses.status_matches(["2xx"], 204)
     assert statuses.status_matches(["200-299"], 201)

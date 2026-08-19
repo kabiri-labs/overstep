@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validat
 
 # Imports nothing from overstep, so it stays safe to pull in from the module
 # every other one depends on.
-from overstep.mcp_protocol import DEFAULT_PROTOCOL_VERSION
+from overstep.modules.mcp.protocol import DEFAULT_PROTOCOL_VERSION
 
 HTTPMethod = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
 
@@ -103,7 +103,7 @@ class ResponseMatcher(BaseModel):
 
     A status code alone is often not enough: some APIs redirect on success,
     return ``200`` with an error body, or mask a ``403`` as ``404``. This lets a
-    matrix express the real signal. Evaluation order (see overstep.matching):
+    matrix express the real signal. Evaluation order (see overstep.modules.rest.matching):
 
       1. ``deny_body_regex`` matches   -> deny  (catches masked errors in a 2xx)
       2. ``allow_body_regex`` matches  -> allow
@@ -277,7 +277,7 @@ class McpMatcher(BaseModel):
     in-band deny signal, so it has to be read from the status; without that, a
     correctly-denying server looks like one that ran the tool.
 
-    Evaluation order (see overstep.mcp_matching):
+    Evaluation order (see overstep.modules.mcp.matching):
 
       1. ``deny_content_regex`` matches   -> deny
       2. ``allow_content_regex`` matches  -> allow

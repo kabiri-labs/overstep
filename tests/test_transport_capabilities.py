@@ -158,7 +158,7 @@ def test_a_resolver_that_does_not_recognise_the_reference_declines():
     provider = AuthProvider(name="p", type="oauth2_client_credentials",
                             discover_from="not-a-server-or-url")
 
-    from overstep.mcp_auth import resolve_discovery
+    from overstep.modules.mcp.auth import resolve_discovery
 
     assert resolve_discovery(_EmptyMatrix(), provider, client=None, verify_tls=True) is None
 
@@ -216,3 +216,80 @@ class _EmptyMatrix:
 
     def server_map(self):
         return {}
+
+
+# --- the taxonomy a surface owns ----------------------------------------------
+
+
+CORE_CLASSES = {
+    "BOLA", "BFLA", "BOPLA", "privilege-escalation",
+    "authorization-drift", "unexpected-deny",
+}
+MCP_CLASSES = {"token-audience", "session-hijack", "tool-enumeration"}
+
+
+def test_the_mcp_surface_contributes_its_own_finding_classes():
+    """Three classes exist because this surface has a protocol with rules.
+
+    Credential audience and session binding are requirements the MCP
+    authorization spec places on the server itself; tool enumeration asks about
+    a catalogue nothing else has. They sat in the shared taxonomy beside BOLA,
+    which made the table every surface reads describe one surface's protocol —
+    down to SARIF help text starting "An MCP server...".
+    """
+    from overstep.modules.mcp.taxonomy import TAXONOMY as mcp_taxonomy
+
+    assert {vuln.value for vuln in mcp_taxonomy} == MCP_CLASSES
+
+
+def test_the_core_taxonomy_module_declares_only_what_both_surfaces_report():
+    """Read from the source, because the registry is populated on import.
+
+    Asserting against the live table would pass no matter where a class was
+    declared — the point is that the *core module* no longer carries them.
+    """
+    import os
+
+    import overstep.taxonomy as core_taxonomy
+
+    with open(core_taxonomy.__file__, "r", encoding="utf-8") as handle:
+        source = handle.read()
+
+    for name in ("TOKEN_AUDIENCE", "SESSION_HIJACK", "TOOL_ENUMERATION"):
+        assert f"VulnClass.{name}: Taxon(" not in source, (
+            f"{name} is declared in the core taxonomy; it belongs to the MCP surface"
+        )
+    assert "VulnClass.BOLA: Taxon(" in source, "the core lost a class it does own"
+    assert os.path.basename(core_taxonomy.__file__) == "taxonomy.py"
+
+
+def test_every_class_is_registered_by_the_time_a_report_is_written():
+    """Split ownership must not mean a class missing its CWE mapping.
+
+    A finding whose class has no taxon would raise while writing SARIF, and a
+    surface that forgot to register would fail only for the findings it produced.
+    """
+    from overstep.models import VulnClass
+    from overstep.taxonomy import TAXONOMY, taxon
+
+    assert {vuln.value for vuln in TAXONOMY} == CORE_CLASSES | MCP_CLASSES
+    for vuln in VulnClass:
+        assert taxon(vuln).cwe.startswith("CWE-"), f"{vuln.value} has no CWE mapping"
+
+
+def test_sarif_rule_order_does_not_depend_on_who_registered_first():
+    """A surface contributing classes must not reshuffle a document people diff.
+
+    The rules are ordered by the `VulnClass` declaration, so registration order —
+    which is import order, which is not something a reader should have to reason
+    about — cannot move them. Caught by the golden files when it did.
+    """
+    from overstep.models import VulnClass
+    from overstep.report.sarif import _rules
+
+    ids = [rule["id"] for rule in _rules()]
+    declared = [vuln.value for vuln in VulnClass if vuln.value in ids]
+
+    assert ids == declared
+    # The MCP classes sit where they are declared, not appended at the end.
+    assert ids.index("token-audience") < ids.index("authorization-drift")

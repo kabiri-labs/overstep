@@ -20,7 +20,7 @@ import httpx
 import pytest
 
 from overstep.matrix import Matrix
-from overstep.mcp_protocol import (
+from overstep.modules.mcp.protocol import (
     HEADER_MISMATCH,
     LEGACY_PROTOCOL_VERSIONS,
     STATELESS_PROTOCOL_VERSIONS,
@@ -165,7 +165,7 @@ class StrictStatelessServer:
 
 
 def _run(matrix, handler):
-    import overstep.transports.mcp as mcpmod
+    import overstep.modules.mcp.transport as mcpmod
 
     transport = httpx.MockTransport(handler)
     orig = httpx.AsyncClient
@@ -185,7 +185,7 @@ def _run(matrix, handler):
 
 def test_the_revision_sets_are_disjoint_and_the_default_is_stateful():
     """The opt-in property: adopting the new wire is a choice about the target."""
-    from overstep.mcp_protocol import DEFAULT_PROTOCOL_VERSION
+    from overstep.modules.mcp.protocol import DEFAULT_PROTOCOL_VERSION
 
     assert not (LEGACY_PROTOCOL_VERSIONS & STATELESS_PROTOCOL_VERSIONS)
     assert DEFAULT_PROTOCOL_VERSION in LEGACY_PROTOCOL_VERSIONS
@@ -199,7 +199,7 @@ def test_2025_11_25_is_a_known_stateful_revision():
 
 
 def test_an_unknown_revision_is_neither_supported_nor_assumed_stateless():
-    from overstep.mcp_protocol import is_supported
+    from overstep.modules.mcp.protocol import is_supported
 
     assert not is_supported("2099-01-01")
     assert not is_stateless("2099-01-01")
@@ -281,7 +281,7 @@ def test_reserved_headers_from_the_matrix_do_not_travel_beside_the_derived_ones(
     the derived `Mcp-Method`, and httpx sends both — which is exactly the
     header/body contradiction these headers exist to prevent.
     """
-    from overstep.transports.mcp import mcp_headers
+    from overstep.modules.mcp.transport import mcp_headers
 
     matrix = _matrix(servers=[{
         "name": "docs", "url": "http://docs.test/mcp", "protocol_version": STATELESS,

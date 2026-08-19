@@ -17,17 +17,34 @@ _RULE_HELP = {
     VulnClass.BFLA: "Broken Function Level Authorization: a subject invoked a function it is not permitted to.",
     VulnClass.BOPLA: "Broken Object Property Level Authorization: an allowed response exposed a property the caller should not see.",
     VulnClass.PRIVILEGE_ESCALATION: "A subject reached a resource reserved for a more privileged role.",
-    VulnClass.TOKEN_AUDIENCE: "An MCP server accepted a token that was issued for a different audience.",
-    VulnClass.SESSION_HIJACK: "An MCP server let a session id stand in for a credential.",
-    VulnClass.TOOL_ENUMERATION: "An MCP server advertised tools to a subject that may not invoke them.",
     VulnClass.AUTHORIZATION_DRIFT: "The authorization decision changed relative to the recorded baseline.",
     VulnClass.UNEXPECTED_DENY: "A subject was denied access the matrix says should be allowed.",
 }
 
 
+def register_help(vuln: VulnClass, text: str) -> None:
+    """Add the help text for a class a surface reports and the core does not.
+
+    A SARIF rule without help renders as a bare id in code scanning, so the
+    surface that owns a class owns the sentence explaining it — the alternative
+    was this table describing one surface's protocol to every reader of it.
+    """
+    _RULE_HELP[vuln] = text
+
+
 def _rules() -> List[dict]:
+    """Every registered class as a SARIF rule, in a fixed order.
+
+    Ordered by the `VulnClass` declaration rather than by registration, because
+    a surface contributing its own classes on import would otherwise decide
+    where they land in the document — and adding a surface would reshuffle a
+    file people diff between runs. GitHub keys on the rule id, so the order is
+    cosmetic to a consumer and worth pinning for exactly that reason: churn
+    nobody benefits from is still churn somebody has to review.
+    """
+    order = {vuln: index for index, vuln in enumerate(VulnClass)}
     rules = []
-    for vc, help_text in _RULE_HELP.items():
+    for vc, help_text in sorted(_RULE_HELP.items(), key=lambda kv: order[kv[0]]):
         tax = TAXONOMY[vc]
         rules.append(
             {

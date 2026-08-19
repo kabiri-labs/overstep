@@ -7,7 +7,7 @@ import pytest
 
 from overstep.auth import AuthError, authenticate
 from overstep.matrix import Matrix
-from overstep.mcp_auth import (
+from overstep.modules.mcp.auth import (
     _as_metadata_candidates,
     _origin,
     _prm_candidates,
@@ -93,9 +93,9 @@ class _Backend:
 
 
 def _patch(backend):
-    import overstep.mcp_auth as ma
+    import overstep.modules.mcp.auth as ma
     import overstep.auth as au
-    import overstep.transports.mcp as mcpmod
+    import overstep.modules.mcp.transport as mcpmod
     orig = (httpx.Client, httpx.AsyncClient)
 
     def sync_factory(*a, **kw):
@@ -113,9 +113,9 @@ def _patch(backend):
 
 
 def _unpatch(orig):
-    import overstep.mcp_auth as ma
+    import overstep.modules.mcp.auth as ma
     import overstep.auth as au
-    import overstep.transports.mcp as mcpmod
+    import overstep.modules.mcp.transport as mcpmod
     ma.httpx.Client = orig[0]
     au.httpx.Client = orig[0]
     mcpmod.httpx.AsyncClient = orig[1]

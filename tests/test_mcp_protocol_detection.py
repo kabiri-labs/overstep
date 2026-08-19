@@ -26,9 +26,9 @@ import yaml
 from typer.testing import CliRunner
 
 from overstep.cli import app
-from overstep.loaders.mcp import detect_protocol_version
+from overstep.modules.mcp.loader import detect_protocol_version
 from overstep.matrix import Matrix
-from overstep.mcp_protocol import (
+from overstep.modules.mcp.protocol import (
     DEFAULT_PROTOCOL_VERSION,
     META_PROTOCOL_VERSION,
     preferred_version,
@@ -107,7 +107,7 @@ class Server:
 
 
 def _patch(server):
-    import overstep.loaders.mcp as loader
+    import overstep.modules.mcp.loader as loader
 
     orig = httpx.Client
 
@@ -120,7 +120,7 @@ def _patch(server):
 
 
 def _unpatch(orig):
-    import overstep.loaders.mcp as loader
+    import overstep.modules.mcp.loader as loader
 
     loader.httpx.Client = orig
 

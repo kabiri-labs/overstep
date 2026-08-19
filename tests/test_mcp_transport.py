@@ -11,7 +11,7 @@ import pytest
 
 from overstep.classifier import classify
 from overstep.matrix import Matrix
-from overstep.mcp_matching import content_text, evaluate_mcp
+from overstep.modules.mcp.matching import content_text, evaluate_mcp
 from overstep.models import Effect, McpMatcher, Variant, VulnClass
 from overstep.pipeline import run_pipeline
 from overstep.planner import plan
@@ -46,7 +46,7 @@ def test_subject_token_overrides_a_server_level_authorization():
     credential, and the whole matrix would be testing one caller under many names.
     """
     from overstep.models import McpInvocation, Subject
-    from overstep.transports.mcp import mcp_headers
+    from overstep.modules.mcp.transport import mcp_headers
 
     inv = McpInvocation(tool="t", headers={"Authorization": "Bearer server-key"})
     headers = mcp_headers(inv, Subject(name="alice", token="alice-token"))
@@ -61,7 +61,7 @@ def test_only_one_authorization_is_ever_sent_over_mcp():
     which puts every subject back on a single identity.
     """
     from overstep.models import McpInvocation, Subject
-    from overstep.transports.mcp import mcp_headers
+    from overstep.modules.mcp.transport import mcp_headers
 
     for server_key in ("Authorization", "authorization", "AUTHORIZATION"):
         for subject in (
@@ -78,7 +78,7 @@ def test_only_one_authorization_is_ever_sent_over_mcp():
 def test_a_subjects_own_authorization_is_still_never_clobbered():
     """Choosing a non-bearer scheme per identity stays a deliberate choice."""
     from overstep.models import McpInvocation, Subject
-    from overstep.transports.mcp import mcp_headers
+    from overstep.modules.mcp.transport import mcp_headers
 
     inv = McpInvocation(tool="t", headers={"Authorization": "Bearer server-key"})
     subject = Subject(name="svc", token="ignored", headers={"Authorization": "Basic abc"})
@@ -87,7 +87,7 @@ def test_a_subjects_own_authorization_is_still_never_clobbered():
 
 def test_an_anonymous_invocation_carries_no_credential_of_any_kind():
     from overstep.models import McpInvocation, Subject
-    from overstep.transports.mcp import mcp_headers
+    from overstep.modules.mcp.transport import mcp_headers
 
     inv = McpInvocation(
         tool="t", anonymous=True,
@@ -277,7 +277,7 @@ def _mcp_server_handler(request: httpx.Request) -> httpx.Response:
 
 
 def _run_pipeline_against_mock(matrix, handler=None, **kwargs):
-    import overstep.transports.mcp as mcpmod
+    import overstep.modules.mcp.transport as mcpmod
 
     transport = httpx.MockTransport(handler or _mcp_server_handler)
     orig = httpx.AsyncClient

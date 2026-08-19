@@ -4,7 +4,7 @@ Unlike HTTP, MCP has no 403 of its own. A ``tools/call`` either returns a
 JSON-RPC ``error`` object, or a ``result`` that may carry ``isError: true`` with
 an error message in its content, or a normal result with the tool's output. This
 module interprets that per an :class:`~overstep.models.McpMatcher`, mirroring the
-HTTP :mod:`overstep.matching` interpreter so the classifier can stay
+HTTP :mod:`overstep.modules.rest.matching` interpreter so the classifier can stay
 transport-agnostic.
 
 Over Streamable HTTP there *is* a status code underneath, and authorization

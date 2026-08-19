@@ -56,37 +56,7 @@ TAXONOMY: Dict[VulnClass, Taxon] = {
         security_severity="8.8",
         help_uri="https://owasp.org/API-Security/editions/2023/en/0xa5-broken-function-level-authorization/",
     ),
-    # A resource server that does not check who its token was issued for is the
-    # confused deputy of CWE-863; OWASP files audience validation under
-    # API2:2023, which calls out exactly this ("does not validate the JWT
-    # audience"). Scored above BOLA because the credential is replayable at every
-    # service trusting the same issuer, so the blast radius is not one object.
-    VulnClass.TOKEN_AUDIENCE: Taxon(
-        cwe="CWE-863",
-        cwe_name="Incorrect Authorization",
-        owasp_api="API2:2023 Broken Authentication",
-        security_severity="8.6",
-        help_uri="https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/",
-    ),
-    # A session identifier accepted as proof of identity is an authentication
-    # decision made on something that was never a credential — CWE-287, and the
-    # session half of OWASP's API2:2023.
-    VulnClass.SESSION_HIJACK: Taxon(
-        cwe="CWE-287",
-        cwe_name="Improper Authentication",
-        owasp_api="API2:2023 Broken Authentication",
-        security_severity="8.1",
-        help_uri="https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/",
-    ),
-    # Advertising the privileged half of the surface is disclosure, not access:
-    # CWE-200, scored well below the classes that let somebody actually reach it.
-    VulnClass.TOOL_ENUMERATION: Taxon(
-        cwe="CWE-200",
-        cwe_name="Exposure of Sensitive Information to an Unauthorized Actor",
-        owasp_api="API5:2023 Broken Function Level Authorization",
-        security_severity="5.3",
-        help_uri="https://owasp.org/API-Security/editions/2023/en/0xa5-broken-function-level-authorization/",
-    ),
+
     VulnClass.AUTHORIZATION_DRIFT: Taxon(
         cwe="CWE-285",
         cwe_name="Improper Authorization",
@@ -102,6 +72,17 @@ TAXONOMY: Dict[VulnClass, Taxon] = {
         help_uri="https://owasp.org/API-Security/editions/2023/en/",
     ),
 }
+
+
+def register(vuln: VulnClass, taxon: Taxon) -> None:
+    """Add a class a surface reports and the core does not.
+
+    Credential audience, session binding and tool enumeration are requirements
+    the MCP specification places on a server; nothing else can report them, and
+    the core carrying their CWE mappings meant a shared table describing one
+    surface's protocol. Each surface contributes its own on import.
+    """
+    TAXONOMY[vuln] = taxon
 
 
 def taxon(vuln: VulnClass) -> Taxon:

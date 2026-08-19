@@ -53,7 +53,7 @@ def _cases(matrix, variant):
 
 
 def _run(matrix, handler):
-    import overstep.transports.mcp as mcpmod
+    import overstep.modules.mcp.transport as mcpmod
 
     transport = httpx.MockTransport(handler)
     orig = httpx.AsyncClient

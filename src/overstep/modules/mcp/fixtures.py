@@ -11,8 +11,8 @@ registers this as its `run_step`, and `fixtures` asks the registry.
 """
 from __future__ import annotations
 
-from overstep.mcp_client import mcp_tool_call
-from overstep.mcp_matching import content_text
+from overstep.modules.mcp.client import mcp_tool_call
+from overstep.modules.mcp.matching import content_text
 from overstep.templating import render
 
 

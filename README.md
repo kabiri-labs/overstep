@@ -2,7 +2,7 @@
 
 **Authorization testing for REST APIs and MCP servers — one problem class, two surfaces.**
 
-![Version](https://img.shields.io/badge/version-0.39.0-blue)
+![Version](https://img.shields.io/badge/version-0.40.0-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -89,11 +89,16 @@ The vocabulary is the standard one, and it is transport-independent:
 Everything except delivery is common to both modules and lives in one place: the
 matrix model, the planner that expands it into cases, the ownership resolution,
 the classifier, the confidence grading, the drift baseline, the waivers and every
-report format. Delivery lives behind a transport registry (`overstep.transports`),
-which is the only seam between the two. **The architecture is module-based**; the
-modules are `rest` and `mcp`. A resource does not name its module — it is read off
-the body the resource declares — so adding a third means registering an executor
-*and* teaching that mapping a new body shape, not adding a string to a config file.
+report format. **The architecture is module-based**: each surface is a package
+under `overstep/modules/`, and reaches the core only through registries — how a
+case is delivered, how a finding is rendered, how a setup step runs, where a
+credential is discovered, and which finding classes it can report. Neither module
+sits at the package root, neither may import the other, and the core may not
+import either; an import-graph test measures all three.
+
+A resource does not name its module — it is read off the body the resource
+declares — so adding a third surface means a package, an executor and a body
+shape, not a string in a config file.
 
 The matrix file has the same shape. Its top level is the shared core — subjects,
 resources, policy, credentials, fixtures — and each module's own configuration

@@ -1,8 +1,8 @@
 """Tests for matrix validation and the OpenAPI/HAR scaffolders."""
 import json
 
-from overstep.loaders.har import load_resources as load_har, normalize_path
-from overstep.loaders.openapi import load_resources as load_openapi
+from overstep.modules.rest.har import load_resources as load_har, normalize_path
+from overstep.modules.rest.openapi import load_resources as load_openapi
 from overstep.matrix import Matrix
 from overstep.models import ResourceType
 

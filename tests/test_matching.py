@@ -1,5 +1,5 @@
 """Tests for the configurable response matcher."""
-from overstep.matching import evaluate
+from overstep.modules.rest.matching import evaluate
 from overstep.statuses import status_matches
 from overstep.models import Effect, ResponseMatcher
 

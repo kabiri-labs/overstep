@@ -1,6 +1,6 @@
 """Rendering a REST request as evidence: a structured record and a curl.
 
-The peer of :mod:`overstep.mcp_repro`. Both were branches of one function in
+The peer of :mod:`overstep.modules.mcp.repro`. Both were branches of one function in
 `overstep.repro`, which is how a core module came to import an executor for its
 header-building and a protocol module for its constants. Each surface answers
 for itself now; what stays shared is masking, shell quoting and the credential
@@ -12,7 +12,7 @@ import json
 import shlex
 from typing import Any, Dict
 
-from overstep.executor import build_headers
+from overstep.modules.rest.executor import build_headers
 from overstep.models import Subject, TestCase
 from overstep.repro import _full_url, _shell_arg, mask_headers
 
