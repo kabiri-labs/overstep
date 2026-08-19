@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.37.1] - 2026-08-19
+
+### Changed
+- **The README leads with the problem class rather than with MCP.** overstep is an
+  authorization testing tool; REST and MCP are two surfaces on which one problem
+  class shows up, not two tools sharing a repository. The previous framing tied the
+  project's identity to a single protocol, which misdescribes the architecture — the
+  matrix model, the planner, ownership resolution, the classifier, confidence
+  grading, drift, waivers and every reporter are shared, and only delivery differs.
+
+  The document now opens on the class (object-, function- and property-level
+  authorization, multi-tenancy isolation), explains why it resists automated
+  scanning — it is a logic flaw, so detection needs the intended policy as input —
+  and then presents REST and MCP as peer modules under that umbrella, each with a
+  worked example. MCP is described as the newest and hardest instance of the class
+  (agent-as-caller, multi-hop delegation, no `403`, a second door through
+  `resources/read`, protocol-level authorization rules) rather than as the flagship.
+
+  Every capability now carries a conservative maturity marker — implemented,
+  partial or planned — and the non-goals say explicitly what is not tested: the
+  delegation chain, scope attenuation, and anything about the agent rather than the
+  server. overstep is not an AI security tool and the README no longer leaves that
+  open to inference.
+
+### Added
+- `tests/test_readme_contract.py` — the parts of the README that are claims about the
+  code rather than prose, asserted against it: the command reference must name
+  exactly the subcommands the CLI exposes, every status marker in a table must be one
+  of the three defined words, the sentence defining the scale must define those same
+  three, and delegation-chain and scope-attenuation testing must stay marked planned.
+  Nothing else in the build would notice any of these drifting.
+
 ## [0.37.0] - 2026-08-13
 
 ### Fixed
