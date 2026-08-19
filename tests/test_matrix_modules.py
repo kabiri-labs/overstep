@@ -297,3 +297,121 @@ def test_no_readme_example_shows_the_flat_layout():
                 stale.append(f"README.md:{line}: '{key}' -> {RELOCATED_KEYS[key]}")
 
     assert not stale, "README examples still on the flat layout:\n" + "\n".join(stale)
+
+
+# --- a dropped key is never a comment ----------------------------------------
+#
+# Both cases below came from review of this change. They are the same failure
+# mode the split was written to remove, found one level deeper than it was fixed.
+
+
+def test_a_typo_inside_the_probes_block_is_refused(tmp_path):
+    """The most expensive typo in the file, and it used to load.
+
+    `tool_enumeraton: true` left the probe off and the run reported clean —
+    a security check silently not performed, which is the exact shape of finding
+    this tool exists to catch in other people's systems.
+    """
+    path = _write(
+        tmp_path,
+        "roles: [user]\n"
+        "modules:\n"
+        "  mcp:\n"
+        "    servers: [{name: docs, url: 'http://x/mcp'}]\n"
+        "    probes: {tool_enumeraton: true}\n"
+        "subjects: [{name: a, role: user, token: t}]\n"
+        "resources: [{name: r, call: {server: docs, tool: t}, type: function}]\n"
+        "policy: {r: {allow: [{role: user}]}}\n",
+    )
+
+    with pytest.raises(MatrixError) as excinfo:
+        load_matrix(path)
+
+    assert "tool_enumeraton" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("model_path", [
+    "modules", "modules.rest", "modules.mcp", "modules.mcp.probes",
+])
+def test_every_module_configuration_model_forbids_extras(model_path):
+    """Asserted per model, so a block added later cannot quietly stay permissive."""
+    from overstep.matrix import Matrix as _M
+
+    model = _M.model_fields["modules"].annotation
+    for step in model_path.split(".")[1:]:
+        model = model.model_fields[step].annotation
+
+    assert model.model_config.get("extra") == "forbid", f"{model_path} accepts unknown keys"
+
+
+def test_a_resource_that_still_declares_transport_is_told_to_delete_it(tmp_path):
+    """`extra=forbid` alone refuses it; this says what to write instead.
+
+    Without the message the failure is "extra inputs are not permitted", which
+    does not tell somebody holding last release's matrix that the right fix is to
+    delete the line rather than to find the key's new home.
+    """
+    path = _write(
+        tmp_path,
+        "roles: [user]\n"
+        "modules: {rest: {base_url: 'http://x'}}\n"
+        "subjects: [{name: a, role: user, token: t}]\n"
+        "resources: [{name: r, request: {method: GET, path: /r}, type: function,\n"
+        "             transport: carrier-pigeon}]\n"
+        "policy: {r: {allow: [{role: user}]}}\n",
+    )
+
+    with pytest.raises(MatrixError) as excinfo:
+        load_matrix(path)
+
+    message = str(excinfo.value)
+    assert "read off its body" in message
+    assert "deleted" in message
+
+
+def test_a_resource_that_still_spells_the_override_mcp_access_is_redirected(tmp_path):
+    path = _write(
+        tmp_path,
+        "roles: [user]\n"
+        "modules:\n"
+        "  mcp:\n"
+        "    servers: [{name: docs, url: 'http://x/mcp'}]\n"
+        "subjects: [{name: a, role: user, token: t}]\n"
+        "resources: [{name: r, call: {server: docs, tool: t}, type: function,\n"
+        "             mcp_access: {is_error_is_deny: false}}]\n"
+        "policy: {r: {allow: [{role: user}]}}\n",
+    )
+
+    with pytest.raises(MatrixError) as excinfo:
+        load_matrix(path)
+
+    assert "spelled 'access'" in str(excinfo.value)
+
+
+def test_no_matrix_facing_model_accepts_unknown_keys():
+    """The rule, applied to every model a matrix file can reach.
+
+    Enumerated by walking the models rather than listed by hand: a model added
+    later is covered the day it is added, which a hand-written list would not be.
+    """
+    from overstep import models as m
+    from overstep.matrix import Matrix
+
+    permissive = []
+    seen = set()
+
+    def walk(model):
+        if model in seen or not hasattr(model, "model_fields"):
+            return
+        seen.add(model)
+        if model.model_config.get("extra") != "forbid":
+            permissive.append(model.__name__)
+        for field in model.model_fields.values():
+            for arg in (getattr(field.annotation, "__args__", None) or (field.annotation,)):
+                walk(arg)
+                for inner in (getattr(arg, "__args__", None) or ()):
+                    walk(inner)
+
+    walk(Matrix)
+
+    assert not permissive, f"these accept unknown keys: {sorted(permissive)}"

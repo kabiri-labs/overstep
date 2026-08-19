@@ -78,6 +78,8 @@ class Problem:
 class RestModule(BaseModel):
     """Configuration that belongs to the REST surface and nowhere else."""
 
+    model_config = ConfigDict(extra="forbid")
+
     base_url: Optional[str] = None
     # Default response matcher applied to every REST resource that doesn't
     # override it.
@@ -111,9 +113,17 @@ class McpProbes(BaseModel):
     # matrix has to opt into rather than a violation of the protocol.
     tool_enumeration: bool = False
 
+    # A typo here is the most expensive one in the file: `tool_enumeraton: true`
+    # would leave the probe off, and the run would report clean without ever
+    # having asked the question. Silently dropping it is not an option a security
+    # tool has.
+    model_config = ConfigDict(extra="forbid")
+
 
 class McpModule(BaseModel):
     """Configuration that belongs to the MCP surface and nowhere else."""
+
+    model_config = ConfigDict(extra="forbid")
 
     # MCP servers reachable by the resources whose body is a call or a read.
     servers: List[McpServer] = Field(default_factory=list)
@@ -135,6 +145,8 @@ class Modules(BaseModel):
     A REST-only matrix carried settings that could never apply to it, and a
     reader had no way to tell which of the two the next key belonged to.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     rest: RestModule = Field(default_factory=RestModule)
     mcp: McpModule = Field(default_factory=McpModule)
