@@ -92,6 +92,27 @@ def test_the_maturity_scale_claims_only_test_coverage():
     )
 
 
+def _rest_case(case_id, expected):
+    from overstep.models import Effect, ResourceType, TestCase, Variant
+
+    return TestCase(
+        id=case_id, resource="r", subject="s", role="user", method="GET",
+        path_template="/x", path="/x", variant=Variant.NA,
+        expected=expected, resource_type=ResourceType.FUNCTION, transport="http",
+    )
+
+
+def _mcp_case(case_id, expected):
+    from overstep.models import Effect, McpInvocation, ResourceType, TestCase, Variant
+
+    return TestCase(
+        id=case_id, resource="r", subject="s", role="user", method="tools/call",
+        path_template="t", path="t", variant=Variant.NA,
+        expected=expected, resource_type=ResourceType.FUNCTION, transport="mcp",
+        mcp=McpInvocation(url="http://mcp.test/mcp", tool="t"),
+    )
+
+
 def test_the_readme_states_the_all_negative_fail_open_case():
     """The one case where a clean run does not mean the credentials worked.
 
@@ -137,6 +158,82 @@ def test_the_all_negative_case_behaves_as_the_readme_now_says():
         "an all-negative matrix is now condemned; the README says it is not"
     )
     assert health.reasons == []
+
+
+def test_the_readme_says_the_guidance_is_per_target():
+    """A single control somewhere is not the fix; a control on each target is.
+
+    The first version of this section said "give at least one subject a positive
+    control", which is right for a single-target matrix and wrong for a mixed one.
+    Review caught it; this stops the weaker wording coming back.
+    """
+    text = _read("README.md")
+    match = re.search(
+        r"\*\*The credential half of that check(.+?)(?=\n\*\*Coverage)", text, re.DOTALL
+    )
+    assert match, "the credential-check caveat is gone from the README"
+
+    caveat = " ".join(match.group(1).split())
+
+    assert "per target" in caveat, "the caveat does not say the judgement is per target"
+    assert "every target" in caveat, (
+        "the caveat still tells the reader one positive control anywhere is enough"
+    )
+
+
+def test_a_healthy_target_does_not_vouch_for_a_silent_one():
+    """The multi-target hole, asserted against the code the README describes.
+
+    A REST target with a working positive control sits beside an MCP target whose
+    every credential is rejected and which has no expected-allow case of its own.
+    Nothing is inconclusive, so a mixed matrix can report clean while half of it
+    authenticated nobody.
+    """
+    from overstep.health import assess
+    from overstep.models import Effect, Observation
+
+    cases = [
+        _rest_case("rest-control", Effect.ALLOW),
+        _rest_case("rest-probe", Effect.DENY),
+        _mcp_case("mcp-probe-1", Effect.DENY),
+        _mcp_case("mcp-probe-2", Effect.DENY),
+    ]
+    observations = [
+        Observation(test_id="rest-control", status=200, effect=Effect.ALLOW),
+        Observation(test_id="rest-probe", status=403, effect=Effect.DENY),
+        # The MCP server refused every credential it was given.
+        Observation(test_id="mcp-probe-1", status=401, effect=Effect.DENY),
+        Observation(test_id="mcp-probe-2", status=401, effect=Effect.DENY),
+    ]
+
+    health = assess(cases, observations)
+
+    assert not health.inconclusive, "behaviour changed; the README needs updating with it"
+    assert health.reasons == []
+
+
+def test_a_control_on_the_quiet_target_is_what_catches_it():
+    """And the fix the README now prescribes has to work on the target that needs it."""
+    from overstep.health import assess
+    from overstep.models import Effect, Observation
+
+    cases = [
+        _rest_case("rest-control", Effect.ALLOW),
+        _mcp_case("mcp-control", Effect.ALLOW),   # the added per-target control
+        _mcp_case("mcp-probe", Effect.DENY),
+    ]
+    observations = [
+        Observation(test_id="rest-control", status=200, effect=Effect.ALLOW),
+        Observation(test_id="mcp-control", status=401, effect=Effect.DENY),
+        Observation(test_id="mcp-probe", status=401, effect=Effect.DENY),
+    ]
+
+    health = assess(cases, observations)
+
+    assert health.inconclusive
+    assert any("mcp.test" in reason for reason in health.reasons), (
+        f"the verdict does not name the target that failed: {health.reasons}"
+    )
 
 
 def test_one_positive_control_is_what_restores_the_credential_check():
