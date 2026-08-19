@@ -25,7 +25,9 @@ runner = CliRunner()
 BAD_YAML = "subjects:\n- name: alice\n   role: user\n"
 
 MATRIX = """
-base_url: http://127.0.0.1:1
+modules:
+  rest:
+    base_url: http://127.0.0.1:1
 subjects:
   - name: alice
     role: user

@@ -56,8 +56,8 @@ class _McpBackend:
 
 def _matrix() -> Matrix:
     return Matrix(
+        modules={"mcp": {"servers": [{"name": "docs", "url": "http://mcp.test/mcp"}]}},
         roles=["anonymous", "user", "admin"],
-        servers=[{"name": "docs", "url": "http://mcp.test/mcp"}],
         subjects=[
             {"name": "alice", "role": "user", "token": "alice-token", "marker": "alice@corp.example"},
             {"name": "bob", "role": "user", "token": "bob-token", "marker": "bob@corp.example"},
@@ -75,8 +75,7 @@ def _matrix() -> Matrix:
             {"as": "bob", "call": {"server": "docs", "tool": "delete_document", "arguments": {"doc_id": "{{BOB_DOC}}"}}},
         ],
         resources=[{
-            "name": "read_document", "transport": "mcp",
-            "call": {"server": "docs", "tool": "read_document"},
+            "name": "read_document", "call": {"server": "docs", "tool": "read_document"},
             "type": "object", "owner_arg": "doc_id",
             "objects": {"alice": "{{ALICE_DOC}}", "bob": "{{BOB_DOC}}"},
         }],

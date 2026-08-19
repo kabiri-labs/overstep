@@ -3,30 +3,39 @@
 #   python -m uvicorn examples.mcp_api.server:app --port 9000
 #   overstep run examples/mcp_api/matrix.yaml --out out
 #
-# MCP resources declare `transport: mcp` and either a `call` (server + tool) or a
-# `read` (server + resource URI) instead of an HTTP request. Either way one field
-# names where the object id lives — `owner_arg` for a tool argument, `owner_uri`
-# for a {placeholder} in the URI — and overstep fills it with the caller's own id
+# An MCP resource declares either a `call` (server + tool) or a `read` (server +
+# resource URI) instead of an HTTP request, and that body is what puts it in the
+# MCP module — there is nothing else to declare. Either way one field names where
+# the object id lives — `owner_arg` for a tool argument, `owner_uri` for a
+# {placeholder} in the URI — and overstep fills it with the caller's own id
 # (SELF) or a victim's (OTHER) to probe for BOLA.
 #
 # This server has the same missing check on both, which is the point: a matrix
 # that declared only the tool would report the resource half clean.
 roles: [anonymous, user, admin]
 
-servers:
-  - name: docs
-    url: http://127.0.0.1:9000/mcp
+# Per-surface configuration. Subjects, resources and policy are the same
+# whatever carries the request, so they stay at the top level; the servers, the
+# deny signal and the protocol probes mean nothing outside MCP, so they live
+# under its module.
+modules:
+  mcp:
+    servers:
+      - name: docs
+        url: http://127.0.0.1:9000/mcp
 
-# Deny signal for this server: an isError result or a JSON-RPC error means denied.
-mcp_access:
-  is_error_is_deny: true
-  jsonrpc_error_is_deny: true
+    # Deny signal for this server: an isError result or a JSON-RPC error means
+    # denied.
+    access:
+      is_error_is_deny: true
+      jsonrpc_error_is_deny: true
 
-# The session-binding probe is on by default; enumeration is opt-in, because
-# listing every tool and enforcing at call time is a defensible design. This
-# server is not doing that — it lists the admin-only tools to plain users and
-# then refuses only some of them — so the demo asks for it.
-probe_tool_enumeration: true
+    probes:
+      # Audience and session binding are on by default. Enumeration is opt-in,
+      # because listing every tool and enforcing at call time is a defensible
+      # design. This server is not doing that — it lists the admin-only tools to
+      # plain users and then refuses only some of them — so the demo asks for it.
+      tool_enumeration: true
 
 subjects:
   - { name: alice, role: user,  token: alice-token, marker: "alice@corp.example", attributes: { doc_id: d-alice } }
@@ -36,23 +45,19 @@ subjects:
 
 resources:
   - name: read_document
-    transport: mcp
     call: { server: docs, tool: read_document }
     type: object            # object-level -> BOLA surface on the tool argument
     owner_arg: doc_id        # the argument that identifies the owned object
     owner_attr: doc_id       # matched against the subject's doc_id attribute
   - name: read_doc_resource
-    transport: mcp
     read: { server: docs, uri: "doc://acme/{doc_id}" }
     type: object            # object-level -> BOLA surface on the resource URI
     owner_uri: doc_id        # the {placeholder} that identifies the owned object
     owner_attr: doc_id
   - name: list_all_users
-    transport: mcp
     call: { server: docs, tool: list_all_users }
     type: function          # function-level -> BFLA / privesc surface
   - name: reset_tenant
-    transport: mcp
     call: { server: docs, tool: reset_tenant, mutating: true }   # skipped under --read-only
     type: function
 

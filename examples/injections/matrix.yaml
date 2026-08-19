@@ -10,13 +10,18 @@
 #   overstep validate examples/injections/matrix.yaml
 #   overstep plan     examples/injections/matrix.yaml
 
-base_url: http://127.0.0.1:8000
-
 roles: [anonymous, user, admin]
 
-servers:
-  - name: docs
-    url: http://127.0.0.1:9000/mcp
+# This matrix spans both surfaces, which is where the two levels earn their
+# keep: one set of subjects and one policy, and each module's own endpoints
+# declared under its own name.
+modules:
+  rest:
+    base_url: http://127.0.0.1:8000
+  mcp:
+    servers:
+      - name: docs
+        url: http://127.0.0.1:9000/mcp
 
 subjects:
   - name: alice
@@ -85,7 +90,6 @@ resources:
 
   # 5. Object id as an MCP tool argument.
   - name: read_document_mcp
-    transport: mcp
     call: { server: docs, tool: read_document }
     type: object
     objects: { alice: doc-a, bob: doc-b }

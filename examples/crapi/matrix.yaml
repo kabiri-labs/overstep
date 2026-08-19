@@ -4,7 +4,9 @@
 # findings once you fill in real tokens. Paths below are examples — adjust them
 # to the endpoints you actually see in your HAR / the crAPI version you run.
 
-base_url: http://localhost:8888
+modules:
+  rest:
+    base_url: http://localhost:8888
 
 roles: [anonymous, user, mechanic, admin]
 

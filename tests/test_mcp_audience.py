@@ -18,23 +18,21 @@ from overstep.planner import _same_audience, plan
 from overstep.taxonomy import taxon
 
 
-def _two_server_matrix(**overrides) -> Matrix:
+def _two_server_matrix(probes=None, servers=None, **overrides) -> Matrix:
     """Two MCP servers; alice's token is bound to 'docs', so 'billing' is foreign."""
     data = dict(
-        roles=["anonymous", "user", "admin"],
-        servers=[
+        modules={"mcp": {"probes": probes or {}, "servers": servers or [
             {"name": "docs", "url": "http://docs.test/mcp"},
             {"name": "billing", "url": "http://billing.test/mcp"},
-        ],
+        ]}},
+        roles=["anonymous", "user", "admin"],
         subjects=[
             {"name": "alice", "role": "user", "token": "alice-token", "token_audience": "docs"},
             {"name": "anon", "role": "anonymous", "token": None},
         ],
         resources=[
-            {"name": "read_docs", "transport": "mcp",
-             "call": {"server": "docs", "tool": "read_docs"}, "type": "function"},
-            {"name": "read_invoices", "transport": "mcp",
-             "call": {"server": "billing", "tool": "read_invoices"}, "type": "function"},
+            {"name": "read_docs", "call": {"server": "docs", "tool": "read_docs"}, "type": "function"},
+            {"name": "read_invoices", "call": {"server": "billing", "tool": "read_invoices"}, "type": "function"},
         ],
         policy={
             "read_docs": {"allow": [{"role": "user"}]},
@@ -103,7 +101,7 @@ def test_no_probe_for_a_subject_with_no_token():
 
 
 def test_probe_can_be_switched_off():
-    assert _audience_cases(_two_server_matrix(probe_token_audience=False)) == []
+    assert _audience_cases(_two_server_matrix(probes={"token_audience": False})) == []
 
 
 def test_stdio_servers_are_not_probed():
@@ -197,7 +195,7 @@ def test_a_provider_with_a_hardcoded_token_url_says_nothing_about_audience():
 def test_audience_probes_do_not_disturb_the_existing_plan():
     """Every id a matrix produced before still has its exact spelling."""
     m = _two_server_matrix()
-    before = {c.id for c in plan(_two_server_matrix(probe_token_audience=False))}
+    before = {c.id for c in plan(_two_server_matrix(probes={"token_audience": False}))}
     after = {c.id for c in plan(m)}
     assert after - before == {"mcp:billing::alice::audience"}
 

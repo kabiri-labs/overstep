@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from overstep.documents import DocumentError, read_yaml
 from overstep.interpolation import InterpolationError, interpolate
@@ -75,19 +75,100 @@ class Problem:
         return f"line {self.line}: {self.message}" if self.line else self.message
 
 
-class Matrix(BaseModel):
+class RestModule(BaseModel):
+    """Configuration that belongs to the REST surface and nowhere else."""
+
     base_url: Optional[str] = None
+    # Default response matcher applied to every REST resource that doesn't
+    # override it.
+    access: ResponseMatcher = Field(default_factory=ResponseMatcher)
+
+
+class McpProbes(BaseModel):
+    """The three checks that ask about the credential and the connection.
+
+    They belong to the MCP module rather than to the matrix as a whole: each is
+    a question about an MCP server, and a matrix with no MCP module has nothing
+    for any of them to probe.
+    """
+
+    # Replay each subject's credential at the MCP servers it was not issued for
+    # (see overstep.planner). On by default, but it only produces probes where
+    # an audience is actually known — declared on the subject, or inferred from
+    # an auth provider that discovers its token endpoint from a server. Turn it
+    # off for a deployment where one token is legitimately valid at several of
+    # the declared servers, which is the one case where a refusal is not
+    # required and a probe would report a finding that isn't one.
+    token_audience: bool = True
+    # Check that an MCP session id cannot stand in for a credential (see
+    # overstep.planner). On by default: the probe is read-only, carries its own
+    # control, and skips a server that issues no session, so it costs nothing
+    # where there is nothing to find.
+    session_binding: bool = True
+    # Check what each server is willing to *list* to each subject. Off by
+    # default, unlike the other two: advertising every tool and enforcing at
+    # call time is a defensible design, so this reports a policy opinion the
+    # matrix has to opt into rather than a violation of the protocol.
+    tool_enumeration: bool = False
+
+
+class McpModule(BaseModel):
+    """Configuration that belongs to the MCP surface and nowhere else."""
+
+    # MCP servers reachable by the resources whose body is a call or a read.
+    servers: List[McpServer] = Field(default_factory=list)
+    # Default MCP matcher applied to every MCP resource that doesn't override it.
+    access: McpMatcher = Field(default_factory=McpMatcher)
+    probes: McpProbes = Field(default_factory=McpProbes)
+
+
+class Modules(BaseModel):
+    """Per-module configuration, one block per surface.
+
+    The matrix has two levels. Everything a run needs regardless of how a
+    request is delivered — subjects, resources, policy, credentials, fixtures —
+    is declared once at the top. Everything that only means something to one
+    surface lives under that surface's name here.
+
+    Before this split, five of the fifteen top-level keys were MCP-only while
+    reading as global: `servers`, `mcp_access` and the three `probe_*` switches.
+    A REST-only matrix carried settings that could never apply to it, and a
+    reader had no way to tell which of the two the next key belonged to.
+    """
+
+    rest: RestModule = Field(default_factory=RestModule)
+    mcp: McpModule = Field(default_factory=McpModule)
+
+
+# Where each key that used to sit at the top level lives now. Read by the loader
+# to turn a stale matrix into an instruction rather than a silently ignored key.
+RELOCATED_KEYS = {
+    "base_url": "modules.rest.base_url",
+    "access": "modules.rest.access",
+    "servers": "modules.mcp.servers",
+    "mcp_access": "modules.mcp.access",
+    "probe_token_audience": "modules.mcp.probes.token_audience",
+    "probe_session_binding": "modules.mcp.probes.session_binding",
+    "probe_tool_enumeration": "modules.mcp.probes.tool_enumeration",
+}
+
+
+class Matrix(BaseModel):
+    # A key this model does not know is a mistake, not a comment. Pydantic's
+    # default is to ignore one, which is the worst available outcome here: a
+    # matrix still declaring `servers:` at the top level would load, generate no
+    # MCP cases, and report a clean run against a server it never contacted.
+    # `load_matrix` names the relocated keys specifically; this catches the rest,
+    # including a typo and a programmatic caller passing the old keyword.
+    model_config = ConfigDict(extra="forbid")
+
     # Roles from least to most privileged; used to classify privilege escalation.
     roles: List[str] = Field(default_factory=list)
     subjects: List[Subject]
     resources: List[Resource]
     policy: Dict[str, ResourcePolicy] = Field(default_factory=dict)
-    # Default response matcher applied to every resource that doesn't override it.
-    access: ResponseMatcher = Field(default_factory=ResponseMatcher)
-    # MCP servers reachable by transport: mcp resources.
-    servers: List[McpServer] = Field(default_factory=list)
-    # Default MCP matcher applied to every mcp resource that doesn't override it.
-    mcp_access: McpMatcher = Field(default_factory=McpMatcher)
+    # Per-surface configuration; see Modules.
+    modules: Modules = Field(default_factory=Modules)
     # Providers used to obtain subject tokens dynamically before a run.
     auth: AuthConfig = Field(default_factory=AuthConfig)
     # Requests run once before the suite to create fixtures / capture object ids.
@@ -102,24 +183,38 @@ class Matrix(BaseModel):
     # others, at a cost that grows with the number of subjects. A resource may
     # override it.
     probe_victims: Literal["one", "all"] = "one"
-    # Whether to replay each subject's credential at the MCP servers it was not
-    # issued for (see overstep.planner). On by default, but it only produces
-    # probes where an audience is actually known — declared on the subject, or
-    # inferred from an auth provider that discovers its token endpoint from a
-    # server. Turn it off for a deployment where one token is legitimately valid
-    # at several of the declared servers, which is the one case where a refusal
-    # is not required and a probe would report a finding that isn't one.
-    probe_token_audience: bool = True
-    # Whether to check that an MCP session id cannot stand in for a credential
-    # (see overstep.planner). On by default: the probe is read-only, carries its
-    # own control, and skips a server that issues no session, so it costs nothing
-    # where there is nothing to find.
-    probe_session_binding: bool = True
-    # Whether to check what each server is willing to *list* to each subject.
-    # Off by default, unlike the other two: advertising every tool and enforcing
-    # at call time is a defensible design, so this reports a policy opinion the
-    # matrix has to opt into rather than a violation of the protocol.
-    probe_tool_enumeration: bool = False
+
+    # Read accessors for the module-scoped settings. The call sites that use
+    # them are being moved module by module; until then these keep one concept
+    # in one place rather than spreading `matrix.modules.mcp.probes.x` through
+    # code that is about to be relocated anyway.
+    @property
+    def base_url(self) -> Optional[str]:
+        return self.modules.rest.base_url
+
+    @property
+    def access(self) -> ResponseMatcher:
+        return self.modules.rest.access
+
+    @property
+    def servers(self) -> List[McpServer]:
+        return self.modules.mcp.servers
+
+    @property
+    def mcp_access(self) -> McpMatcher:
+        return self.modules.mcp.access
+
+    @property
+    def probe_token_audience(self) -> bool:
+        return self.modules.mcp.probes.token_audience
+
+    @property
+    def probe_session_binding(self) -> bool:
+        return self.modules.mcp.probes.session_binding
+
+    @property
+    def probe_tool_enumeration(self) -> bool:
+        return self.modules.mcp.probes.tool_enumeration
 
     def victims_for(self, resource: Resource) -> str:
         """The effective probe_victims setting for one resource."""
@@ -294,33 +389,35 @@ class Matrix(BaseModel):
             if name not in rmap:
                 error(f"policy references unknown resource '{name}'")
 
-        from overstep.transports import transport_names
-        known_transports = set(transport_names())
+        # A resource's module is read off its body, so it can no longer name a
+        # transport that does not exist, nor declare one that disagrees with what
+        # it sends. What remains is a body that says nothing, or two that
+        # contradict each other.
         server_names = {s.name for s in self.servers}
         for srv in self.servers:
             if not srv.url and not srv.command:
                 error(f"server '{srv.name}' must set a url (http) or a command (stdio)")
         for res in self.resources:
-            if res.transport not in known_transports:
+            bodies = [k for k in ("request", "call", "read") if getattr(res, k) is not None]
+            if not bodies:
                 error(
-                    f"resource '{res.name}' uses unknown transport '{res.transport}' "
-                    f"(known: {', '.join(sorted(known_transports))})"
+                    f"resource '{res.name}' declares no request: set a 'request' "
+                    f"(rest), or a 'call' or 'read' (mcp)"
                 )
+                continue
+            if len(bodies) > 1:
+                error(
+                    f"resource '{res.name}' sets {' and '.join(bodies)}; a resource "
+                    f"makes one kind of request, and which one decides its module"
+                )
+                continue
             if res.transport == "mcp":
-                if res.call is None and res.read is None:
-                    error(f"mcp resource '{res.name}' must set a 'call' or a 'read'")
-                elif res.call is not None and res.read is not None:
+                referenced = res.call.server if res.call else res.read.server
+                if referenced not in server_names:
                     error(
-                        f"mcp resource '{res.name}' sets both 'call' and 'read'; a "
-                        f"resource invokes a tool or reads a resource, not both"
+                        f"mcp resource '{res.name}' references unknown server "
+                        f"'{referenced}'"
                     )
-                else:
-                    referenced = res.call.server if res.call else res.read.server
-                    if referenced not in server_names:
-                        error(
-                            f"mcp resource '{res.name}' references unknown server "
-                            f"'{referenced}'"
-                        )
                 if res.type == ResourceType.OBJECT and not res.is_object_locatable:
                     locator = "owner_uri" if res.read is not None else "owner_arg"
                     error(
@@ -328,8 +425,6 @@ class Matrix(BaseModel):
                         f"ownership.injections"
                     )
             else:
-                if res.request is None:
-                    error(f"http resource '{res.name}' must set a 'request'")
                 if res.type == ResourceType.OBJECT and not res.is_object_locatable:
                     error(
                         f"object resource '{res.name}' must set owner_param or "
@@ -437,7 +532,31 @@ def load_matrix(path: str, env=None) -> Matrix:
         data = interpolate(data, env)
     except InterpolationError as exc:
         raise MatrixError(f"could not load matrix '{path}': {exc}") from exc
+    _reject_relocated_keys(path, data)
     try:
         return Matrix(**data)
     except Exception as exc:  # pydantic ValidationError, etc.
         raise MatrixError(f"could not parse matrix '{path}': {exc}") from exc
+
+
+def _reject_relocated_keys(path: str, data: dict) -> None:
+    """Refuse a matrix written against the flat layout, and say where each key went.
+
+    Pydantic ignores keys it does not know, which is the worst possible outcome
+    here: a matrix still declaring `servers:` would load, generate no MCP cases,
+    and report a clean run against a server it never contacted. Every relocated
+    key is therefore an error naming its new home, so an out-of-date file is a
+    two-minute edit rather than a silent false negative.
+    """
+    if not isinstance(data, dict):
+        return
+    stale = [key for key in RELOCATED_KEYS if key in data]
+    if not stale:
+        return
+    moves = "\n".join(f"  {key}: -> {RELOCATED_KEYS[key]}" for key in stale)
+    raise MatrixError(
+        f"matrix '{path}' uses the flat layout; these keys are now per-module:\n"
+        f"{moves}\n"
+        f"Configuration that applies to one surface lives under 'modules:'; "
+        f"subjects, resources and policy stay at the top level."
+    )

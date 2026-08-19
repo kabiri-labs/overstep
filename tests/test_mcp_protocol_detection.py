@@ -252,7 +252,7 @@ def test_the_token_is_offered_to_a_server_that_requires_one_to_answer():
 # --- what the scaffold writes down ------------------------------------------
 
 def _servers_block(output: str):
-    return yaml.safe_load(output)["servers"][0]
+    return yaml.safe_load(output)["modules"]["mcp"]["servers"][0]
 
 
 def test_a_detected_stateless_revision_reaches_the_matrix():

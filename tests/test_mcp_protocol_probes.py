@@ -18,20 +18,26 @@ from overstep.taxonomy import taxon
 _SESSION = "sess-alice-1"
 
 
-def _matrix(**overrides) -> Matrix:
+def _matrix(probes=None, **overrides) -> Matrix:
+    """The demo servers, with the MCP probe switches as a keyword of their own.
+
+    `probes` names the block the matrix declares them in, so a test that turns
+    enumeration on reads the same way the matrix file does.
+    """
     data = dict(
+        modules={"mcp": {
+            "servers": [{"name": "docs", "url": "http://docs.test/mcp"}],
+            "probes": probes or {},
+        }},
         roles=["anonymous", "user", "admin"],
-        servers=[{"name": "docs", "url": "http://docs.test/mcp"}],
         subjects=[
             {"name": "alice", "role": "user", "token": "alice-token"},
             {"name": "root", "role": "admin", "token": "admin-token"},
             {"name": "anon", "role": "anonymous", "token": None},
         ],
         resources=[
-            {"name": "read_document", "transport": "mcp",
-             "call": {"server": "docs", "tool": "read_document"}, "type": "function"},
-            {"name": "reset_tenant", "transport": "mcp",
-             "call": {"server": "docs", "tool": "reset_tenant"}, "type": "function"},
+            {"name": "read_document", "call": {"server": "docs", "tool": "read_document"}, "type": "function"},
+            {"name": "reset_tenant", "call": {"server": "docs", "tool": "reset_tenant"}, "type": "function"},
         ],
         policy={
             "read_document": {"allow": [{"role": "user"}, {"role": "admin"}]},
@@ -132,7 +138,7 @@ def test_the_session_probe_carries_the_identity_only_on_the_handshake():
 
 
 def test_session_probe_can_be_switched_off():
-    assert _cases(_matrix(probe_session_binding=False), Variant.SESSION) == []
+    assert _cases(_matrix(probes={"session_binding": False}), Variant.SESSION) == []
 
 
 # --- session binding: operational -------------------------------------------
@@ -176,7 +182,7 @@ def test_enumeration_is_off_by_default():
 
 
 def test_enumeration_probes_every_subject_when_enabled():
-    ids = [c.id for c in _cases(_matrix(probe_tool_enumeration=True), Variant.ENUMERATE)]
+    ids = [c.id for c in _cases(_matrix(probes={"tool_enumeration": True}), Variant.ENUMERATE)]
     assert ids == [
         "mcp:docs::alice::enumerate",
         "mcp:docs::root::enumerate",
@@ -185,7 +191,7 @@ def test_enumeration_probes_every_subject_when_enabled():
 
 
 def test_a_tool_listed_to_someone_who_may_not_invoke_it_is_reported():
-    result = _run(_matrix(probe_tool_enumeration=True), _server(session_is_auth=False))
+    result = _run(_matrix(probes={"tool_enumeration": True}), _server(session_is_auth=False))
     leaked = [f for f in result.findings if f.vuln_class == VulnClass.TOOL_ENUMERATION]
 
     # alice is a user: reset_tenant is admin-only, read_document is hers to call.
@@ -198,13 +204,13 @@ def test_a_tool_listed_to_someone_who_may_not_invoke_it_is_reported():
 
 def test_an_undeclared_tool_is_not_an_enumeration_finding():
     """That gap is coverage's to report; silence about a tool is not a denial."""
-    result = _run(_matrix(probe_tool_enumeration=True), _server(session_is_auth=False))
+    result = _run(_matrix(probes={"tool_enumeration": True}), _server(session_is_auth=False))
     assert not [f for f in result.findings if "undeclared_tool" in f.test_id]
 
 
 def test_a_subject_denied_the_listing_produces_nothing():
     """anon cannot list at all — no disclosure, and no over-restriction either."""
-    result = _run(_matrix(probe_tool_enumeration=True), _server(session_is_auth=False))
+    result = _run(_matrix(probes={"tool_enumeration": True}), _server(session_is_auth=False))
     assert not [f for f in result.findings if f.test_id.startswith("mcp:docs::anon::enumerate")]
     obs = next(o for o in result.observations if o.test_id == "mcp:docs::anon::enumerate")
     assert obs.effect == Effect.DENY
@@ -212,13 +218,13 @@ def test_a_subject_denied_the_listing_produces_nothing():
 
 
 def test_an_admin_shown_every_tool_is_not_a_finding():
-    result = _run(_matrix(probe_tool_enumeration=True), _server(session_is_auth=False))
+    result = _run(_matrix(probes={"tool_enumeration": True}), _server(session_is_auth=False))
     assert not [f for f in result.findings if f.test_id.startswith("mcp:docs::root::enumerate")]
 
 
 def test_listed_tools_are_recorded_on_the_observation():
     """Read from the result, not parsed back out of a truncated snippet."""
-    result = _run(_matrix(probe_tool_enumeration=True), _server(session_is_auth=False))
+    result = _run(_matrix(probes={"tool_enumeration": True}), _server(session_is_auth=False))
     obs = next(o for o in result.observations if o.test_id == "mcp:docs::alice::enumerate")
     assert obs.listed_tools == ["read_document", "reset_tenant", "undeclared_tool"]
 
@@ -242,7 +248,7 @@ def test_a_public_listing_does_not_vouch_for_expired_credentials():
                                              "result": {"tools": _ALL_TOOLS}})
         return httpx.Response(401, json={"detail": "token expired"})
 
-    result = _run(_matrix(probe_tool_enumeration=True), all_credentials_rejected)
+    result = _run(_matrix(probes={"tool_enumeration": True}), all_credentials_rejected)
     assert result.health.inconclusive, (
         "no credential was accepted, so the run proved nothing — a public listing "
         "must not stand in as the positive control"
@@ -270,15 +276,13 @@ def test_the_initialization_lifecycle_is_completed_over_http():
             "result": {"content": [{"type": "text", "text": "{}"}], "isError": False},
         })
 
-    _run(_matrix(probe_session_binding=False), strict)
+    _run(_matrix(probes={"session_binding": False}), strict)
     assert "notifications/initialized" in seen
 
 
 def test_a_conditional_grant_the_subject_fails_is_not_a_grant():
     """Role alone is not permission when the rule carries a condition."""
-    m = _matrix(
-        probe_tool_enumeration=True,
-        subjects=[{"name": "alice", "role": "user", "token": "alice-token",
+    m = _matrix(probes={"tool_enumeration": True}, subjects=[{"name": "alice", "role": "user", "token": "alice-token",
                    "attributes": {"tenant": "external"}}],
         policy={
             "read_document": {"allow": [{"role": "user"}]},
@@ -287,8 +291,7 @@ def test_a_conditional_grant_the_subject_fails_is_not_a_grant():
             "reset_tenant": {"allow": [
                 {"role": "user", "condition": "subject.tenant == 'internal'"},
             ]},
-        },
-    )
+        })
     result = _run(m, _server(session_is_auth=False))
     assert [f.test_id for f in result.findings if f.vuln_class == VulnClass.TOOL_ENUMERATION] == [
         "mcp:docs::alice::enumerate::reset_tenant"
@@ -314,7 +317,7 @@ def test_a_restricted_tool_on_a_later_page_is_still_found():
         cursor = (msg.get("params") or {}).get("cursor")
         return httpx.Response(200, json={"jsonrpc": "2.0", "id": req_id, "result": pages[cursor]})
 
-    result = _run(_matrix(probe_tool_enumeration=True, probe_session_binding=False), paginated)
+    result = _run(_matrix(probes={"tool_enumeration": True, "session_binding": False}), paginated)
     obs = next(o for o in result.observations if o.test_id == "mcp:docs::alice::enumerate")
     assert obs.listed_tools == ["read_document", "undeclared_tool", "reset_tenant"]
     # reset_tenant is only on page three; without pagination alice reads clean.
@@ -338,7 +341,7 @@ def test_a_cyclic_cursor_does_not_hang_the_run():
             "result": {"tools": [{"name": "read_document"}], "nextCursor": "always"},
         })
 
-    result = _run(_matrix(probe_tool_enumeration=True, probe_session_binding=False), looping)
+    result = _run(_matrix(probes={"tool_enumeration": True, "session_binding": False}), looping)
     obs = next(o for o in result.observations if o.test_id == "mcp:docs::alice::enumerate")
     assert 0 < len(obs.listed_tools) <= 21     # bounded, not unbounded
 
@@ -365,7 +368,7 @@ def test_the_session_repro_reproduces_the_session_and_not_the_credential():
 def test_a_long_catalogue_survives_body_truncation():
     """The snippet is capped at 2048 chars; the tool list must not be read from it."""
     many = [{"name": f"tool_{i}", "description": "x" * 200} for i in range(60)]
-    result = _run(_matrix(probe_tool_enumeration=True),
+    result = _run(_matrix(probes={"tool_enumeration": True}),
                   _server(session_is_auth=False, tools=many + [{"name": "reset_tenant"}]))
     obs = next(o for o in result.observations if o.test_id == "mcp:docs::alice::enumerate")
     assert len(obs.body_snippet) == 2048

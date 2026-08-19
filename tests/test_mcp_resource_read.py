@@ -20,11 +20,14 @@ from overstep.pipeline import run_pipeline
 from overstep.planner import plan
 
 
-def _matrix(**overrides) -> Matrix:
+def _matrix(servers=None, **overrides) -> Matrix:
     data = dict(
+        modules={"mcp": {
+            "servers": servers or [{"name": "docs", "url": "http://docs.test/mcp"}],
+            # not what these tests are about
+            "probes": {"session_binding": False},
+        }},
         roles=["anonymous", "user", "admin"],
-        servers=[{"name": "docs", "url": "http://docs.test/mcp"}],
-        probe_session_binding=False,          # not what these tests are about
         subjects=[
             {"name": "alice", "role": "user", "token": "alice-token",
              "marker": "alice@corp.example", "attributes": {"doc_id": "alice"}},
@@ -32,8 +35,7 @@ def _matrix(**overrides) -> Matrix:
              "marker": "bob@corp.example", "attributes": {"doc_id": "bob"}},
         ],
         resources=[
-            {"name": "read_doc", "transport": "mcp",
-             "read": {"server": "docs", "uri": "doc://acme/{doc_id}"},
+            {"name": "read_doc", "read": {"server": "docs", "uri": "doc://acme/{doc_id}"},
              "type": "object", "owner_uri": "doc_id", "owner_attr": "doc_id"},
         ],
         policy={"read_doc": {"allow": [{"role": "user", "scope": "own"}]}},
@@ -95,8 +97,7 @@ def test_the_uri_is_the_bola_surface():
 def test_the_whole_uri_can_be_the_object():
     """A URI with no template structure of its own is one placeholder."""
     m = _matrix(resources=[{
-        "name": "read_doc", "transport": "mcp",
-        "read": {"server": "docs", "uri": "{doc}"},
+        "name": "read_doc", "read": {"server": "docs", "uri": "{doc}"},
         "type": "object", "owner_uri": "doc",
         "objects": {"alice": "s3://bucket/a.txt", "bob": "file:///srv/b.txt"},
     }])
@@ -123,16 +124,23 @@ def test_the_request_body_is_a_resources_read():
 # --- validation -------------------------------------------------------------
 
 def test_a_resource_cannot_both_call_and_read():
+    """Two bodies leave the module ambiguous, so the matrix cannot be planned."""
     m = _matrix()
     m.resources[0].call = {"server": "docs", "tool": "read_doc"}
-    assert any("not both" in p for p in m.validate_refs())
+
+    problems = m.validate_refs()
+
+    assert any("makes one kind of request" in p for p in problems)
+    assert any("call and read" in p for p in problems)
 
 
 def test_neither_call_nor_read_is_an_error():
+    """And no body at all leaves nothing to send."""
     m = _matrix()
     m.resources[0].read = None
     m.resources[0].owner_uri = None
-    assert any("must set a 'call' or a 'read'" in p for p in m.validate_refs())
+
+    assert any("declares no request" in p for p in m.validate_refs())
 
 
 def test_an_unknown_server_on_a_read_is_caught():
@@ -152,8 +160,7 @@ def test_a_uri_injection_must_name_a_placeholder_in_the_uri():
 
 def test_a_read_cannot_carry_a_tool_argument_injection():
     m = _matrix(resources=[{
-        "name": "read_doc", "transport": "mcp",
-        "read": {"server": "docs", "uri": "doc://acme/{doc_id}"},
+        "name": "read_doc", "read": {"server": "docs", "uri": "doc://acme/{doc_id}"},
         "type": "object",
         "ownership": {"injections": [{"location": "mcp_argument", "selector": "doc_id"}]},
     }])
@@ -162,8 +169,7 @@ def test_a_read_cannot_carry_a_tool_argument_injection():
 
 def test_a_tool_call_cannot_carry_a_uri_injection():
     m = _matrix(resources=[{
-        "name": "call_doc", "transport": "mcp",
-        "call": {"server": "docs", "tool": "read_doc"},
+        "name": "call_doc", "call": {"server": "docs", "tool": "read_doc"},
         "type": "object",
         "ownership": {"injections": [{"location": "mcp_resource_uri", "selector": "doc_id"}]},
     }], policy={"call_doc": {"allow": [{"role": "user", "scope": "own"}]}})
@@ -259,11 +265,9 @@ def test_a_bola_through_resources_read_is_found_and_confirmed():
 def test_the_tool_half_of_the_same_server_reports_clean():
     """Which is the point: testing only tools would have found nothing here."""
     m = _matrix(resources=[
-        {"name": "read_doc", "transport": "mcp",
-         "read": {"server": "docs", "uri": "doc://acme/{doc_id}"},
+        {"name": "read_doc", "read": {"server": "docs", "uri": "doc://acme/{doc_id}"},
          "type": "object", "owner_uri": "doc_id", "owner_attr": "doc_id"},
-        {"name": "get_doc_tool", "transport": "mcp",
-         "call": {"server": "docs", "tool": "get_doc"},
+        {"name": "get_doc_tool", "call": {"server": "docs", "tool": "get_doc"},
          "type": "object", "owner_arg": "doc_id", "owner_attr": "doc_id"},
     ], policy={
         "read_doc": {"allow": [{"role": "user", "scope": "own"}]},
@@ -287,8 +291,7 @@ def test_the_repro_names_the_uri_that_leaked():
 def test_forbidden_fields_are_detected_in_a_resource_read():
     """BOPLA over a read: the body must reach the classifier as parseable JSON."""
     m = _matrix(resources=[{
-        "name": "read_doc", "transport": "mcp",
-        "read": {"server": "docs", "uri": "doc://acme/{doc_id}"},
+        "name": "read_doc", "read": {"server": "docs", "uri": "doc://acme/{doc_id}"},
         "type": "object", "owner_uri": "doc_id", "owner_attr": "doc_id",
         "forbidden_fields": ["email"],
     }])

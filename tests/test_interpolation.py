@@ -42,7 +42,9 @@ def test_non_strings_pass_through():
 def test_load_matrix_interpolates_from_env(tmp_path):
     f = tmp_path / "m.yaml"
     f.write_text(
-        "base_url: ${BASE}\n"
+        "modules:\n"
+        "  rest:\n"
+        "    base_url: ${BASE}\n"
         "subjects:\n"
         "  - name: alice\n"
         "    role: user\n"

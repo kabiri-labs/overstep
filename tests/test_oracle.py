@@ -19,7 +19,7 @@ from overstep.planner import plan
 @pytest.fixture
 def marked_matrix() -> Matrix:
     return Matrix(
-        base_url="http://testserver",
+        modules={"rest": {"base_url": "http://testserver"}},
         roles=["user", "admin"],
         subjects=[
             {

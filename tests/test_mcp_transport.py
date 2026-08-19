@@ -151,8 +151,8 @@ def test_matcher_stdio_passes_no_status():
 
 def _mcp_matrix() -> Matrix:
     return Matrix(
+        modules={"mcp": {"servers": [{"name": "docs", "url": "http://mcp.test/mcp"}]}},
         roles=["anonymous", "user", "admin"],
-        servers=[{"name": "docs", "url": "http://mcp.test/mcp"}],
         subjects=[
             {"name": "alice", "role": "user", "token": "alice-token", "marker": "alice@corp.example", "attributes": {"doc_id": "d-alice"}},
             {"name": "bob", "role": "user", "token": "bob-token", "marker": "bob@corp.example", "attributes": {"doc_id": "d-bob"}},
@@ -160,13 +160,10 @@ def _mcp_matrix() -> Matrix:
             {"name": "anon", "role": "anonymous", "token": None},
         ],
         resources=[
-            {"name": "read_document", "transport": "mcp",
-             "call": {"server": "docs", "tool": "read_document"},
+            {"name": "read_document", "call": {"server": "docs", "tool": "read_document"},
              "type": "object", "owner_arg": "doc_id", "owner_attr": "doc_id"},
-            {"name": "list_all_users", "transport": "mcp",
-             "call": {"server": "docs", "tool": "list_all_users"}, "type": "function"},
-            {"name": "reset_tenant", "transport": "mcp",
-             "call": {"server": "docs", "tool": "reset_tenant", "mutating": True}, "type": "function"},
+            {"name": "list_all_users", "call": {"server": "docs", "tool": "list_all_users"}, "type": "function"},
+            {"name": "reset_tenant", "call": {"server": "docs", "tool": "reset_tenant", "mutating": True}, "type": "function"},
         ],
         policy={
             "read_document": {"allow": [{"role": "user", "scope": "own"}, {"role": "admin", "scope": "any"}]},
@@ -213,10 +210,13 @@ def test_planner_marks_mutating_and_function_resources():
 # --- validation -------------------------------------------------------------
 
 def test_validate_flags_mcp_resource_without_call():
+    """A resource stripped of its body has no module and nothing to send."""
     m = _mcp_matrix()
     m.resources[0].call = None
+
     problems = m.validate_refs()
-    assert any("must set a 'call'" in p for p in problems)
+
+    assert any("declares no request" in p for p in problems)
 
 
 def test_validate_flags_unknown_server():

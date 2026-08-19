@@ -435,10 +435,10 @@ def test_coverage_exits_two_when_the_surface_could_not_be_read(tmp_path):
     matrix = tmp_path / "m.yaml"
     matrix.write_text(
         "roles: [user]\n"
-        "servers:\n  - {name: docs, url: 'http://t/mcp'}\n"
+        "modules:\n  mcp:\n    servers:\n      - {name: docs, url: 'http://t/mcp'}\n"
         "subjects:\n  - {name: alice, role: user, token: a}\n"
         "resources:\n"
-        "  - name: read_document\n    transport: mcp\n"
+        "  - name: read_document\n"
         "    call: {server: docs, tool: read_document}\n    type: function\n"
         "policy:\n  read_document: {allow: [{role: user}]}\n"
     )

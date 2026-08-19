@@ -15,7 +15,7 @@ def _matrix(**resource_extra) -> Matrix:
     }
     resource.update(resource_extra)
     return Matrix(
-        base_url="http://api.test",
+        modules={"rest": {"base_url": "http://api.test"}},
         roles=["user", "admin"],
         subjects=[
             {"name": "alice", "role": "user", "token": "a", "attributes": {"user_id": "u1"}},

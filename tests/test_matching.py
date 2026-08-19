@@ -60,7 +60,7 @@ def test_planner_resolves_matcher_precedence():
     from overstep.planner import plan
 
     matrix = Matrix(
-        access=ResponseMatcher(deny_body_regex="global-deny"),
+        modules={"rest": {"access": ResponseMatcher(deny_body_regex="global-deny")}},
         subjects=[{"name": "s", "role": "user", "token": "t"}],
         resources=[
             {"name": "a", "request": {"method": "GET", "path": "/a"}, "type": "function"},

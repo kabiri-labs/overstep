@@ -9,7 +9,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 # Imports nothing from overstep, so it stays safe to pull in from the module
 # every other one depends on.
@@ -113,6 +113,12 @@ class ResponseMatcher(BaseModel):
     ``allow_status`` items may be an exact code (``200``), a range (``"200-299"``)
     or a class (``"2xx"``).
     """
+
+    # A key this matcher does not know is a mistake worth an error rather than a
+    # silent default: an MCP matcher written on a REST resource (or the reverse)
+    # would otherwise have every key dropped, and the resource would quietly be
+    # judged by the defaults the author was trying to replace.
+    model_config = ConfigDict(extra="forbid")
 
     allow_status: List[Union[int, str]] = Field(
         default_factory=lambda: sorted(ALLOW_STATUSES)
@@ -273,6 +279,8 @@ class McpMatcher(BaseModel):
     reason. Set it to ``[]`` for a server that reports denials in-band under a
     non-2xx status of its own.
     """
+
+    model_config = ConfigDict(extra="forbid")  # see ResponseMatcher
 
     is_error_is_deny: bool = True
     jsonrpc_error_is_deny: bool = True
@@ -455,10 +463,11 @@ class Resource(BaseModel):
     # The MCP resource-read template (transport: mcp). Mutually exclusive with
     # `call` — an MCP resource invokes a tool or reads a resource, not both.
     read: Optional[McpResourceRead] = None
-    # Which delivery mechanism carries this resource's request. "http" is the
-    # default; other transports (registered in overstep.transports) route through
-    # their own executor without the core needing to know how.
-    transport: str = "http"
+    # Which module — and therefore which delivery mechanism — carries this
+    # resource. Derived from the body rather than declared: a `request` is REST,
+    # a `call` or a `read` is MCP. It was a separate field, which meant a
+    # resource could contradict itself and the matrix validator had to check for
+    # it; a derived value makes that state unrepresentable.
     type: ResourceType = ResourceType.FUNCTION
     # For object resources: the path parameter (http) or tool argument (mcp) that
     # identifies the owned object, and the subject attribute it must match.
@@ -475,9 +484,10 @@ class Resource(BaseModel):
     # graphql_variables/mcp_argument). Supersedes owner_param/owner_arg when set.
     ownership: Optional[Ownership] = None
     description: str = ""
-    # Optional per-resource override of the matrix-level response matcher.
+    # Optional per-resource override of its module's default matcher. One key in
+    # the matrix file; which model it parses into follows from the body, so a
+    # REST resource cannot accidentally be given an MCP matcher or the reverse.
     access: Optional[ResponseMatcher] = None
-    # Optional per-resource override of the matrix-level MCP matcher.
     mcp_access: Optional[McpMatcher] = None
     # Explicit object id owned by each subject (subject name -> id). Takes
     # precedence over owner_attr, and values may reference {{captures}} from
@@ -495,6 +505,37 @@ class Resource(BaseModel):
     # Per-resource override of the matrix-level probe_victims: how many distinct
     # objects each subject reaches for. Unset inherits the matrix default.
     probe_victims: Optional[Literal["one", "all"]] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _route_access_to_its_module(cls, data):
+        """Send the single `access:` key to the matcher its module uses.
+
+        The matrix file has one override key per resource. Its schema is the
+        module's, so the body decides which model parses it: a call or a read is
+        MCP, anything else is REST. Written as a before-validator so an MCP
+        matcher's keys are never offered to `ResponseMatcher`, which would reject
+        them field by field with an error naming the wrong model.
+        """
+        if not isinstance(data, dict) or "access" not in data:
+            return data
+        if data.get("call") is not None or data.get("read") is not None:
+            data = dict(data)
+            data["mcp_access"] = data.pop("access")
+        return data
+
+    @property
+    def transport(self) -> str:
+        """The module that delivers this resource, read off its body.
+
+        A resource states what it sends, and that is already unambiguous: a
+        `request` goes over HTTP, a `call` or a `read` speaks MCP. Deriving it
+        removes the possibility of a resource whose declared transport and body
+        disagree.
+        """
+        if self.call is not None or self.read is not None:
+            return "mcp"
+        return "http"
 
     def effective_injections(self) -> List["OwnershipInjection"]:
         """The object-identifier injections for this resource.

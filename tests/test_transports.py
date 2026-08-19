@@ -10,7 +10,7 @@ import asyncio
 import httpx
 import pytest
 
-from overstep.models import Effect, Observation
+from overstep.models import Effect, Observation, Resource
 from overstep.planner import plan
 from overstep.transports import (
     TransportSpec,
@@ -35,10 +35,12 @@ def test_resource_and_case_default_to_http(matrix):
         assert case.transport == "http"
 
 
-def test_planner_propagates_resource_transport(matrix):
-    matrix.resources[0].transport = "http"
-    matrix.resources[1].transport = "http"
+def test_planner_propagates_the_module_read_off_each_resource(matrix):
+    """A case carries the module its resource belongs to; dispatch keys on it."""
     cases = plan(matrix)
+
+    # Every resource in the shared fixture declares a `request`.
+    assert all(r.transport == "http" for r in matrix.resources)
     assert all(c.transport == "http" for c in cases)
 
 
@@ -108,7 +110,19 @@ def test_dispatch_over_http_end_to_end(matrix):
     assert by_id["admin_list::alice::na"].effect == Effect.DENY
 
 
-def test_unknown_transport_is_flagged_by_validation(matrix):
-    matrix.resources[0].transport = "carrier-pigeon"
-    problems = matrix.validate_refs()
-    assert any("carrier-pigeon" in p for p in problems)
+def test_a_resource_cannot_name_a_transport_that_does_not_exist(matrix):
+    """The check this replaces is now a state that cannot be reached.
+
+    A resource used to declare `transport:` beside its body, so it could name a
+    transport nothing had registered — or, worse, name a real one that
+    contradicted what it actually sent, which validation had to catch by
+    comparing the two. The module is read off the body instead, so there is no
+    second declaration to disagree with and nothing left to validate.
+    """
+    resource = matrix.resources[0]
+
+    with pytest.raises(AttributeError):
+        resource.transport = "carrier-pigeon"
+
+    assert resource.transport == "http"
+    assert "transport" not in Resource.model_fields
