@@ -86,8 +86,8 @@ def _matrix() -> Matrix:
 def _patch(backend):
     """Route both the sync (setup/teardown) and async (main run) MCP clients to
     the same in-process backend."""
-    import overstep.mcp_client as mc
-    import overstep.transports.mcp as mcpmod
+    import overstep.modules.mcp.client as mc
+    import overstep.modules.mcp.transport as mcpmod
 
     orig_sync, orig_async = httpx.Client, httpx.AsyncClient
 
@@ -105,8 +105,8 @@ def _patch(backend):
 
 
 def _unpatch(origs):
-    import overstep.mcp_client as mc
-    import overstep.transports.mcp as mcpmod
+    import overstep.modules.mcp.client as mc
+    import overstep.modules.mcp.transport as mcpmod
 
     mc.httpx.Client, mcpmod.httpx.AsyncClient = origs
 

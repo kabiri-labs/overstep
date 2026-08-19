@@ -74,7 +74,7 @@ def _all_negative_matrix() -> Matrix:
 
 
 def _with_transport(handler, fn):
-    import overstep.transports.mcp as mcpmod
+    import overstep.modules.mcp.transport as mcpmod
 
     transport = httpx.MockTransport(handler)
     orig = httpx.AsyncClient

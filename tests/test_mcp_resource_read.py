@@ -14,7 +14,7 @@ import httpx
 import pytest
 
 from overstep.matrix import Matrix
-from overstep.mcp_matching import contents_text, contents_uris
+from overstep.modules.mcp.matching import contents_text, contents_uris
 from overstep.models import Effect, Variant, VulnClass
 from overstep.pipeline import run_pipeline
 from overstep.planner import plan
@@ -113,7 +113,7 @@ def test_a_read_is_never_skipped_under_read_only():
 
 
 def test_the_request_body_is_a_resources_read():
-    from overstep.transports.mcp import jsonrpc_request
+    from overstep.modules.mcp.transport import jsonrpc_request
 
     case = next(c for c in plan(_matrix()) if c.id == "read_doc::alice::other")
     payload = jsonrpc_request(case.mcp)
@@ -237,7 +237,7 @@ def _server_enforcing_tools_but_not_resources(request: httpx.Request) -> httpx.R
 
 
 def _run(matrix):
-    import overstep.transports.mcp as mcpmod
+    import overstep.modules.mcp.transport as mcpmod
 
     transport = httpx.MockTransport(_server_enforcing_tools_but_not_resources)
     orig = httpx.AsyncClient

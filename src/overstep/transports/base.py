@@ -6,7 +6,7 @@ here behind a small registry, exactly like the reporter registry in
 :mod:`overstep.report.base`. HTTP is one transport; another (e.g. MCP tool-calls)
 can be added by registering a second executor, without touching the core.
 
-A transport is a callable with the same shape as :func:`overstep.executor.run`::
+A transport is a callable with the same shape as :func:`overstep.modules.rest.executor.run`::
 
     execute(base_url, subjects, cases, **kwargs) -> List[Observation]
 

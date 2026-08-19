@@ -148,7 +148,7 @@ def test_load_snapshot_raises_document_error(tmp_path):
 
 
 def test_openapi_loader_raises_document_error(tmp_path):
-    from overstep.loaders.openapi import load_resources, scaffold_matrix
+    from overstep.modules.rest.openapi import load_resources, scaffold_matrix
 
     path = tmp_path / "spec.yaml"
     path.write_text(BAD_YAML, encoding="utf-8")
@@ -160,7 +160,7 @@ def test_openapi_loader_raises_document_error(tmp_path):
 
 def test_openapi_loader_rejects_a_non_mapping_document(tmp_path):
     """A YAML list parses fine and is still not a spec; say so, don't AttributeError."""
-    from overstep.loaders.openapi import load_resources
+    from overstep.modules.rest.openapi import load_resources
 
     path = tmp_path / "spec.yaml"
     path.write_text("- a\n- b\n", encoding="utf-8")
@@ -170,7 +170,7 @@ def test_openapi_loader_rejects_a_non_mapping_document(tmp_path):
 
 
 def test_har_loader_raises_document_error(tmp_path):
-    from overstep.loaders.har import load_resources
+    from overstep.modules.rest.har import load_resources
 
     path = tmp_path / "capture.har"
     path.write_text("not json", encoding="utf-8")
@@ -180,7 +180,7 @@ def test_har_loader_raises_document_error(tmp_path):
 
 
 def test_har_loader_rejects_a_non_object_document(tmp_path):
-    from overstep.loaders.har import load_resources
+    from overstep.modules.rest.har import load_resources
 
     path = tmp_path / "capture.har"
     path.write_text("[]", encoding="utf-8")
@@ -190,7 +190,7 @@ def test_har_loader_rejects_a_non_object_document(tmp_path):
 
 
 def test_mcp_tools_loader_raises_document_error(tmp_path):
-    from overstep.loaders.mcp import load_tools_from_file
+    from overstep.modules.mcp.loader import load_tools_from_file
 
     with pytest.raises(DocumentError) as exc:
         load_tools_from_file(str(tmp_path / "tools.json"))
@@ -199,8 +199,8 @@ def test_mcp_tools_loader_raises_document_error(tmp_path):
 
 def test_valid_har_and_tools_files_still_load(tmp_path):
     """The type guards reject documents of the wrong shape, not the right one."""
-    from overstep.loaders.har import load_resources
-    from overstep.loaders.mcp import load_tools_from_file
+    from overstep.modules.rest.har import load_resources
+    from overstep.modules.mcp.loader import load_tools_from_file
 
     har = tmp_path / "capture.har"
     har.write_text(json.dumps({"log": {"entries": [

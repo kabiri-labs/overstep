@@ -31,7 +31,7 @@ import httpx
 import yaml
 
 from overstep.documents import read_json
-from overstep.mcp_protocol import (
+from overstep.modules.mcp.protocol import (
     CLIENT_INFO,
     DEFAULT_PROTOCOL_VERSION,
     PROTOCOL_VERSION_HEADER,
@@ -41,7 +41,7 @@ from overstep.mcp_protocol import (
     request_meta,
     routing_headers,
 )
-from overstep.transports.mcp import _parse_message
+from overstep.modules.mcp.transport import _parse_message
 
 # Argument names that identify an owned object.
 _OWNER_HINTS = {

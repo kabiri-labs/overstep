@@ -16,7 +16,7 @@ from urllib.parse import urljoin
 
 import httpx
 
-from overstep.matching import evaluate
+from overstep.modules.rest.matching import evaluate
 from overstep.models import Effect, Observation, Subject, TestCase, drop_header
 
 # Verbs that change server state; skipped under read-only mode.

@@ -1,5 +1,5 @@
 """Tests for custom header handling through planning and execution."""
-from overstep.executor import build_headers
+from overstep.modules.rest.executor import build_headers
 from overstep.models import (
     Effect,
     ResourceType,

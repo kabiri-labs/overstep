@@ -1,7 +1,7 @@
 """Tests for inferring roles and a starter policy from OpenAPI security schemes."""
 import yaml
 
-from overstep.loaders.openapi import scaffold_matrix
+from overstep.modules.rest.openapi import scaffold_matrix
 
 _SPEC = {
     "openapi": "3.0.0",

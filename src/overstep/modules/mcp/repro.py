@@ -18,7 +18,7 @@ import json
 import shlex
 from typing import Any, Dict, Optional
 
-from overstep.mcp_protocol import (
+from overstep.modules.mcp.protocol import (
     DEFAULT_PROTOCOL_VERSION,
     PROTOCOL_VERSION_HEADER,
     RESERVED_HEADERS,
@@ -34,7 +34,7 @@ from overstep.repro import _VAR_PREFIX, _mask_env, _shell_arg, credential_var, m
 def _mcp_headers(case: TestCase, subject: Subject) -> Dict[str, str]:
     """The headers the executor actually sent — including sending none.
 
-    Mirrors :func:`overstep.transports.mcp.mcp_headers`. An ``anonymous``
+    Mirrors :func:`overstep.modules.mcp.transport.mcp_headers`. An ``anonymous``
     invocation must come out credential-free here too: a repro that quietly adds
     the subject's token would succeed against a server that correctly refuses the
     request the finding is about, which is worse than having no repro at all.
@@ -53,7 +53,7 @@ def _mcp_headers(case: TestCase, subject: Subject) -> Dict[str, str]:
         # compliance. A repro missing either is a command the server rejects
         # before it ever reaches the authorization the finding is about — a
         # false all-clear pasted into a bug report.
-        from overstep.transports.mcp import jsonrpc_params
+        from overstep.modules.mcp.transport import jsonrpc_params
 
         for name in RESERVED_HEADERS:
             drop_header(headers, name)
@@ -94,7 +94,7 @@ def _mcp_payload(case: TestCase) -> Dict[str, Any]:
             "jsonrpc": "2.0", "id": 1, "method": "tools/call",
             "params": {"name": case.path, "arguments": {}},
         }
-    from overstep.transports.mcp import jsonrpc_request
+    from overstep.modules.mcp.transport import jsonrpc_request
 
     return jsonrpc_request(inv, request_id=1)
 

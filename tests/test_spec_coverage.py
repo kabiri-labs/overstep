@@ -10,7 +10,7 @@ from typer.testing import CliRunner
 
 from overstep.cli import app
 from overstep.coverage import _normalize, against_spec
-from overstep.loaders.openapi import load_resources
+from overstep.modules.rest.openapi import load_resources
 from overstep.matrix import Matrix
 from overstep.models import McpCall, Request, Resource, ResourceType
 
@@ -269,7 +269,7 @@ def test_coverage_fails_loudly_when_the_mcp_surface_cannot_be_read(matrix_file):
     """
     import httpx
 
-    import overstep.loaders.mcp as mod
+    import overstep.modules.mcp.loader as mod
 
     def broken(request: httpx.Request) -> httpx.Response:
         msg = json.loads(request.content)

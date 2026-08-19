@@ -420,11 +420,11 @@ def coverage_cmd(
 def _declared_operations(spec: str, fmt: str, only_get: bool, token: Optional[str]):
     """Read the API's own description of itself, in whichever form it exists."""
     if fmt == "openapi":
-        from overstep.loaders.openapi import load_resources
+        from overstep.modules.rest.openapi import load_resources
     elif fmt == "har":
-        from overstep.loaders.har import load_resources
+        from overstep.modules.rest.har import load_resources
     elif fmt == "mcp":
-        from overstep.loaders.mcp import (
+        from overstep.modules.mcp.loader import (
             fetch_resource_templates,
             fetch_tools,
             load_resource_templates_from_file,
@@ -457,14 +457,13 @@ def _declared_operations(spec: str, fmt: str, only_get: bool, token: Optional[st
             raise typer.Exit(code=2)
         # Only the tool name / URI shape is compared, so a minimal resource is enough.
         declared = [
-            Resource(name=t["name"], transport="mcp", call=McpCall(server="mcp", tool=t["name"]))
+            Resource(name=t["name"], call=McpCall(server="mcp", tool=t["name"]))
             for t in tools
             if t.get("name")
         ]
         declared += [
             Resource(
                 name=tpl.get("name") or tpl["uriTemplate"],
-                transport="mcp",
                 read=McpResourceRead(server="mcp", uri=tpl["uriTemplate"]),
             )
             for tpl in templates
@@ -546,10 +545,10 @@ def scaffold(
     ),
 ):
     """Emit a starter resources block — or a full matrix — from OpenAPI, HAR or MCP."""
-    from overstep.loaders.openapi import resources_to_yaml
+    from overstep.modules.rest.openapi import resources_to_yaml
 
     if fmt == "mcp":
-        from overstep.loaders.mcp import (
+        from overstep.modules.mcp.loader import (
             fetch_resource_templates,
             fetch_tools,
             load_resource_templates_from_file,
@@ -560,7 +559,7 @@ def scaffold(
         def _warn(message: str) -> None:
             err_console.print(f"[yellow]warning:[/] {message}")
 
-        from overstep.mcp_protocol import (
+        from overstep.modules.mcp.protocol import (
             DEFAULT_PROTOCOL_VERSION,
             SUPPORTED_PROTOCOL_VERSIONS,
             is_supported,
@@ -577,7 +576,7 @@ def scaffold(
         if spec_file.startswith("http://") or spec_file.startswith("https://"):
             url = server_url or spec_file
             if protocol_version is None:
-                from overstep.loaders.mcp import detect_protocol_version
+                from overstep.modules.mcp.loader import detect_protocol_version
 
                 protocol_version = detect_protocol_version(spec_file, token=token)
                 if protocol_version is None:
@@ -655,7 +654,7 @@ def scaffold(
         if fmt != "openapi":
             console.print("[bold red]error:[/] --with-policy requires --fmt openapi")
             raise typer.Exit(code=2)
-        from overstep.loaders.openapi import scaffold_matrix
+        from overstep.modules.rest.openapi import scaffold_matrix
 
         # Warn on stderr as well as in the document: stdout is usually
         # redirected into a file the user may not read before running.
@@ -672,9 +671,9 @@ def scaffold(
         return
 
     if fmt == "openapi":
-        from overstep.loaders.openapi import load_resources
+        from overstep.modules.rest.openapi import load_resources
     elif fmt == "har":
-        from overstep.loaders.har import load_resources
+        from overstep.modules.rest.har import load_resources
     else:
         console.print("[bold red]error:[/] --fmt must be 'openapi', 'har' or 'mcp'")
         raise typer.Exit(code=2)

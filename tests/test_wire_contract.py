@@ -62,12 +62,12 @@ DEMOS = {
     "rest": {
         "matrix": "examples/mock_api/matrix.yaml",
         "server": "examples/mock_api/server.py",
-        "module": "overstep.executor",
+        "module": "overstep.modules.rest.executor",
     },
     "mcp": {
         "matrix": "examples/mcp_api/matrix.yaml",
         "server": "examples/mcp_api/server.py",
-        "module": "overstep.transports.mcp",
+        "module": "overstep.modules.mcp.transport",
     },
 }
 

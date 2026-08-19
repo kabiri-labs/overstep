@@ -23,7 +23,7 @@ import pytest
 
 from overstep.auth import AuthError, authenticate
 from overstep.matrix import Matrix
-from overstep.mcp_auth import DiscoveryError, discover_token_endpoint, require_https
+from overstep.modules.mcp.auth import DiscoveryError, discover_token_endpoint, require_https
 
 HONEST = "https://honest.test/as"
 ATTACKER = "https://attacker.test/as"
@@ -78,7 +78,7 @@ class Backend:
 
 def _patch(backend):
     import overstep.auth as au
-    import overstep.mcp_auth as ma
+    import overstep.modules.mcp.auth as ma
 
     orig = httpx.Client
 
@@ -93,7 +93,7 @@ def _patch(backend):
 
 def _unpatch(orig):
     import overstep.auth as au
-    import overstep.mcp_auth as ma
+    import overstep.modules.mcp.auth as ma
 
     ma.httpx.Client = orig
     au.httpx.Client = orig

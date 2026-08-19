@@ -4,7 +4,7 @@ import asyncio
 import httpx
 import pytest
 
-from overstep.executor import execute
+from overstep.modules.rest.executor import execute
 from overstep.matrix import Matrix
 from overstep.models import Effect
 
@@ -24,7 +24,7 @@ def _matrix() -> Matrix:
 
 def _run_with_transport(matrix, cases, transport, **kwargs):
     async def _run():
-        import overstep.executor as ex
+        import overstep.modules.rest.executor as ex
         orig = httpx.AsyncClient
 
         def factory(*a, **kw):

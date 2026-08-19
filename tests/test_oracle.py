@@ -10,7 +10,7 @@ import httpx
 import pytest
 
 from overstep.classifier import classify
-from overstep.executor import execute
+from overstep.modules.rest.executor import execute
 from overstep.matrix import Matrix
 from overstep.models import Effect, Observation, Variant, VulnClass
 from overstep.planner import plan
@@ -138,7 +138,7 @@ def test_executor_records_matched_markers(marked_matrix):
     import asyncio
 
     async def _run():
-        import overstep.executor as ex
+        import overstep.modules.rest.executor as ex
 
         # Patch the client factory to use the mock transport.
         orig = httpx.AsyncClient

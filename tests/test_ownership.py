@@ -201,7 +201,7 @@ def test_owner_attr_only_injection_drives_variant_generation():
 
 def test_cookie_injection_survives_subject_cookie_auth():
     """A subject's session Cookie must not clobber an injected object-id cookie."""
-    from overstep.executor import build_headers
+    from overstep.modules.rest.executor import build_headers
 
     m = _http_matrix(
         {
@@ -307,7 +307,7 @@ def test_object_resource_needs_a_locator():
 # --- End-to-end: the form body is actually sent form-encoded ----------------
 
 def test_form_body_is_sent_url_encoded():
-    from overstep.executor import execute
+    from overstep.modules.rest.executor import execute
 
     m = _http_matrix(
         {
@@ -326,7 +326,7 @@ def test_form_body_is_sent_url_encoded():
     transport = httpx.MockTransport(handler)
 
     async def _run():
-        import overstep.executor as ex
+        import overstep.modules.rest.executor as ex
         orig = httpx.AsyncClient
         ex.httpx.AsyncClient = lambda *a, **kw: orig(*a, **{**kw, "transport": transport})
         try:

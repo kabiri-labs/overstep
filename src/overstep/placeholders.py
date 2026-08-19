@@ -2,7 +2,7 @@
 
 ``overstep scaffold`` writes a matrix with deliberate holes — ``PASTE_..._TOKEN``
 where a credential goes, ``REPLACE_ME_1`` where an object identifier goes. They
-are suffixed on purpose (see :mod:`overstep.loaders.openapi`) so that two
+are suffixed on purpose (see :mod:`overstep.modules.rest.openapi`) so that two
 subjects cannot be filled in with the same value, which would collapse the
 cross-owner probe the tool exists to make.
 
