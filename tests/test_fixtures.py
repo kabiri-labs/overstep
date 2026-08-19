@@ -107,7 +107,7 @@ def _object_matrix():
         resources=[
             {"name": "get_order",
              "request": {"method": "GET", "path": "/orders/{id}", "body": {"note": "{{ALICE_ORDER}}"}},
-             "type": "object", "owner_param": "id",
+             "type": "object", "owner": "id",
              "objects": {"alice": "{{ALICE_ORDER}}", "bob": "o-bob"}},
         ],
         policy={"get_order": {"allow": [{"role": "user", "scope": "own"}]}},
@@ -133,7 +133,7 @@ def test_validate_flags_setup_and_objects_unknown_subjects():
         setup=[{"name": "s", "as": "ghost", "request": {"method": "GET", "path": "/x"}}],
         resources=[
             {"name": "r", "request": {"method": "GET", "path": "/r/{id}"}, "type": "object",
-             "owner_param": "id", "objects": {"nobody": "1"}},
+             "owner": "id", "objects": {"nobody": "1"}},
         ],
         policy={"r": {"allow": [{"role": "user"}]}},
     )

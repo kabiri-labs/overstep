@@ -161,7 +161,7 @@ def _mcp_matrix() -> Matrix:
         ],
         resources=[
             {"name": "read_document", "call": {"server": "docs", "tool": "read_document"},
-             "type": "object", "owner_arg": "doc_id", "owner_attr": "doc_id"},
+             "type": "object", "owner": "doc_id", "owner_attr": "doc_id"},
             {"name": "list_all_users", "call": {"server": "docs", "tool": "list_all_users"}, "type": "function"},
             {"name": "reset_tenant", "call": {"server": "docs", "tool": "reset_tenant", "mutating": True}, "type": "function"},
         ],
@@ -226,11 +226,13 @@ def test_validate_flags_unknown_server():
     assert any("unknown server 'ghost'" in p for p in problems)
 
 
-def test_validate_flags_object_without_owner_arg():
+def test_validate_flags_mcp_object_without_a_locator():
     m = _mcp_matrix()
-    m.resources[0].owner_arg = None
+    m.resources[0].owner = None
     problems = m.validate_refs()
-    assert any("must set owner_arg" in p for p in problems)
+    assert any("must set 'owner'" in p for p in problems)
+    # The message names the place, since that is what the author has to fill in.
+    assert any("tool argument" in p for p in problems)
 
 
 # --- operational end-to-end -------------------------------------------------

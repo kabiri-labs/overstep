@@ -60,8 +60,8 @@ VOLATILE_KEYS = ("latency_ms", "generated_at")
 # transport module whose httpx client has to be pointed at the ASGI app.
 DEMOS = {
     "rest": {
-        "matrix": "examples/mock_api/matrix.yaml",
-        "server": "examples/mock_api/server.py",
+        "matrix": "examples/rest_api/matrix.yaml",
+        "server": "examples/rest_api/server.py",
         "module": "overstep.modules.rest.executor",
     },
     "mcp": {

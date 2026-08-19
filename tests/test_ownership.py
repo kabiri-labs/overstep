@@ -251,14 +251,14 @@ def test_mcp_argument_injection_jsonpath():
 # --- Backward compatibility -------------------------------------------------
 
 def test_legacy_owner_param_still_injects_into_path():
-    m = _http_matrix({"owner_param": "id", "request": {"method": "GET", "path": "/orders/{id}"}})
+    m = _http_matrix({"owner": "id", "request": {"method": "GET", "path": "/orders/{id}"}})
     cases = _by_id(plan(m))
     assert cases["get_order::alice::self"].path == "/orders/o-alice"
     assert cases["get_order::alice::other"].path == "/orders/o-bob"
 
 
 def test_legacy_owner_arg_still_injects_into_mcp_argument():
-    m = _mcp_matrix({"owner_arg": "doc_id"})
+    m = _mcp_matrix({"owner": "doc_id"})
     cases = _by_id(plan(m))
     assert cases["read_doc::alice::other"].mcp.arguments["doc_id"] == "o-bob"
 
@@ -300,8 +300,12 @@ def test_validation_warns_on_unresolvable_ownership():
 
 
 def test_object_resource_needs_a_locator():
-    m = _http_matrix({})  # no owner_param, no ownership
-    assert any("must set owner_param or ownership.injections" in p for p in m.validate_refs())
+    m = _http_matrix({})  # neither `owner` nor `ownership`
+
+    problems = m.validate_refs()
+
+    assert any("must set 'owner'" in p for p in problems)
+    assert any("path parameter" in p for p in problems)
 
 
 # --- End-to-end: the form body is actually sent form-encoded ----------------

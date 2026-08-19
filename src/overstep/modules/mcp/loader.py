@@ -12,9 +12,9 @@ server can enforce ownership on every tool and hand the same objects out by URI.
 Two things are inferred from each tool:
 
 * **object vs function** — a tool with an id-like argument (``doc_id``, ``*_id``)
-  is object-level and gets an ``owner_arg`` (the BOLA surface); everything else is
+  is object-level and gets an ``owner`` (the BOLA surface); everything else is
   function-level. A URI template is read the same way, with the placeholder
-  standing in for the argument and ``owner_uri`` for ``owner_arg``.
+  standing in for the argument, and ``owner`` naming it just the same.
 * **mutating** — from the tool's ``annotations`` (``destructiveHint`` /
   ``readOnlyHint``), falling back to a verb heuristic on the name. Mutating tools
   are marked so ``--read-only`` skips them.
@@ -94,7 +94,7 @@ def _tokens(name: str) -> List[str]:
     return [t for t in re.split(r"[^a-z0-9]+", name.lower()) if t]
 
 
-def guess_owner_arg(tool: Dict[str, Any]) -> Optional[str]:
+def guess_owner_argument(tool: Dict[str, Any]) -> Optional[str]:
     """The tool argument that identifies an owned object, or None (function)."""
     props = ((tool.get("inputSchema") or {}).get("properties")) or {}
     keys = list(props.keys())
@@ -121,10 +121,10 @@ def is_mutating(tool: Dict[str, Any]) -> bool:
     return any(tok in _MUTATING_WORDS for tok in _tokens(tool.get("name", "")))
 
 
-def guess_owner_uri(template: str) -> Optional[str]:
+def guess_owner_placeholder(template: str) -> Optional[str]:
     """The URI-template placeholder that identifies an owned object, or None.
 
-    Same judgement as :func:`guess_owner_arg` makes over a tool's arguments, on
+    Same judgement as :func:`guess_owner_argument` makes over a tool's arguments, on
     the other place an object id can live. A template with exactly one
     placeholder needs no judgement — that is the variable part, and therefore the
     surface. With several, an id-like name is the candidate; ``{owner}/{repo}``
@@ -468,11 +468,11 @@ def _template_entry(
         "type": "object" if placeholders else "function",
     }
 
-    owner_uri = guess_owner_uri(uri)
-    if owner_uri is not None:
-        entry["owner_uri"] = owner_uri
-        entry["owner_attr"] = owner_uri
-        owner_attrs.add(owner_uri)
+    owner = guess_owner_placeholder(uri)
+    if owner is not None:
+        entry["owner"] = owner
+        entry["owner_attr"] = owner
+        owner_attrs.add(owner)
     elif placeholders:
         # Several placeholders and no obvious object among them — {owner}/{repo}
         # rather than {doc_id}. Every one still has to be filled or the URI goes
@@ -528,8 +528,8 @@ def scaffold_matrix_from_tools(
         name = tool.get("name")
         if not name:
             continue
-        owner_arg = guess_owner_arg(tool)
-        is_object = owner_arg is not None
+        owner = guess_owner_argument(tool)
+        is_object = owner is not None
 
         call: Dict[str, Any] = {"server": server_name, "tool": name}
         if is_mutating(tool):
@@ -541,9 +541,9 @@ def scaffold_matrix_from_tools(
             "type": "object" if is_object else "function",
         }
         if is_object:
-            entry["owner_arg"] = owner_arg
-            entry["owner_attr"] = owner_arg
-            owner_attrs.add(owner_arg)
+            entry["owner"] = owner
+            entry["owner_attr"] = owner
+            owner_attrs.add(owner)
         if tool.get("description"):
             entry["description"] = tool["description"]
         resources.append(entry)

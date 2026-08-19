@@ -151,7 +151,7 @@ def _oauth_matrix() -> Matrix:
              "auth": {"provider": "mcp_oauth", "vars": {"client_id": "bob-client"}}},
         ],
         resources=[{"name": "read_document", "call": {"server": "docs", "tool": "read_document"},
-                    "type": "object", "owner_arg": "doc_id", "owner_attr": "doc_id"}],
+                    "type": "object", "owner": "doc_id", "owner_attr": "doc_id"}],
         policy={"read_document": {"allow": [{"role": "user", "scope": "own"}, {"role": "admin", "scope": "any"}]}},
     )
 

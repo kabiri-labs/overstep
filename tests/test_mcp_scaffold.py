@@ -7,7 +7,7 @@ import yaml
 
 from overstep.modules.mcp.loader import (
     fetch_tools,
-    guess_owner_arg,
+    guess_owner_argument,
     is_mutating,
     load_tools_from_file,
     scaffold_matrix_from_tools,
@@ -33,10 +33,10 @@ _TOOLS = [
 
 # --- heuristics -------------------------------------------------------------
 
-def test_guess_owner_arg_from_id_like_argument():
-    assert guess_owner_arg(_TOOLS[0]) == "doc_id"
-    assert guess_owner_arg(_TOOLS[2]) == "record_id"
-    assert guess_owner_arg(_TOOLS[1]) is None       # no id-like argument -> function
+def test_guess_owner_argument_from_id_like_argument():
+    assert guess_owner_argument(_TOOLS[0]) == "doc_id"
+    assert guess_owner_argument(_TOOLS[2]) == "record_id"
+    assert guess_owner_argument(_TOOLS[1]) is None       # no id-like argument -> function
 
 
 def test_is_mutating_from_annotations():
@@ -64,7 +64,7 @@ def test_scaffold_maps_object_and_function_and_mutating():
     by_name = {r["name"]: r for r in doc["resources"]}
 
     assert by_name["get_document"]["type"] == "object"
-    assert by_name["get_document"]["owner_arg"] == "doc_id"
+    assert by_name["get_document"]["owner"] == "doc_id"
     assert "mutating" not in by_name["get_document"]["call"]
 
     assert by_name["list_widgets"]["type"] == "function"
@@ -150,16 +150,16 @@ _TEMPLATES = [
 ]
 
 
-def test_guess_owner_uri_prefers_an_id_like_placeholder():
-    from overstep.modules.mcp.loader import guess_owner_uri
+def test_guess_owner_placeholder_prefers_an_id_like_placeholder():
+    from overstep.modules.mcp.loader import guess_owner_placeholder
 
-    assert guess_owner_uri("doc://acme/{doc_id}") == "doc_id"
-    assert guess_owner_uri("repo://{org_id}/{branch}") == "org_id"
+    assert guess_owner_placeholder("doc://acme/{doc_id}") == "doc_id"
+    assert guess_owner_placeholder("repo://{org_id}/{branch}") == "org_id"
     # A single placeholder needs no judgement: it is the variable part.
-    assert guess_owner_uri("s3://bucket/{key}") == "key"
+    assert guess_owner_placeholder("s3://bucket/{key}") == "key"
     # Several, none of them an id — the scaffold does not pick a winner.
-    assert guess_owner_uri("repo://{owner}/{repo}/tree") is None
-    assert guess_owner_uri("config://settings") is None
+    assert guess_owner_placeholder("repo://{owner}/{repo}/tree") is None
+    assert guess_owner_placeholder("config://settings") is None
 
 
 def test_operator_templates_are_reported_not_drafted():
@@ -188,7 +188,7 @@ def test_a_template_becomes_a_read_resource():
     document = by_name["document"]
     assert document["read"] == {"server": "docs", "uri": "doc://acme/{doc_id}"}
     assert document["type"] == "object"
-    assert document["owner_uri"] == "doc_id"
+    assert document["owner"] == "doc_id"
     assert "call" not in document
     assert doc["policy"]["document"]["allow"][0] == {"role": "user", "scope": "own"}
 

@@ -20,8 +20,8 @@ Thanks for considering a contribution!
   `from test_distribution import …`, never `from tests.test_distribution import …`.
   `PYTHONSAFEPATH=1 python -m pytest -q` reproduces the CI conditions if the
   bare command is not on your path.
-- `python -m uvicorn examples.mock_api.server:app --port 8000`
-- `overstep run examples/mock_api/matrix.yaml --out out`
+- `python -m uvicorn examples.rest_api.server:app --port 8000`
+- `overstep run examples/rest_api/matrix.yaml --out out`
 
 ### Golden files
 

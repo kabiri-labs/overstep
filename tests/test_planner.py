@@ -76,7 +76,7 @@ def _shared_object_matrix(same_id: str = "p-1"):
                 "name": "get_project",
                 "request": {"method": "GET", "path": "/projects/{pid}"},
                 "type": "object",
-                "owner_param": "pid",
+                "owner": "pid",
                 "owner_attr": "pid",
             }
         ],
@@ -128,7 +128,7 @@ def test_no_other_probe_when_every_subject_shares_one_object():
                 "name": "get_project",
                 "request": {"method": "GET", "path": "/projects/{pid}"},
                 "type": "object",
-                "owner_param": "pid",
+                "owner": "pid",
                 "owner_attr": "pid",
             }
         ],
@@ -165,7 +165,7 @@ def _three_owners(**matrix_kwargs):
                 "name": "get_project",
                 "request": {"method": "GET", "path": "/projects/{pid}"},
                 "type": "object",
-                "owner_param": "pid",
+                "owner": "pid",
                 "owner_attr": "pid",
                 **matrix_kwargs.pop("resource", {}),
             }
@@ -235,7 +235,7 @@ def test_victims_sharing_one_object_count_once():
                 "name": "get_project",
                 "request": {"method": "GET", "path": "/projects/{pid}"},
                 "type": "object",
-                "owner_param": "pid",
+                "owner": "pid",
                 "owner_attr": "pid",
             }
         ],

@@ -2,7 +2,7 @@
 
 **Authorization testing for REST APIs and MCP servers — one problem class, two surfaces.**
 
-![Version](https://img.shields.io/badge/version-0.40.0-blue)
+![Version](https://img.shields.io/badge/version-0.41.0-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -238,7 +238,7 @@ resources:
   - name: get_user
     request: { method: GET, path: "/users/{id}" }
     type: object            # object-level -> BOLA surface
-    owner_param: id         # {id} must match the caller's user_id
+    owner: id               # {id} must match the caller's user_id
     owner_attr: user_id
   - name: admin_list_users
     request: { method: GET, path: "/admin/users" }
@@ -264,8 +264,8 @@ refuses it, either the matrix or the target is wrong, and overstep reports
 A deliberately broken HTTP API ships with the repository.
 
 ```bash
-python -m uvicorn examples.mock_api.server:app --port 8000
-overstep plan examples/mock_api/matrix.yaml
+python -m uvicorn examples.rest_api.server:app --port 8000
+overstep plan examples/rest_api/matrix.yaml
 ```
 
 `plan` sends nothing. It prints the eighteen cases the matrix above (plus a
@@ -294,7 +294,7 @@ bob hold genuinely *different* objects; give two subjects the same id and the
 cross-owner probe disappears, which is why `validate` warns about it.
 
 ```bash
-overstep run examples/mock_api/matrix.yaml --out out
+overstep run examples/rest_api/matrix.yaml --out out
 ```
 
 ```
@@ -343,12 +343,12 @@ resources:
   - name: read_document
     call: { server: docs, tool: read_document }
     type: object            # object-level -> BOLA surface on the tool argument
-    owner_arg: doc_id
+    owner: doc_id
     owner_attr: doc_id
   - name: read_doc_resource
     read: { server: docs, uri: "doc://acme/{doc_id}" }
     type: object            # object-level -> BOLA surface on the resource URI
-    owner_uri: doc_id       # the {placeholder} carrying the object id
+    owner: doc_id           # the {placeholder} carrying the object id
     owner_attr: doc_id
   - name: reset_tenant
     call: { server: docs, tool: reset_tenant, mutating: true }   # skipped under --read-only
@@ -486,10 +486,12 @@ resources:
 `graphql_variables`, `mcp_argument` or `mcp_resource_uri`. `selector` is read per
 location: a path parameter, a query/header/cookie/form key, a JSONPath into the
 body, a GraphQL variable name, a tool-argument key, or a `{placeholder}` in an MCP
-resource URI template. The shortcuts are exactly single injections: `owner_param:
-id` is one `path`, `owner_arg: doc_id` one `mcp_argument`, `owner_uri: doc_id` one
-`mcp_resource_uri`. Set `owner_attr` on an individual injection to source it from a
-different subject attribute — the tenant, say, rather than the object id.
+resource URI template. `owner:` is the shorthand for exactly one of these, in
+whichever place the resource naturally carries an id — a path parameter for a
+`request`, a tool argument for a `call`, the URI placeholder for a `read` — so it
+never has to restate what the body already says. Set `owner_attr` on an individual
+injection to source it from a different subject attribute — the tenant, say,
+rather than the object id.
 
 A full example lives in
 [`examples/injections/matrix.yaml`](examples/injections/matrix.yaml).

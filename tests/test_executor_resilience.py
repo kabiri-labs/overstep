@@ -16,7 +16,7 @@ def _matrix() -> Matrix:
         subjects=[{"name": "alice", "role": "user", "token": "a", "attributes": {"user_id": "u1"}}],
         resources=[
             {"name": "get_user", "request": {"method": "GET", "path": "/users/{id}"},
-             "type": "object", "owner_param": "id", "owner_attr": "user_id"},
+             "type": "object", "owner": "id", "owner_attr": "user_id"},
         ],
         policy={"get_user": {"allow": [{"role": "user", "scope": "own"}]}},
     )

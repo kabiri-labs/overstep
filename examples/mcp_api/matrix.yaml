@@ -47,12 +47,12 @@ resources:
   - name: read_document
     call: { server: docs, tool: read_document }
     type: object            # object-level -> BOLA surface on the tool argument
-    owner_arg: doc_id        # the argument that identifies the owned object
+    owner: doc_id        # the argument that identifies the owned object
     owner_attr: doc_id       # matched against the subject's doc_id attribute
   - name: read_doc_resource
     read: { server: docs, uri: "doc://acme/{doc_id}" }
     type: object            # object-level -> BOLA surface on the resource URI
-    owner_uri: doc_id        # the {placeholder} that identifies the owned object
+    owner: doc_id        # the {placeholder} that identifies the owned object
     owner_attr: doc_id
   - name: list_all_users
     call: { server: docs, tool: list_all_users }

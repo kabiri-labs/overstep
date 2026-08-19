@@ -76,7 +76,7 @@ def _matrix() -> Matrix:
         ],
         resources=[{
             "name": "read_document", "call": {"server": "docs", "tool": "read_document"},
-            "type": "object", "owner_arg": "doc_id",
+            "type": "object", "owner": "doc_id",
             "objects": {"alice": "{{ALICE_DOC}}", "bob": "{{BOB_DOC}}"},
         }],
         policy={"read_document": {"allow": [{"role": "user", "scope": "own"}, {"role": "admin", "scope": "any"}]}},

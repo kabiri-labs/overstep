@@ -27,12 +27,12 @@ resources:
   - name: get_vehicle_location
     request: { method: GET, path: "/identity/api/v2/vehicle/{vehicleId}/location" }
     type: object
-    owner_param: vehicleId
+    owner: vehicleId
     owner_attr: user_id                # map to the attribute that owns the object
   - name: get_user_orders
     request: { method: GET, path: "/workshop/api/shop/orders/{orderId}" }
     type: object
-    owner_param: orderId
+    owner: orderId
     owner_attr: user_id
   - name: list_all_users
     request: { method: GET, path: "/identity/api/v2/admin/users" }

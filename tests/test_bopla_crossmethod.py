@@ -10,7 +10,7 @@ def _matrix(**resource_extra) -> Matrix:
         "name": "get_user",
         "request": {"method": "GET", "path": "/users/{id}"},
         "type": "object",
-        "owner_param": "id",
+        "owner": "id",
         "owner_attr": "user_id",
     }
     resource.update(resource_extra)
