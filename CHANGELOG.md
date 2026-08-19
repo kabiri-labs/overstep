@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.41.0] - 2026-08-19
+
+### Changed
+- **BREAKING: one `owner` replaces `owner_param`, `owner_arg` and `owner_uri`.**
+  Three keys expressed one idea — "the object identifier is here" — and each was
+  named for a transport, so an author had to restate what the resource body
+  already said, in a name that could contradict it.
+
+  Where the id goes now follows from the body: a `request` puts it in the path, a
+  `call` in a tool argument, a `read` in the URI placeholder. Each removed key is
+  refused with a message naming the new spelling rather than a generic rejection.
+
+  `ownership.injections` is unchanged and still wins when set. It remains the
+  model for an id that lives somewhere the body cannot imply — a query string, a
+  header, a cookie, a JSON body, GraphQL variables — or in more than one place at
+  once. `owner` is the shorthand for the single common case, nothing more.
+
+  A validation failure now names the place to fill in ("the path parameter
+  carrying the object id", "the URI placeholder"), because "set owner" alone does
+  not tell an author where to put it.
+
+- **BREAKING: `examples/mock_api` is `examples/rest_api`.** The MCP demo was named
+  for its module and the REST demo for its role as a mock, which is the last of
+  the naming asymmetries this series set out to remove. The bundled matrices, the
+  README, `CONTRIBUTING.md` and the CI workflow follow it.
+
 ## [0.40.0] - 2026-08-19
 
 ### Changed

@@ -71,7 +71,7 @@ def test_undiscriminated_objects_warn_because_the_run_is_smaller_not_wrong():
             "name": "r",
             "request": {"method": "GET", "path": "/x/{id}"},
             "type": "object",
-            "owner_param": "id",
+            "owner": "id",
             "owner_attr": "user_id",
         }],
         policy={"r": {"allow": [{"role": "user", "scope": "own"}]}},

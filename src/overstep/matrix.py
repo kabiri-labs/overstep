@@ -431,16 +431,16 @@ class Matrix(BaseModel):
                         f"'{referenced}'"
                     )
                 if res.type == ResourceType.OBJECT and not res.is_object_locatable:
-                    locator = "owner_uri" if res.read is not None else "owner_arg"
+                    place = "URI placeholder" if res.read is not None else "tool argument"
                     error(
-                        f"mcp object resource '{res.name}' must set {locator} or "
-                        f"ownership.injections"
+                        f"mcp object resource '{res.name}' must set 'owner' (the "
+                        f"{place} carrying the object id) or ownership.injections"
                     )
             else:
                 if res.type == ResourceType.OBJECT and not res.is_object_locatable:
                     error(
-                        f"object resource '{res.name}' must set owner_param or "
-                        f"ownership.injections"
+                        f"object resource '{res.name}' must set 'owner' (the path "
+                        f"parameter carrying the object id) or ownership.injections"
                     )
             problems.extend(self._validate_injections(res))
             if res.name not in self.policy:

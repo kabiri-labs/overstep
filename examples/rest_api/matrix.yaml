@@ -1,4 +1,4 @@
-# Authorization matrix for the bundled demo API.
+# Authorization matrix for the bundled REST demo API.
 #
 # The matrix has three parts:
 #   subjects  — the identities overstep will send requests as
@@ -49,12 +49,12 @@ resources:
   - name: get_user
     request: { method: GET, path: "/users/{id}" }
     type: object          # object-level -> BOLA surface
-    owner_param: id        # {id} must match the caller's user_id
+    owner: id        # {id} must match the caller's user_id
     owner_attr: user_id
   - name: delete_user
     request: { method: DELETE, path: "/users/{id}" }
     type: object
-    owner_param: id
+    owner: id
     owner_attr: user_id
   - name: admin_list_users
     request: { method: GET, path: "/admin/users" }

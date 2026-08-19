@@ -27,7 +27,7 @@ jobs:
         run: pytest -q
       - name: Start demo API
         run: |
-          nohup python -m uvicorn examples.mock_api.server:app --host 127.0.0.1 --port 8000 &
+          nohup python -m uvicorn examples.rest_api.server:app --host 127.0.0.1 --port 8000 &
           for i in $(seq 1 20); do
             curl -sf http://127.0.0.1:8000/users/u1 -H "Authorization: Bearer alice-token" && break
             sleep 0.5
@@ -36,7 +36,7 @@ jobs:
         # The demo API is intentionally vulnerable, so we don't fail the build on
         # its findings — we just prove the tool runs and produces reports.
         run: |
-          overstep run examples/mock_api/matrix.yaml --out out --fail-on never
+          overstep run examples/rest_api/matrix.yaml --out out --fail-on never
       - name: Archive reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -59,13 +59,13 @@ jobs:
           pip install -r requirements.txt
       - name: Start demo API
         run: |
-          nohup python -m uvicorn examples.mock_api.server:app --host 127.0.0.1 --port 8000 &
+          nohup python -m uvicorn examples.rest_api.server:app --host 127.0.0.1 --port 8000 &
           for i in $(seq 1 20); do
             curl -sf http://127.0.0.1:8000/users/u1 -H "Authorization: Bearer alice-token" && break
             sleep 0.5
           done
       - name: overstep authorization scan
-        run: overstep run examples/mock_api/matrix.yaml --out out --fail-on never
+        run: overstep run examples/rest_api/matrix.yaml --out out --fail-on never
       - name: Upload SARIF to code scanning
         if: always()
         uses: github/codeql-action/upload-sarif@v3

@@ -39,7 +39,7 @@ resources:
   - name: read_document
     call: { server: docs, tool: read_document }
     type: object
-    owner_arg: doc_id
+    owner: doc_id
     # Point each subject at the real object id captured in setup.
     objects: { alice: "{{ALICE_DOC}}", bob: "{{BOB_DOC}}" }
 

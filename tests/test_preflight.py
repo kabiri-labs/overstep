@@ -23,7 +23,7 @@ MATRIX = Matrix(
         "name": "get_user",
         "request": {"method": "GET", "path": "/users/{id}"},
         "type": "object",
-        "owner_param": "id",
+        "owner": "id",
         "owner_attr": "user_id",
     }],
     policy={"get_user": {"allow": [{"role": "user", "scope": "own"}]}},
@@ -112,9 +112,9 @@ def test_non_mutating_probes_are_preferred():
         resources=[
             # Declared first, so picking the DELETE would be the natural mistake.
             {"name": "del_user", "request": {"method": "DELETE", "path": "/users/{id}"},
-             "type": "object", "owner_param": "id", "owner_attr": "user_id"},
+             "type": "object", "owner": "id", "owner_attr": "user_id"},
             {"name": "get_user", "request": {"method": "GET", "path": "/users/{id}"},
-             "type": "object", "owner_param": "id", "owner_attr": "user_id"},
+             "type": "object", "owner": "id", "owner_attr": "user_id"},
         ],
         policy={
             "del_user": {"allow": [{"role": "user", "scope": "own"}]},
@@ -148,7 +148,7 @@ def test_a_credentialled_subject_with_no_positive_control_warns():
             "name": "get_user",
             "request": {"method": "GET", "path": "/users/{id}"},
             "type": "object",
-            "owner_param": "id",
+            "owner": "id",
             "owner_attr": "user_id",
         }],
         policy={"get_user": {"allow": [{"role": "user", "scope": "own"}]}},
@@ -198,7 +198,7 @@ resources:
   - name: get_user
     request: { method: GET, path: "/users/{id}" }
     type: object
-    owner_param: id
+    owner: id
     owner_attr: user_id
 policy:
   get_user: { allow: [{ role: user, scope: own }] }

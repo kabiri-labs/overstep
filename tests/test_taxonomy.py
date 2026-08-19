@@ -92,11 +92,11 @@ def test_sarif_result_has_a_physical_location(tmp_path):
 
 def test_sarif_result_anchors_to_the_run_source_when_known(tmp_path):
     result = RunResult(
-        base_url="http://api.test", source="examples/mock_api/matrix.yaml", findings=[_finding()]
+        base_url="http://api.test", source="examples/rest_api/matrix.yaml", findings=[_finding()]
     )
     out = tmp_path / "overstep.sarif"
     get_reporter("sarif").write(result, str(out))
     sarif = json.loads(out.read_text())
 
     loc = sarif["runs"][0]["results"][0]["locations"][0]
-    assert loc["physicalLocation"]["artifactLocation"]["uri"] == "examples/mock_api/matrix.yaml"
+    assert loc["physicalLocation"]["artifactLocation"]["uri"] == "examples/rest_api/matrix.yaml"

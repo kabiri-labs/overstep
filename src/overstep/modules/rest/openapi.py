@@ -31,7 +31,7 @@ def _norm(name: str) -> str:
     return name.replace("_", "").lower()
 
 
-def _guess_owner_param(path: str) -> str | None:
+def _guess_owner(path: str) -> str | None:
     params = _PARAM_RE.findall(path)
     for param in params:
         if _norm(param) in _OWNER_HINTS:
@@ -76,7 +76,7 @@ def load_resources(path: str, *, only_get: bool = False) -> List[Resource]:
             if only_get and method.upper() != "GET":
                 continue
 
-            owner = _guess_owner_param(raw_path)
+            owner = _guess_owner(raw_path)
             is_object = owner is not None
             summary = ""
             if isinstance(op, dict):
@@ -87,7 +87,7 @@ def load_resources(path: str, *, only_get: bool = False) -> List[Resource]:
                     name=_resource_name(method, raw_path),
                     request=Request(method=method.upper(), path=raw_path),
                     type=ResourceType.OBJECT if is_object else ResourceType.FUNCTION,
-                    owner_param=owner if is_object else None,
+                    owner=owner if is_object else None,
                     description=summary,
                 )
             )
@@ -102,8 +102,8 @@ def _resource_payload(resources: List[Resource]) -> List[Dict[str, Any]]:
             "request": {"method": res.request.method, "path": res.request.path},
             "type": res.type.value,
         }
-        if res.owner_param:
-            entry["owner_param"] = res.owner_param
+        if res.owner:
+            entry["owner"] = res.owner
         if res.description:
             entry["description"] = res.description
         payload.append(entry)

@@ -200,7 +200,7 @@ class McpCall(BaseModel):
     """A tool-call template for an MCP (transport: mcp) resource.
 
     ``arguments`` may carry ``{{captures}}`` and, for object resources, the
-    ``owner_arg`` argument is filled with the caller's / victim's object id at plan
+    ``owner`` argument is filled with the caller's / victim's object id at plan
     time (the BOLA surface). ``mutating`` marks a tool with side effects so
     ``--read-only`` can skip it.
     """
@@ -462,10 +462,9 @@ class Ownership(BaseModel):
     """The generalized object-identifier model for a resource.
 
     Lists every place the accessed object's id must be written. When set it
-    supersedes the legacy ``owner_param`` / ``owner_arg`` (which are still
-    accepted and converted to a single injection). Multiple injections are
-    written together, so an object addressed by both a header and a path is
-    exercised in one probe.
+    supersedes ``owner``, which is the shorthand for the single common case.
+    Multiple injections are written together, so an object addressed by both a
+    header and a path is exercised in one probe.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -493,19 +492,21 @@ class Resource(BaseModel):
     # resource could contradict itself and the matrix validator had to check for
     # it; a derived value makes that state unrepresentable.
     type: ResourceType = ResourceType.FUNCTION
-    # For object resources: the path parameter (http) or tool argument (mcp) that
-    # identifies the owned object, and the subject attribute it must match.
-    # owner_param / owner_arg are the legacy single-location shortcuts; `ownership`
-    # is the general model. When both are present, `ownership` wins.
-    owner_param: Optional[str] = None
-    owner_arg: Optional[str] = None
-    # For an MCP resource-read: the {placeholder} in the URI template that
-    # identifies the owned object. The shortcut for a single mcp_resource_uri
-    # injection, as owner_param is for a path and owner_arg for a tool argument.
-    owner_uri: Optional[str] = None
+    # For an object resource: what identifies the owned object, in whichever place
+    # this resource naturally carries it — a path parameter for a `request`, a
+    # tool argument for a `call`, the URI placeholder for a `read`.
+    #
+    # This was three keys, one per place, each named for its transport:
+    # `owner_param`, `owner_arg`, `owner_uri`. They expressed one idea — "the id
+    # is here" — and made the author restate what the body already said, with a
+    # name that could contradict it. `ownership.injections` remains the general
+    # model for an id that lives somewhere unusual, or in more than one place.
+    owner: Optional[str] = None
+    # Which subject attribute supplies the value. Orthogonal to where it goes:
+    # a resource may key on a tenant rather than on the object id.
     owner_attr: str = "user_id"
     # Generalized object-identifier injection (path/query/header/cookie/form/json/
-    # graphql_variables/mcp_argument). Supersedes owner_param/owner_arg when set.
+    # graphql_variables/mcp_argument). Supersedes `owner` when set.
     ownership: Optional[Ownership] = None
     description: str = ""
     # Optional per-resource override of its module's default matcher. One key in
@@ -555,6 +556,14 @@ class Resource(BaseModel):
                 f"module is now read off its body — a 'request' is rest, a 'call' or "
                 f"a 'read' is mcp — so the key has no meaning and should be deleted"
             )
+        for legacy in ("owner_param", "owner_arg", "owner_uri"):
+            if legacy in data:
+                raise ValueError(
+                    f"resource '{data.get('name', '?')}' sets '{legacy}'; the object "
+                    f"identifier is spelled 'owner' on every resource now, and where "
+                    f"it goes follows from the body — a 'request' puts it in the path, "
+                    f"a 'call' in a tool argument, a 'read' in the URI placeholder"
+                )
         if "mcp_access" in data:
             raise ValueError(
                 f"resource '{data.get('name', '?')}' sets 'mcp_access'; the override "
@@ -579,33 +588,31 @@ class Resource(BaseModel):
             return "mcp"
         return "http"
 
-    def effective_injections(self) -> List["OwnershipInjection"]:
-        """The object-identifier injections for this resource.
+    # Where a resource carries an object identifier by default, given what it
+    # sends. The body already determines this, which is why `owner` does not
+    # restate it.
+    _OWNER_LOCATION: ClassVar[dict] = {
+        "read": OwnershipLocation.MCP_RESOURCE_URI,
+        "call": OwnershipLocation.MCP_ARGUMENT,
+        "request": OwnershipLocation.PATH,
+    }
 
-        Prefers the explicit ``ownership`` model; otherwise falls back to the
-        legacy ``owner_param`` (a path injection) / ``owner_arg`` (an MCP-argument
-        injection) so existing matrices keep working unchanged.
+    def effective_injections(self) -> List["OwnershipInjection"]:
+        """Where this resource's object identifier goes.
+
+        `ownership.injections` is the general model and wins when set: an id that
+        travels in a query string, a header, a cookie or several places at once
+        needs to say so. `owner` is the shorthand for the common case, and the
+        place it names follows from the body rather than from its own spelling.
         """
         if self.ownership and self.ownership.injections:
             return list(self.ownership.injections)
-        legacy: List[OwnershipInjection] = []
-        if self.owner_param:
-            legacy.append(
-                OwnershipInjection(location=OwnershipLocation.PATH, selector=self.owner_param)
-            )
-        if self.owner_arg:
-            legacy.append(
-                OwnershipInjection(
-                    location=OwnershipLocation.MCP_ARGUMENT, selector=self.owner_arg
-                )
-            )
-        if self.owner_uri:
-            legacy.append(
-                OwnershipInjection(
-                    location=OwnershipLocation.MCP_RESOURCE_URI, selector=self.owner_uri
-                )
-            )
-        return legacy
+        if not self.owner:
+            return []
+        for body, location in self._OWNER_LOCATION.items():
+            if getattr(self, body) is not None:
+                return [OwnershipInjection(location=location, selector=self.owner)]
+        return []
 
     @property
     def is_object_locatable(self) -> bool:

@@ -25,7 +25,7 @@ def _stdio_matrix() -> Matrix:
         ],
         resources=[
             {"name": "read_document", "call": {"server": "docs", "tool": "read_document"},
-             "type": "object", "owner_arg": "doc_id", "owner_attr": "doc_id"},
+             "type": "object", "owner": "doc_id", "owner_attr": "doc_id"},
             {"name": "list_all_users", "call": {"server": "docs", "tool": "list_all_users"}, "type": "function"},
             {"name": "reset_tenant", "call": {"server": "docs", "tool": "reset_tenant", "mutating": True}, "type": "function"},
         ],

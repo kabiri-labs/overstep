@@ -36,7 +36,7 @@ def _matrix(servers=None, **overrides) -> Matrix:
         ],
         resources=[
             {"name": "read_doc", "read": {"server": "docs", "uri": "doc://acme/{doc_id}"},
-             "type": "object", "owner_uri": "doc_id", "owner_attr": "doc_id"},
+             "type": "object", "owner": "doc_id", "owner_attr": "doc_id"},
         ],
         policy={"read_doc": {"allow": [{"role": "user", "scope": "own"}]}},
     )
@@ -98,7 +98,7 @@ def test_the_whole_uri_can_be_the_object():
     """A URI with no template structure of its own is one placeholder."""
     m = _matrix(resources=[{
         "name": "read_doc", "read": {"server": "docs", "uri": "{doc}"},
-        "type": "object", "owner_uri": "doc",
+        "type": "object", "owner": "doc",
         "objects": {"alice": "s3://bucket/a.txt", "bob": "file:///srv/b.txt"},
     }])
     cases = {c.id: c for c in plan(m)}
@@ -138,7 +138,7 @@ def test_neither_call_nor_read_is_an_error():
     """And no body at all leaves nothing to send."""
     m = _matrix()
     m.resources[0].read = None
-    m.resources[0].owner_uri = None
+    m.resources[0].owner = None
 
     assert any("declares no request" in p for p in m.validate_refs())
 
@@ -152,7 +152,7 @@ def test_an_unknown_server_on_a_read_is_caught():
 def test_a_uri_injection_must_name_a_placeholder_in_the_uri():
     """Without it nothing is substituted and every subject reads one fixed URI."""
     m = _matrix()
-    m.resources[0].owner_uri = "wrong_name"
+    m.resources[0].owner = "wrong_name"
     assert any(
         "uri injection 'wrong_name' is not a placeholder" in p for p in m.validate_refs()
     )
@@ -266,9 +266,9 @@ def test_the_tool_half_of_the_same_server_reports_clean():
     """Which is the point: testing only tools would have found nothing here."""
     m = _matrix(resources=[
         {"name": "read_doc", "read": {"server": "docs", "uri": "doc://acme/{doc_id}"},
-         "type": "object", "owner_uri": "doc_id", "owner_attr": "doc_id"},
+         "type": "object", "owner": "doc_id", "owner_attr": "doc_id"},
         {"name": "get_doc_tool", "call": {"server": "docs", "tool": "get_doc"},
-         "type": "object", "owner_arg": "doc_id", "owner_attr": "doc_id"},
+         "type": "object", "owner": "doc_id", "owner_attr": "doc_id"},
     ], policy={
         "read_doc": {"allow": [{"role": "user", "scope": "own"}]},
         "get_doc_tool": {"allow": [{"role": "user", "scope": "own"}]},
@@ -292,7 +292,7 @@ def test_forbidden_fields_are_detected_in_a_resource_read():
     """BOPLA over a read: the body must reach the classifier as parseable JSON."""
     m = _matrix(resources=[{
         "name": "read_doc", "read": {"server": "docs", "uri": "doc://acme/{doc_id}"},
-        "type": "object", "owner_uri": "doc_id", "owner_attr": "doc_id",
+        "type": "object", "owner": "doc_id", "owner_attr": "doc_id",
         "forbidden_fields": ["email"],
     }])
     result = _run(m)

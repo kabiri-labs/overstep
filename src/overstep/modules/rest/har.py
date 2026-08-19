@@ -61,7 +61,7 @@ def load_resources(path: str, *, only_get: bool = False) -> List[Resource]:
                 name=_resource_name(method, norm),
                 request=Request(method=method, path=norm),
                 type=ResourceType.OBJECT if is_object else ResourceType.FUNCTION,
-                owner_param="id" if is_object else None,
+                owner="id" if is_object else None,
             )
         )
     return resources

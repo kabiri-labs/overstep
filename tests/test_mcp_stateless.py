@@ -61,7 +61,7 @@ def _matrix(probes=None, servers=None, **overrides) -> Matrix:
         resources=[
             {"name": "read_document", "call": {"server": "docs", "tool": "read_document",
                       "arguments": {"doc_id": "${doc_id}"}},
-             "type": "object", "owner_arg": "doc_id", "owner_attr": "doc_id"},
+             "type": "object", "owner": "doc_id", "owner_attr": "doc_id"},
             {"name": "reset_tenant", "call": {"server": "docs", "tool": "reset_tenant"}, "type": "function"},
         ],
         policy={

@@ -7,14 +7,14 @@ from overstep.matrix import Matrix
 from overstep.models import ResourceType
 
 
-def test_validate_flags_object_without_owner_param():
+def test_validate_flags_object_without_a_locator():
     m = Matrix(
         subjects=[{"name": "a", "role": "user"}],
         resources=[{"name": "r", "request": {"method": "GET", "path": "/x/{id}"}, "type": "object"}],
         policy={"r": {"allow": [{"role": "user"}]}},
     )
     problems = m.validate_refs()
-    assert any("owner_param" in p for p in problems)
+    assert any("must set 'owner'" in p for p in problems)
 
 
 def test_validate_flags_unknown_policy_resource():
@@ -44,7 +44,7 @@ def test_openapi_scaffold_guesses_object_type(tmp_path):
     )
     resources = {r.name: r for r in load_openapi(str(spec))}
     assert resources["get_users_id"].type == ResourceType.OBJECT
-    assert resources["get_users_id"].owner_param == "id"
+    assert resources["get_users_id"].owner == "id"
     assert resources["get_admin_ping"].type == ResourceType.FUNCTION
 
 
@@ -87,7 +87,7 @@ def test_validate_warns_when_no_two_subjects_own_different_objects():
                 "name": "get_project",
                 "request": {"method": "GET", "path": "/projects/{pid}"},
                 "type": "object",
-                "owner_param": "pid",
+                "owner": "pid",
                 "owner_attr": "pid",
             }
         ],
@@ -115,7 +115,7 @@ def test_validate_is_quiet_when_objects_differ():
                 "name": "get_project",
                 "request": {"method": "GET", "path": "/projects/{pid}"},
                 "type": "object",
-                "owner_param": "pid",
+                "owner": "pid",
                 "owner_attr": "pid",
             }
         ],

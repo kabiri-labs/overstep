@@ -20,7 +20,7 @@ def matrix() -> Matrix:
                 "name": "get_user",
                 "request": {"method": "GET", "path": "/users/{id}"},
                 "type": "object",
-                "owner_param": "id",
+                "owner": "id",
                 "owner_attr": "user_id",
             },
             {

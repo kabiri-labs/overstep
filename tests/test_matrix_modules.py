@@ -229,7 +229,7 @@ def test_an_mcp_matcher_on_a_rest_resource_is_refused():
 
 
 @pytest.mark.parametrize("path", [
-    "examples/mock_api/matrix.yaml",
+    "examples/rest_api/matrix.yaml",
     "examples/mcp_api/matrix.yaml",
     "examples/mcp_api/matrix_stdio.yaml",
     "examples/mcp_api/matrix_setup.yaml",
@@ -415,3 +415,90 @@ def test_no_matrix_facing_model_accepts_unknown_keys():
     walk(Matrix)
 
     assert not permissive, f"these accept unknown keys: {sorted(permissive)}"
+
+
+# --- one way to name the object identifier -----------------------------------
+
+
+@pytest.mark.parametrize("body,location", [
+    ({"request": {"method": "GET", "path": "/u/{id}"}}, "path"),
+    ({"call": {"server": "docs", "tool": "read"}}, "mcp_argument"),
+    ({"read": {"server": "docs", "uri": "doc://{doc_id}"}}, "mcp_resource_uri"),
+])
+def test_owner_goes_where_the_body_carries_it(body, location):
+    """One key, and the place follows from what the resource sends.
+
+    It was three — `owner_param`, `owner_arg`, `owner_uri` — one per place, each
+    named for a transport. They expressed a single idea and made the author
+    restate what the body already said, in a name that could contradict it.
+    """
+    resource = Resource(name="r", type="object", owner="doc_id", **body)
+
+    injections = resource.effective_injections()
+
+    assert [i.location.value for i in injections] == [location]
+    assert [i.selector for i in injections] == ["doc_id"]
+
+
+@pytest.mark.parametrize("legacy", ["owner_param", "owner_arg", "owner_uri"])
+def test_each_removed_locator_says_what_to_write_instead(tmp_path, legacy):
+    """`extra=forbid` refuses them; this tells the reader the new spelling."""
+    path = _write(
+        tmp_path,
+        "roles: [user]\n"
+        "modules: {rest: {base_url: 'http://x'}}\n"
+        "subjects: [{name: a, role: user, token: t}]\n"
+        f"resources: [{{name: r, request: {{method: GET, path: '/u/{{id}}'}},\n"
+        f"             type: object, {legacy}: id}}]\n"
+        "policy: {r: {allow: [{role: user}]}}\n",
+    )
+
+    with pytest.raises(MatrixError) as excinfo:
+        load_matrix(path)
+
+    message = str(excinfo.value)
+    assert legacy in message
+    assert "spelled 'owner'" in message
+
+
+def test_explicit_injections_still_win_over_the_shorthand():
+    """`owner` is the common case; an id somewhere unusual still says so.
+
+    A query string, a header, or two places at once cannot be inferred from the
+    body, which is why the general model stays.
+    """
+    resource = Resource(
+        name="r", type="object",
+        request={"method": "GET", "path": "/orders"},
+        owner="ignored",
+        ownership={"injections": [
+            {"location": "query", "selector": "order_id"},
+            {"location": "header", "selector": "X-Tenant", "owner_attr": "tenant"},
+        ]},
+    )
+
+    injections = resource.effective_injections()
+
+    assert [i.location.value for i in injections] == ["query", "header"]
+    assert [i.selector for i in injections] == ["order_id", "X-Tenant"]
+
+
+def test_a_validation_failure_names_the_place_to_fill_in():
+    """"Set owner" is not actionable without saying where it goes."""
+    rest = Matrix(
+        roles=["user"], subjects=[{"name": "a", "role": "user", "token": "t"}],
+        modules={"rest": {"base_url": "http://x"}},
+        resources=[{"name": "r", "request": {"method": "GET", "path": "/u/{id}"},
+                    "type": "object"}],
+        policy={"r": {"allow": [{"role": "user"}]}},
+    )
+    mcp = Matrix(
+        roles=["user"], subjects=[{"name": "a", "role": "user", "token": "t"}],
+        modules={"mcp": {"servers": [{"name": "docs", "url": "http://x/mcp"}]}},
+        resources=[{"name": "r", "read": {"server": "docs", "uri": "doc://{d}"},
+                    "type": "object"}],
+        policy={"r": {"allow": [{"role": "user"}]}},
+    )
+
+    assert any("path parameter" in p for p in rest.validate_refs())
+    assert any("URI placeholder" in p for p in mcp.validate_refs())
