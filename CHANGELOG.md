@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.38.3] - 2026-08-19
+
+### Fixed
+- **The fail-open caveat added in 0.38.1 gave advice that is not enough for a
+  mixed matrix.** It said to give at least one subject a positive control, which
+  is right for a matrix with one target and wrong the moment there are two.
+
+  `health.assess` judges each target separately — deliberately, so a busy healthy
+  target cannot outvote a small one that answered nothing. The same isolation
+  means a healthy target cannot cover for a silent one either: a matrix spanning a
+  REST API and an MCP server, with its only expected-allow case on the REST side,
+  says nothing about the MCP server's credentials. If that server rejects every
+  one of them, its every expected-deny case is denied and the run is reported as
+  conclusive and clean.
+
+  The guidance is now per target, and says why. Found in review of the PR that
+  added the caveat — the test written with it exercised a single target, which is
+  exactly the shape that hides this.
+
+### Added
+- Multi-target coverage for the credential check: one case pinning that a healthy
+  target does not vouch for a silent one, and one pinning that adding the control
+  to the quiet target *is* what catches it — including that the verdict names the
+  target that failed rather than reporting an anonymous failure.
+
 ## [0.38.2] - 2026-08-19
 
 ### Added

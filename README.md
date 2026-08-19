@@ -2,7 +2,7 @@
 
 **Authorization testing for REST APIs and MCP servers — one problem class, two surfaces.**
 
-![Version](https://img.shields.io/badge/version-0.38.2-blue)
+![Version](https://img.shields.io/badge/version-0.38.3-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -786,14 +786,21 @@ Exit code 3 is distinct from 1 (findings) and 2 (bad input), so CI can tell "you
 server has a hole" from "the scan never ran", and `snapshot` refuses to write a
 baseline against a dead target. `--allow-inconclusive` reports anyway.
 
-**The credential half of that check needs expected-allow tests to work.** An
-allowed request is the only thing that proves a credential is still accepted, so a
-matrix written entirely of negative tests has no such proof to lose — and overstep
-does not condemn it for that, because an intentionally all-negative suite is a
-legitimate thing to write. The consequence is worth stating plainly: point an
-all-negative matrix at a target that rejects every credential it holds, and the
-run is reported as conclusive and clean, because every expected-deny case was
-indeed denied. **Give at least one subject a positive control if you want expired
+**The credential half of that check needs expected-allow tests to work, on the
+target you want it to speak for.** An allowed request is the only thing that
+proves a credential is still accepted, so a target with no expected-allow case has
+no such proof to lose — and overstep does not condemn it for that, because an
+intentionally all-negative suite is a legitimate thing to write.
+
+The consequence is worth stating plainly, and it is sharper than it first looks
+because the judgement is **per target**. A matrix spanning a REST API and an MCP
+server, with its only positive control on the REST side, says nothing about the
+MCP server's credentials: if that server rejects every one of them, its every
+expected-deny case is denied, and the run is reported as conclusive and clean.
+The healthy target does not vouch for the silent one — the same isolation that
+stops a busy target outvoting a small one also stops it covering for one.
+
+**Give every target at least one expected-allow case if you want expired
 credentials to fail the build.** Unreachability is still caught either way; it is
 only the credential check that has nothing to stand on.
 
