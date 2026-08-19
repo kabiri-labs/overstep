@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.38.1] - 2026-08-19
+
+### Fixed
+- **The README no longer implies the gate catches every rejected credential.** The
+  0.37.1 rewrite dropped a caveat that mattered: `health.assess` only reaches the
+  credential check when the matrix has expected-allow cases, so a suite written
+  entirely of negative tests, pointed at a target that rejects every credential it
+  holds, is reported as **conclusive and clean** — every expected-deny case was
+  indeed denied.
+
+  The behaviour is deliberate and stays: an intentionally all-negative matrix has
+  no positive control to lose, and condemning it would be wrong. What was wrong was
+  describing the check without its one hole, in the fail-open direction, in the
+  section whose whole subject is when a clean result may be believed. The README
+  states it and says what to do about it — give at least one subject a positive
+  control. Unreachability was, and is, caught either way.
+
+- **The maturity scale claimed evidence it did not have.** `implemented` was
+  defined as "covered by the test suite *and* exercised by a bundled demo", but no
+  bundled matrix declares `forbidden_fields`, a policy `condition`, `probe_methods`,
+  `token_audience` or an `auth` provider — five rows, not the two first noticed.
+  The definition now claims test coverage, which is the evidence that exists, and
+  says plainly which capabilities the demos do and do not show.
+
+### Added
+- `tests/test_readme_accuracy.py` — every capability marked implemented must be
+  reachable from a test that names it, the scale's definition may not re-acquire
+  the demo claim, and the all-negative caveat must be present *and* match what
+  `health.assess` actually does, asserted in both directions so prose and code
+  cannot drift apart again.
+
 ## [0.38.0] - 2026-08-19
 
 ### Changed
