@@ -21,6 +21,13 @@
   carrying the object id", "the URI placeholder"), because "set owner" alone does
   not tell an author where to put it.
 
+- **The MCP demo's header explained the removed keys.** Migrating a matrix's values
+  and migrating the comments that describe them are two different edits, and only
+  one of them fails a test — so the example taught `owner_arg` and `owner_uri` in
+  prose while the entries beneath used `owner`. A reader following the example
+  would have written a matrix the loader rejects. Found in review; a test now reads
+  every bundled example line by line for any removed key, comments included.
+
 - **BREAKING: `examples/mock_api` is `examples/rest_api`.** The MCP demo was named
   for its module and the REST demo for its role as a mock, which is the last of
   the naming asymmetries this series set out to remove. The bundled matrices, the
