@@ -2,7 +2,7 @@
 
 **Authorization testing for REST APIs and MCP servers — one problem class, two surfaces.**
 
-![Version](https://img.shields.io/badge/version-0.38.0-blue)
+![Version](https://img.shields.io/badge/version-0.38.1-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -136,9 +136,15 @@ the agent, and it does not evaluate what the agent was persuaded to ask for; see
 
 ### Module maturity
 
-Conservative markers: **implemented** means covered by the test suite and
-exercised by a bundled demo; **partial** means it works within a stated limit;
-**planned** means not built.
+Conservative markers: **implemented** means exercised by the test suite;
+**partial** means it works within a stated limit; **planned** means not built.
+
+The bundled demos are a *subset* of that — they cover object- and function-level
+probes, resource reads, session binding and tool enumeration, and are what the
+numbers further down are measured from. Property-level checks, policy conditions,
+cross-method probing, credential audience and OAuth discovery are covered by tests
+rather than by a demo matrix, so read those rows as "there is a test for it", not
+as "you can watch it run in two minutes".
 
 | Capability | REST | MCP |
 |---|---|---|
@@ -779,6 +785,17 @@ per target, so a busy healthy one cannot outvote a small one that answered nothi
 Exit code 3 is distinct from 1 (findings) and 2 (bad input), so CI can tell "your
 server has a hole" from "the scan never ran", and `snapshot` refuses to write a
 baseline against a dead target. `--allow-inconclusive` reports anyway.
+
+**The credential half of that check needs expected-allow tests to work.** An
+allowed request is the only thing that proves a credential is still accepted, so a
+matrix written entirely of negative tests has no such proof to lose — and overstep
+does not condemn it for that, because an intentionally all-negative suite is a
+legitimate thing to write. The consequence is worth stating plainly: point an
+all-negative matrix at a target that rejects every credential it holds, and the
+run is reported as conclusive and clean, because every expected-deny case was
+indeed denied. **Give at least one subject a positive control if you want expired
+credentials to fail the build.** Unreachability is still caught either way; it is
+only the credential check that has nothing to stand on.
 
 **Coverage.** `overstep coverage` measures two gaps and sends nothing:
 
