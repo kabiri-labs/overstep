@@ -54,15 +54,39 @@
   ignored keys and a resource judged by the defaults its author was replacing.
 
 ### Fixed
-- **An unknown key in a matrix is an error, not a comment.** `Matrix`,
-  `ResponseMatcher` and `McpMatcher` reject extra fields. Writing the migration
-  turned up what the old behaviour cost: a test passing `servers=[...]` as an
-  override had it dropped on the floor and asserted against the default server
-  instead, and had been doing so silently.
+- **An unknown key in a matrix is an error, not a comment — at every level.**
+  Every model a matrix file can reach now rejects extra fields, enforced by a test
+  that walks the model graph rather than by a hand-kept list.
+
+  The first pass covered only the top level, which left the worst case open one
+  level down: `modules.mcp.probes.tool_enumeraton: true` loaded happily, left
+  `tool_enumeration` false, and the run reported clean without ever having asked
+  the question. A single transposed letter silently switching off a security probe
+  is the exact failure this tool exists to catch elsewhere. Found in review.
+
+  Writing the migration turned up what the old behaviour cost in the test suite
+  too: a test passing `servers=[...]` as an override had it dropped on the floor
+  and asserted against the default server instead, and had been doing so silently.
+
+- **The two removed resource keys explain themselves.** `extra=forbid` refuses
+  `transport:` and `mcp_access:` on a resource, but "extra inputs are not
+  permitted" does not tell somebody holding last release's matrix what to do. Each
+  now names the fix — delete the line, and spell the override `access`
+  respectively. Before this, `transport: anything` was discarded in silence and a
+  resource with a `request` was routed to the built-in REST executor regardless of
+  what its author had registered.
 - **The README's headline matrix example could never have been pasted.** `${VAR}`
   inside a *flow* mapping opens a nested mapping unless quoted, so
   `- { name: alice, token: ${ALICE_TOKEN} }` was a YAML syntax error. Every fenced
   yaml block in the README is now parsed by a test.
+
+### Removed
+- **A resource can no longer select a transport by name**, which is what
+  `transport:` was for. The module follows from the body, so a third-party
+  executor registered through `overstep.transports` is no longer reachable from a
+  matrix: adding a surface now means an executor, a body shape and a config block.
+  The README's roadmap says so rather than continuing to advertise the registry as
+  a sufficient extension point.
 
 ### Added
 - `tests/test_matrix_modules.py` — the split, the migration error for each

@@ -91,7 +91,9 @@ matrix model, the planner that expands it into cases, the ownership resolution,
 the classifier, the confidence grading, the drift baseline, the waivers and every
 report format. Delivery lives behind a transport registry (`overstep.transports`),
 which is the only seam between the two. **The architecture is module-based**; the
-built-in modules are `http` and `mcp`.
+modules are `rest` and `mcp`. A resource does not name its module — it is read off
+the body the resource declares — so adding a third means registering an executor
+*and* teaching that mapping a new body shape, not adding a string to a config file.
 
 The matrix file has the same shape. Its top level is the shared core — subjects,
 resources, policy, credentials, fixtures — and each module's own configuration
@@ -886,7 +888,7 @@ Short and honest. Nothing here is scheduled.
 | Interactive OAuth authorization-code flow for subjects that cannot use a machine grant | **planned** |
 | Delegation-chain testing: on-behalf-of token shape, actor claims, re-checking at each hop | **planned** |
 | Scope-attenuation checks: proving a delegated credential carries strictly fewer privileges than the one it was derived from | **planned** |
-| Further surfaces behind the transport registry | **planned**, unscheduled — the architecture is module-based, and `http` and `mcp` are the two modules that exist |
+| Further surfaces behind the transport registry | **planned**, unscheduled — the architecture is module-based, and `rest` and `mcp` are the two modules that exist. A third needs an executor, a body shape and a config block; the registry alone is no longer enough to reach one |
 
 ## Contributing
 

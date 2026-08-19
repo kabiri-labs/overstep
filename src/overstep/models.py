@@ -114,6 +114,8 @@ class ResponseMatcher(BaseModel):
     or a class (``"2xx"``).
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     # A key this matcher does not know is a mistake worth an error rather than a
     # silent default: an MCP matcher written on a REST resource (or the reverse)
     # would otherwise have every key dropped, and the resource would quietly be
@@ -135,12 +137,16 @@ class SubjectAuth(BaseModel):
     subjects can share one provider with different credentials.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     provider: str
     vars: Dict[str, str] = Field(default_factory=dict)
 
 
 class Subject(BaseModel):
     """An identity that makes requests against the target."""
+
+    model_config = ConfigDict(extra="forbid")
 
     name: str
     role: str = "user"
@@ -180,6 +186,8 @@ class Request(BaseModel):
     identifier injection.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     method: HTTPMethod
     path: str
     query: Dict[str, Any] = Field(default_factory=dict)
@@ -196,6 +204,8 @@ class McpCall(BaseModel):
     time (the BOLA surface). ``mutating`` marks a tool with side effects so
     ``--read-only`` can skip it.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     server: str
     tool: str
@@ -221,6 +231,8 @@ class McpResourceRead(BaseModel):
     where the object simply *is* the URI, with no template structure to exploit.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     server: str
     uri: str
 
@@ -237,6 +249,8 @@ class McpServer(BaseModel):
       static environment, and ``token_env`` names the variable the subject's token
       is injected into, so each identity launches its own process.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     name: str
     url: Optional[str] = None
@@ -338,6 +352,8 @@ class AuthProvider(BaseModel):
     are filled from each subject's ``auth.vars`` at login time.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     type: Literal["http", "oauth2_password", "oauth2_client_credentials"] = "http"
     base_url: Optional[str] = None  # defaults to the matrix base URL
@@ -374,6 +390,8 @@ class AuthProvider(BaseModel):
 
 
 class AuthConfig(BaseModel):
+
+    model_config = ConfigDict(extra="forbid")
     providers: List[AuthProvider] = Field(default_factory=list)
 
 
@@ -390,7 +408,7 @@ class SetupStep(BaseModel):
     object ids captured over either transport.
     """
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     name: str = ""
     run_as: Optional[str] = Field(default=None, alias="as")
@@ -433,6 +451,8 @@ class OwnershipInjection(BaseModel):
     injection can carry the object id while another carries, say, a tenant.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     location: OwnershipLocation
     selector: str
     owner_attr: Optional[str] = None
@@ -448,11 +468,15 @@ class Ownership(BaseModel):
     exercised in one probe.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     injections: List[OwnershipInjection] = Field(default_factory=list)
 
 
 class Resource(BaseModel):
     """A named API operation the matrix makes assertions about."""
+
+    model_config = ConfigDict(extra="forbid")
 
     name: str
     # The HTTP request template (transport: http). Optional so an MCP resource can
@@ -516,10 +540,28 @@ class Resource(BaseModel):
         MCP, anything else is REST. Written as a before-validator so an MCP
         matcher's keys are never offered to `ResponseMatcher`, which would reject
         them field by field with an error naming the wrong model.
+
+        The same pass turns the two removed keys into instructions. `extra=forbid`
+        already refuses them, but "extra inputs are not permitted" does not tell
+        somebody with a matrix from last release what to write instead — and for
+        `transport:` in particular, the wrong reaction (delete the line) happens
+        to be the right one, which is worth saying rather than leaving to luck.
         """
-        if not isinstance(data, dict) or "access" not in data:
+        if not isinstance(data, dict):
             return data
-        if data.get("call") is not None or data.get("read") is not None:
+        if "transport" in data:
+            raise ValueError(
+                f"resource '{data.get('name', '?')}' sets 'transport'; a resource's "
+                f"module is now read off its body — a 'request' is rest, a 'call' or "
+                f"a 'read' is mcp — so the key has no meaning and should be deleted"
+            )
+        if "mcp_access" in data:
+            raise ValueError(
+                f"resource '{data.get('name', '?')}' sets 'mcp_access'; the override "
+                f"is spelled 'access' on every resource now, and which matcher parses "
+                f"it follows from the body"
+            )
+        if "access" in data and (data.get("call") is not None or data.get("read") is not None):
             data = dict(data)
             data["mcp_access"] = data.pop("access")
         return data
@@ -574,6 +616,8 @@ class Resource(BaseModel):
 class AllowRule(BaseModel):
     """A single "this role may do this" entry in a resource's policy."""
 
+    model_config = ConfigDict(extra="forbid")
+
     role: str
     scope: Literal["own", "any"] = "any"
     # Optional safe expression, ANDed with the scope check, evaluated over
@@ -583,6 +627,8 @@ class AllowRule(BaseModel):
 
 class ResourcePolicy(BaseModel):
     """The allow-list for one resource. Anything not listed is denied."""
+
+    model_config = ConfigDict(extra="forbid")
 
     allow: List[AllowRule] = Field(default_factory=list)
 
