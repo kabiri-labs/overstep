@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="overstep" tests="27" failures="16">
+  <testcase classname="read_document" name="tools/call read_document [alice/self]"/>
+  <testcase classname="read_document" name="tools/call read_document [alice/other]">
+    <failure type="BOLA" message="BOLA: alice (user) read another subject's object via tools/call read_document and got 200 and the response exposed the owner's data (bob@corp.example); the matrix only allows owners here.">alice (user) read another subject's object via tools/call read_document and got 200 and the response exposed the owner's data (bob@corp.example); the matrix only allows owners here.</failure>
+  </testcase>
+  <testcase classname="read_document" name="tools/call read_document [bob/self]"/>
+  <testcase classname="read_document" name="tools/call read_document [bob/other]">
+    <failure type="BOLA" message="BOLA: bob (user) read another subject's object via tools/call read_document and got 200 and the response exposed the owner's data (alice@corp.example); the matrix only allows owners here.">bob (user) read another subject's object via tools/call read_document and got 200 and the response exposed the owner's data (alice@corp.example); the matrix only allows owners here.</failure>
+  </testcase>
+  <testcase classname="read_document" name="tools/call read_document [root/other]"/>
+  <testcase classname="read_document" name="tools/call read_document [anon/other]">
+    <failure type="privilege-escalation" message="privilege-escalation: anon (anonymous) reached tools/call read_document (status 200) which the matrix reserves for admin, user.">anon (anonymous) reached tools/call read_document (status 200) which the matrix reserves for admin, user.</failure>
+  </testcase>
+  <testcase classname="read_doc_resource" name="resources/read doc://acme/d-alice [alice/self]"/>
+  <testcase classname="read_doc_resource" name="resources/read doc://acme/d-bob [alice/other]">
+    <failure type="BOLA" message="BOLA: alice (user) read another subject's object via resources/read doc://acme/d-bob and got 200 and the response exposed the owner's data (bob@corp.example); the matrix only allows owners here.">alice (user) read another subject's object via resources/read doc://acme/d-bob and got 200 and the response exposed the owner's data (bob@corp.example); the matrix only allows owners here.</failure>
+  </testcase>
+  <testcase classname="read_doc_resource" name="resources/read doc://acme/d-bob [bob/self]"/>
+  <testcase classname="read_doc_resource" name="resources/read doc://acme/d-alice [bob/other]">
+    <failure type="BOLA" message="BOLA: bob (user) read another subject's object via resources/read doc://acme/d-alice and got 200 and the response exposed the owner's data (alice@corp.example); the matrix only allows owners here.">bob (user) read another subject's object via resources/read doc://acme/d-alice and got 200 and the response exposed the owner's data (alice@corp.example); the matrix only allows owners here.</failure>
+  </testcase>
+  <testcase classname="read_doc_resource" name="resources/read doc://acme/d-alice [root/other]"/>
+  <testcase classname="read_doc_resource" name="resources/read doc://acme/d-alice [anon/other]">
+    <failure type="privilege-escalation" message="privilege-escalation: anon (anonymous) reached resources/read doc://acme/d-alice (status 200) which the matrix reserves for admin, user.">anon (anonymous) reached resources/read doc://acme/d-alice (status 200) which the matrix reserves for admin, user.</failure>
+  </testcase>
+  <testcase classname="list_all_users" name="tools/call list_all_users [alice/na]">
+    <failure type="privilege-escalation" message="privilege-escalation: alice (user) reached tools/call list_all_users (status 200) which the matrix reserves for admin.">alice (user) reached tools/call list_all_users (status 200) which the matrix reserves for admin.</failure>
+  </testcase>
+  <testcase classname="list_all_users" name="tools/call list_all_users [bob/na]">
+    <failure type="privilege-escalation" message="privilege-escalation: bob (user) reached tools/call list_all_users (status 200) which the matrix reserves for admin.">bob (user) reached tools/call list_all_users (status 200) which the matrix reserves for admin.</failure>
+  </testcase>
+  <testcase classname="list_all_users" name="tools/call list_all_users [root/na]"/>
+  <testcase classname="list_all_users" name="tools/call list_all_users [anon/na]">
+    <failure type="privilege-escalation" message="privilege-escalation: anon (anonymous) reached tools/call list_all_users (status 200) which the matrix reserves for admin.">anon (anonymous) reached tools/call list_all_users (status 200) which the matrix reserves for admin.</failure>
+  </testcase>
+  <testcase classname="reset_tenant" name="tools/call reset_tenant [alice/na]"/>
+  <testcase classname="reset_tenant" name="tools/call reset_tenant [bob/na]"/>
+  <testcase classname="reset_tenant" name="tools/call reset_tenant [root/na]"/>
+  <testcase classname="reset_tenant" name="tools/call reset_tenant [anon/na]"/>
+  <testcase classname="mcp:docs" name="tools/list docs [alice/session]">
+    <failure type="session-hijack" message="session-hijack: a request carrying alice's session id and no credential of its own was served by http://127.0.0.1:9000/mcp, while the same request without the session id was refused — the session is acting as authentication, so anyone who obtains the id becomes alice.">a request carrying alice's session id and no credential of its own was served by http://127.0.0.1:9000/mcp, while the same request without the session id was refused — the session is acting as authentication, so anyone who obtains the id becomes alice.</failure>
+  </testcase>
+  <testcase classname="mcp:docs" name="tools/list docs [bob/session]">
+    <failure type="session-hijack" message="session-hijack: a request carrying bob's session id and no credential of its own was served by http://127.0.0.1:9000/mcp, while the same request without the session id was refused — the session is acting as authentication, so anyone who obtains the id becomes bob.">a request carrying bob's session id and no credential of its own was served by http://127.0.0.1:9000/mcp, while the same request without the session id was refused — the session is acting as authentication, so anyone who obtains the id becomes bob.</failure>
+  </testcase>
+  <testcase classname="mcp:docs" name="tools/list docs [root/session]">
+    <failure type="session-hijack" message="session-hijack: a request carrying root's session id and no credential of its own was served by http://127.0.0.1:9000/mcp, while the same request without the session id was refused — the session is acting as authentication, so anyone who obtains the id becomes root.">a request carrying root's session id and no credential of its own was served by http://127.0.0.1:9000/mcp, while the same request without the session id was refused — the session is acting as authentication, so anyone who obtains the id becomes root.</failure>
+  </testcase>
+  <testcase classname="mcp:docs" name="tools/list docs [alice/enumerate]"/>
+  <testcase classname="mcp:docs" name="tools/list docs [bob/enumerate]"/>
+  <testcase classname="mcp:docs" name="tools/list docs [root/enumerate]"/>
+  <testcase classname="mcp:docs" name="tools/list docs [anon/enumerate]"/>
+</testsuite>

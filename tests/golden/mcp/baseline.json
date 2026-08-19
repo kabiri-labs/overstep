@@ -1,0 +1,250 @@
+{
+  "tool": "overstep",
+  "version": "<VERSION>",
+  "generated_at": "<VOLATILE>",
+  "decisions": {
+    "read_document::alice::self": {
+      "resource": "read_document",
+      "subject": "alice",
+      "method": "tools/call",
+      "path": "read_document",
+      "expected": "allow",
+      "observed": "allow",
+      "status": 200
+    },
+    "read_document::alice::other": {
+      "resource": "read_document",
+      "subject": "alice",
+      "method": "tools/call",
+      "path": "read_document",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200
+    },
+    "read_document::bob::self": {
+      "resource": "read_document",
+      "subject": "bob",
+      "method": "tools/call",
+      "path": "read_document",
+      "expected": "allow",
+      "observed": "allow",
+      "status": 200
+    },
+    "read_document::bob::other": {
+      "resource": "read_document",
+      "subject": "bob",
+      "method": "tools/call",
+      "path": "read_document",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200
+    },
+    "read_document::root::other": {
+      "resource": "read_document",
+      "subject": "root",
+      "method": "tools/call",
+      "path": "read_document",
+      "expected": "allow",
+      "observed": "allow",
+      "status": 200
+    },
+    "read_document::anon::other": {
+      "resource": "read_document",
+      "subject": "anon",
+      "method": "tools/call",
+      "path": "read_document",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200
+    },
+    "read_doc_resource::alice::self": {
+      "resource": "read_doc_resource",
+      "subject": "alice",
+      "method": "resources/read",
+      "path": "doc://acme/d-alice",
+      "expected": "allow",
+      "observed": "allow",
+      "status": 200
+    },
+    "read_doc_resource::alice::other": {
+      "resource": "read_doc_resource",
+      "subject": "alice",
+      "method": "resources/read",
+      "path": "doc://acme/d-bob",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200
+    },
+    "read_doc_resource::bob::self": {
+      "resource": "read_doc_resource",
+      "subject": "bob",
+      "method": "resources/read",
+      "path": "doc://acme/d-bob",
+      "expected": "allow",
+      "observed": "allow",
+      "status": 200
+    },
+    "read_doc_resource::bob::other": {
+      "resource": "read_doc_resource",
+      "subject": "bob",
+      "method": "resources/read",
+      "path": "doc://acme/d-alice",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200
+    },
+    "read_doc_resource::root::other": {
+      "resource": "read_doc_resource",
+      "subject": "root",
+      "method": "resources/read",
+      "path": "doc://acme/d-alice",
+      "expected": "allow",
+      "observed": "allow",
+      "status": 200
+    },
+    "read_doc_resource::anon::other": {
+      "resource": "read_doc_resource",
+      "subject": "anon",
+      "method": "resources/read",
+      "path": "doc://acme/d-alice",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200
+    },
+    "list_all_users::alice::na": {
+      "resource": "list_all_users",
+      "subject": "alice",
+      "method": "tools/call",
+      "path": "list_all_users",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200
+    },
+    "list_all_users::bob::na": {
+      "resource": "list_all_users",
+      "subject": "bob",
+      "method": "tools/call",
+      "path": "list_all_users",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200
+    },
+    "list_all_users::root::na": {
+      "resource": "list_all_users",
+      "subject": "root",
+      "method": "tools/call",
+      "path": "list_all_users",
+      "expected": "allow",
+      "observed": "allow",
+      "status": 200
+    },
+    "list_all_users::anon::na": {
+      "resource": "list_all_users",
+      "subject": "anon",
+      "method": "tools/call",
+      "path": "list_all_users",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200
+    },
+    "reset_tenant::alice::na": {
+      "resource": "reset_tenant",
+      "subject": "alice",
+      "method": "tools/call",
+      "path": "reset_tenant",
+      "expected": "deny",
+      "observed": "deny",
+      "status": 200
+    },
+    "reset_tenant::bob::na": {
+      "resource": "reset_tenant",
+      "subject": "bob",
+      "method": "tools/call",
+      "path": "reset_tenant",
+      "expected": "deny",
+      "observed": "deny",
+      "status": 200
+    },
+    "reset_tenant::root::na": {
+      "resource": "reset_tenant",
+      "subject": "root",
+      "method": "tools/call",
+      "path": "reset_tenant",
+      "expected": "allow",
+      "observed": "allow",
+      "status": 200
+    },
+    "reset_tenant::anon::na": {
+      "resource": "reset_tenant",
+      "subject": "anon",
+      "method": "tools/call",
+      "path": "reset_tenant",
+      "expected": "deny",
+      "observed": "deny",
+      "status": 200
+    },
+    "mcp:docs::alice::session": {
+      "resource": "mcp:docs",
+      "subject": "alice",
+      "method": "tools/list",
+      "path": "docs",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200
+    },
+    "mcp:docs::bob::session": {
+      "resource": "mcp:docs",
+      "subject": "bob",
+      "method": "tools/list",
+      "path": "docs",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200
+    },
+    "mcp:docs::root::session": {
+      "resource": "mcp:docs",
+      "subject": "root",
+      "method": "tools/list",
+      "path": "docs",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200
+    },
+    "mcp:docs::alice::enumerate": {
+      "resource": "mcp:docs",
+      "subject": "alice",
+      "method": "tools/list",
+      "path": "docs",
+      "expected": "allow",
+      "observed": "allow",
+      "status": 200
+    },
+    "mcp:docs::bob::enumerate": {
+      "resource": "mcp:docs",
+      "subject": "bob",
+      "method": "tools/list",
+      "path": "docs",
+      "expected": "allow",
+      "observed": "allow",
+      "status": 200
+    },
+    "mcp:docs::root::enumerate": {
+      "resource": "mcp:docs",
+      "subject": "root",
+      "method": "tools/list",
+      "path": "docs",
+      "expected": "allow",
+      "observed": "allow",
+      "status": 200
+    },
+    "mcp:docs::anon::enumerate": {
+      "resource": "mcp:docs",
+      "subject": "anon",
+      "method": "tools/list",
+      "path": "docs",
+      "expected": "allow",
+      "observed": "deny",
+      "status": 401
+    }
+  }
+}

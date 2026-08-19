@@ -1,0 +1,169 @@
+{
+  "tool": "overstep",
+  "version": "<VERSION>",
+  "generated_at": "<VOLATILE>",
+  "decisions": {
+    "get_user::alice::self": {
+      "resource": "get_user",
+      "subject": "alice",
+      "method": "GET",
+      "path": "/users/u1",
+      "expected": "allow",
+      "observed": "allow",
+      "status": 200
+    },
+    "get_user::alice::other": {
+      "resource": "get_user",
+      "subject": "alice",
+      "method": "GET",
+      "path": "/users/u2",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200
+    },
+    "get_user::bob::self": {
+      "resource": "get_user",
+      "subject": "bob",
+      "method": "GET",
+      "path": "/users/u2",
+      "expected": "allow",
+      "observed": "allow",
+      "status": 200
+    },
+    "get_user::bob::other": {
+      "resource": "get_user",
+      "subject": "bob",
+      "method": "GET",
+      "path": "/users/u1",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200
+    },
+    "get_user::root::self": {
+      "resource": "get_user",
+      "subject": "root",
+      "method": "GET",
+      "path": "/users/u9",
+      "expected": "allow",
+      "observed": "allow",
+      "status": 200
+    },
+    "get_user::root::other": {
+      "resource": "get_user",
+      "subject": "root",
+      "method": "GET",
+      "path": "/users/u1",
+      "expected": "allow",
+      "observed": "allow",
+      "status": 200
+    },
+    "get_user::anon::other": {
+      "resource": "get_user",
+      "subject": "anon",
+      "method": "GET",
+      "path": "/users/u1",
+      "expected": "deny",
+      "observed": "deny",
+      "status": 401
+    },
+    "delete_user::alice::self": {
+      "resource": "delete_user",
+      "subject": "alice",
+      "method": "DELETE",
+      "path": "/users/u1",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200
+    },
+    "delete_user::alice::other": {
+      "resource": "delete_user",
+      "subject": "alice",
+      "method": "DELETE",
+      "path": "/users/u2",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200
+    },
+    "delete_user::bob::self": {
+      "resource": "delete_user",
+      "subject": "bob",
+      "method": "DELETE",
+      "path": "/users/u2",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200
+    },
+    "delete_user::bob::other": {
+      "resource": "delete_user",
+      "subject": "bob",
+      "method": "DELETE",
+      "path": "/users/u1",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200
+    },
+    "delete_user::root::self": {
+      "resource": "delete_user",
+      "subject": "root",
+      "method": "DELETE",
+      "path": "/users/u9",
+      "expected": "allow",
+      "observed": "allow",
+      "status": 200
+    },
+    "delete_user::root::other": {
+      "resource": "delete_user",
+      "subject": "root",
+      "method": "DELETE",
+      "path": "/users/u1",
+      "expected": "allow",
+      "observed": "allow",
+      "status": 200
+    },
+    "delete_user::anon::other": {
+      "resource": "delete_user",
+      "subject": "anon",
+      "method": "DELETE",
+      "path": "/users/u1",
+      "expected": "deny",
+      "observed": "deny",
+      "status": 401
+    },
+    "admin_list_users::alice::na": {
+      "resource": "admin_list_users",
+      "subject": "alice",
+      "method": "GET",
+      "path": "/admin/users",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200
+    },
+    "admin_list_users::bob::na": {
+      "resource": "admin_list_users",
+      "subject": "bob",
+      "method": "GET",
+      "path": "/admin/users",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200
+    },
+    "admin_list_users::root::na": {
+      "resource": "admin_list_users",
+      "subject": "root",
+      "method": "GET",
+      "path": "/admin/users",
+      "expected": "allow",
+      "observed": "allow",
+      "status": 200
+    },
+    "admin_list_users::anon::na": {
+      "resource": "admin_list_users",
+      "subject": "anon",
+      "method": "GET",
+      "path": "/admin/users",
+      "expected": "deny",
+      "observed": "deny",
+      "status": 401
+    }
+  }
+}

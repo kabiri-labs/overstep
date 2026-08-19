@@ -3,6 +3,9 @@ __pycache__/
 .venv/
 out/
 *.sarif
+# …except the stored copies test_wire_contract.py compares against: they are
+# fixtures, not run output, and the rule above silently excluded them once.
+!tests/golden/**/*.sarif
 *.pyc
 *.pyo
 *.pyd

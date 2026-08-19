@@ -1,0 +1,941 @@
+{
+  "base_url": "",
+  "summary": {
+    "total_tests": 27,
+    "positive_tests": 8,
+    "negative_tests": 15,
+    "listing_tests": 4,
+    "findings": 16,
+    "vulnerabilities": 16,
+    "defects": 7,
+    "vulnerability_defects": 7,
+    "drift": 0,
+    "waived": 0,
+    "by_class": {
+      "privilege-escalation": 5,
+      "session-hijack": 3,
+      "BOLA": 4,
+      "tool-enumeration": 4
+    },
+    "inconclusive": false,
+    "inconclusive_reasons": [],
+    "object_resources": 2,
+    "object_resources_probed": 2,
+    "object_resources_unprobed": []
+  },
+  "defects": [
+    {
+      "group": "list_all_users::tools/call::privilege-escalation",
+      "vuln_class": "privilege-escalation",
+      "resource": "list_all_users",
+      "method": "tools/call",
+      "severity": "high",
+      "confidence": "confirmed",
+      "findings": 3,
+      "subjects": [
+        "alice",
+        "anon",
+        "bob"
+      ],
+      "example_test_id": "list_all_users::alice::na"
+    },
+    {
+      "group": "mcp:docs::tools/list::session-hijack",
+      "vuln_class": "session-hijack",
+      "resource": "mcp:docs",
+      "method": "tools/list",
+      "severity": "high",
+      "confidence": "confirmed",
+      "findings": 3,
+      "subjects": [
+        "alice",
+        "bob",
+        "root"
+      ],
+      "example_test_id": "mcp:docs::alice::session"
+    },
+    {
+      "group": "read_doc_resource::resources/read::BOLA",
+      "vuln_class": "BOLA",
+      "resource": "read_doc_resource",
+      "method": "resources/read",
+      "severity": "high",
+      "confidence": "confirmed",
+      "findings": 2,
+      "subjects": [
+        "alice",
+        "bob"
+      ],
+      "example_test_id": "read_doc_resource::alice::other"
+    },
+    {
+      "group": "read_document::tools/call::BOLA",
+      "vuln_class": "BOLA",
+      "resource": "read_document",
+      "method": "tools/call",
+      "severity": "high",
+      "confidence": "confirmed",
+      "findings": 2,
+      "subjects": [
+        "alice",
+        "bob"
+      ],
+      "example_test_id": "read_document::alice::other"
+    },
+    {
+      "group": "read_doc_resource::resources/read::privilege-escalation",
+      "vuln_class": "privilege-escalation",
+      "resource": "read_doc_resource",
+      "method": "resources/read",
+      "severity": "high",
+      "confidence": "confirmed",
+      "findings": 1,
+      "subjects": [
+        "anon"
+      ],
+      "example_test_id": "read_doc_resource::anon::other"
+    },
+    {
+      "group": "read_document::tools/call::privilege-escalation",
+      "vuln_class": "privilege-escalation",
+      "resource": "read_document",
+      "method": "tools/call",
+      "severity": "high",
+      "confidence": "confirmed",
+      "findings": 1,
+      "subjects": [
+        "anon"
+      ],
+      "example_test_id": "read_document::anon::other"
+    },
+    {
+      "group": "mcp:docs::tools/list::tool-enumeration",
+      "vuln_class": "tool-enumeration",
+      "resource": "mcp:docs",
+      "method": "tools/list",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "findings": 4,
+      "subjects": [
+        "alice",
+        "bob"
+      ],
+      "example_test_id": "mcp:docs::alice::enumerate::list_all_users"
+    }
+  ],
+  "findings": [
+    {
+      "test_id": "list_all_users::alice::na",
+      "vuln_class": "privilege-escalation",
+      "severity": "high",
+      "resource": "list_all_users",
+      "subject": "alice",
+      "role": "user",
+      "method": "tools/call",
+      "path": "list_all_users",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200,
+      "variant": "na",
+      "detail": "alice (user) reached tools/call list_all_users (status 200) which the matrix reserves for admin.",
+      "evidence": {
+        "test_id": "list_all_users::alice::na",
+        "status": 200,
+        "effect": "allow",
+        "latency_ms": "<VOLATILE>",
+        "headers": {
+          "content-length": "116",
+          "content-type": "application/json"
+        },
+        "body_snippet": "{\"users\": \"alice, bob\"}",
+        "error": null,
+        "matched_markers": [],
+        "listed_tools": [],
+        "skipped": false
+      },
+      "curl": "curl -sS -X POST -H \"Authorization: Bearer $OVERSTEP_TOKEN_ALICE\" -H 'MCP-Protocol-Version: 2025-06-18' -H 'Content-Type: application/json' --data '{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/call\", \"params\": {\"name\": \"list_all_users\", \"arguments\": {}}}' http://127.0.0.1:9000/mcp",
+      "request": {
+        "method": "tools/call",
+        "url": "http://127.0.0.1:9000/mcp",
+        "tool": "list_all_users",
+        "arguments": {},
+        "uri": "",
+        "headers": {
+          "Authorization": "Bearer $OVERSTEP_TOKEN_ALICE",
+          "MCP-Protocol-Version": "2025-06-18"
+        }
+      },
+      "confidence": "confirmed",
+      "group": "list_all_users::tools/call::privilege-escalation",
+      "cwe": "CWE-269",
+      "owasp_api": "API5:2023 Broken Function Level Authorization"
+    },
+    {
+      "test_id": "list_all_users::anon::na",
+      "vuln_class": "privilege-escalation",
+      "severity": "high",
+      "resource": "list_all_users",
+      "subject": "anon",
+      "role": "anonymous",
+      "method": "tools/call",
+      "path": "list_all_users",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200,
+      "variant": "na",
+      "detail": "anon (anonymous) reached tools/call list_all_users (status 200) which the matrix reserves for admin.",
+      "evidence": {
+        "test_id": "list_all_users::anon::na",
+        "status": 200,
+        "effect": "allow",
+        "latency_ms": "<VOLATILE>",
+        "headers": {
+          "content-length": "116",
+          "content-type": "application/json"
+        },
+        "body_snippet": "{\"users\": \"alice, bob\"}",
+        "error": null,
+        "matched_markers": [],
+        "listed_tools": [],
+        "skipped": false
+      },
+      "curl": "curl -sS -X POST -H 'MCP-Protocol-Version: 2025-06-18' -H 'Content-Type: application/json' --data '{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/call\", \"params\": {\"name\": \"list_all_users\", \"arguments\": {}}}' http://127.0.0.1:9000/mcp",
+      "request": {
+        "method": "tools/call",
+        "url": "http://127.0.0.1:9000/mcp",
+        "tool": "list_all_users",
+        "arguments": {},
+        "uri": "",
+        "headers": {
+          "MCP-Protocol-Version": "2025-06-18"
+        }
+      },
+      "confidence": "confirmed",
+      "group": "list_all_users::tools/call::privilege-escalation",
+      "cwe": "CWE-269",
+      "owasp_api": "API5:2023 Broken Function Level Authorization"
+    },
+    {
+      "test_id": "list_all_users::bob::na",
+      "vuln_class": "privilege-escalation",
+      "severity": "high",
+      "resource": "list_all_users",
+      "subject": "bob",
+      "role": "user",
+      "method": "tools/call",
+      "path": "list_all_users",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200,
+      "variant": "na",
+      "detail": "bob (user) reached tools/call list_all_users (status 200) which the matrix reserves for admin.",
+      "evidence": {
+        "test_id": "list_all_users::bob::na",
+        "status": 200,
+        "effect": "allow",
+        "latency_ms": "<VOLATILE>",
+        "headers": {
+          "content-length": "116",
+          "content-type": "application/json"
+        },
+        "body_snippet": "{\"users\": \"alice, bob\"}",
+        "error": null,
+        "matched_markers": [],
+        "listed_tools": [],
+        "skipped": false
+      },
+      "curl": "curl -sS -X POST -H \"Authorization: Bearer $OVERSTEP_TOKEN_BOB\" -H 'MCP-Protocol-Version: 2025-06-18' -H 'Content-Type: application/json' --data '{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/call\", \"params\": {\"name\": \"list_all_users\", \"arguments\": {}}}' http://127.0.0.1:9000/mcp",
+      "request": {
+        "method": "tools/call",
+        "url": "http://127.0.0.1:9000/mcp",
+        "tool": "list_all_users",
+        "arguments": {},
+        "uri": "",
+        "headers": {
+          "Authorization": "Bearer $OVERSTEP_TOKEN_BOB",
+          "MCP-Protocol-Version": "2025-06-18"
+        }
+      },
+      "confidence": "confirmed",
+      "group": "list_all_users::tools/call::privilege-escalation",
+      "cwe": "CWE-269",
+      "owasp_api": "API5:2023 Broken Function Level Authorization"
+    },
+    {
+      "test_id": "mcp:docs::alice::session",
+      "vuln_class": "session-hijack",
+      "severity": "high",
+      "resource": "mcp:docs",
+      "subject": "alice",
+      "role": "user",
+      "method": "tools/list",
+      "path": "docs",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200,
+      "variant": "session",
+      "detail": "a request carrying alice's session id and no credential of its own was served by http://127.0.0.1:9000/mcp, while the same request without the session id was refused — the session is acting as authentication, so anyone who obtains the id becomes alice.",
+      "evidence": {
+        "test_id": "mcp:docs::alice::session",
+        "status": 200,
+        "effect": "allow",
+        "latency_ms": "<VOLATILE>",
+        "headers": {
+          "content-length": "920",
+          "content-type": "application/json"
+        },
+        "body_snippet": "{\"tools\": [{\"annotations\": {\"readOnlyHint\": true}, \"description\": \"Read a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"read_document\"}, {\"annotations\": {\"readOnlyHint\": true}, \"description\": \"List all users (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"list_all_users\"}, {\"annotations\": {\"destructiveHint\": true, \"readOnlyHint\": false}, \"description\": \"Reset the tenant (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"reset_tenant\"}, {\"annotations\": {\"readOnlyHint\": false}, \"description\": \"Create a document owned by the caller\", \"inputSchema\": {\"properties\": {\"body\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"create_document\"}, {\"annotations\": {\"destructiveHint\": true}, \"description\": \"Delete a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"delete_document\"}]}",
+        "error": null,
+        "matched_markers": [],
+        "listed_tools": [
+          "read_document",
+          "list_all_users",
+          "reset_tenant",
+          "create_document",
+          "delete_document"
+        ],
+        "skipped": false
+      },
+      "curl": "# 1. open a session as alice and keep the id the server issues\nOVERSTEP_SESSION=$(curl -sS -D - -o /dev/null -X POST -H \"Authorization: Bearer $OVERSTEP_TOKEN_ALICE\" -H 'Content-Type: application/json' --data '{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"initialize\", \"params\": {\"protocolVersion\": \"2025-06-18\", \"capabilities\": {}, \"clientInfo\": {\"name\": \"overstep\", \"version\": \"1\"}}}' http://127.0.0.1:9000/mcp | tr -d '\\r' | awk 'tolower($1) == \"mcp-session-id:\" { print $2 }')\n# 2. the same request carrying that session id and no credential at all\ncurl -sS -X POST -H 'MCP-Protocol-Version: 2025-06-18' -H \"Mcp-Session-Id: $OVERSTEP_SESSION\" --data '{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/list\", \"params\": {}}' http://127.0.0.1:9000/mcp",
+      "request": {
+        "method": "tools/list",
+        "url": "http://127.0.0.1:9000/mcp",
+        "tool": "",
+        "arguments": {},
+        "uri": "",
+        "headers": {
+          "MCP-Protocol-Version": "2025-06-18"
+        },
+        "handshake": {
+          "method": "initialize",
+          "headers": {
+            "Authorization": "Bearer $OVERSTEP_TOKEN_ALICE",
+            "Content-Type": "application/json"
+          }
+        }
+      },
+      "confidence": "confirmed",
+      "group": "mcp:docs::tools/list::session-hijack",
+      "cwe": "CWE-287",
+      "owasp_api": "API2:2023 Broken Authentication"
+    },
+    {
+      "test_id": "mcp:docs::bob::session",
+      "vuln_class": "session-hijack",
+      "severity": "high",
+      "resource": "mcp:docs",
+      "subject": "bob",
+      "role": "user",
+      "method": "tools/list",
+      "path": "docs",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200,
+      "variant": "session",
+      "detail": "a request carrying bob's session id and no credential of its own was served by http://127.0.0.1:9000/mcp, while the same request without the session id was refused — the session is acting as authentication, so anyone who obtains the id becomes bob.",
+      "evidence": {
+        "test_id": "mcp:docs::bob::session",
+        "status": 200,
+        "effect": "allow",
+        "latency_ms": "<VOLATILE>",
+        "headers": {
+          "content-length": "920",
+          "content-type": "application/json"
+        },
+        "body_snippet": "{\"tools\": [{\"annotations\": {\"readOnlyHint\": true}, \"description\": \"Read a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"read_document\"}, {\"annotations\": {\"readOnlyHint\": true}, \"description\": \"List all users (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"list_all_users\"}, {\"annotations\": {\"destructiveHint\": true, \"readOnlyHint\": false}, \"description\": \"Reset the tenant (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"reset_tenant\"}, {\"annotations\": {\"readOnlyHint\": false}, \"description\": \"Create a document owned by the caller\", \"inputSchema\": {\"properties\": {\"body\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"create_document\"}, {\"annotations\": {\"destructiveHint\": true}, \"description\": \"Delete a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"delete_document\"}]}",
+        "error": null,
+        "matched_markers": [],
+        "listed_tools": [
+          "read_document",
+          "list_all_users",
+          "reset_tenant",
+          "create_document",
+          "delete_document"
+        ],
+        "skipped": false
+      },
+      "curl": "# 1. open a session as bob and keep the id the server issues\nOVERSTEP_SESSION=$(curl -sS -D - -o /dev/null -X POST -H \"Authorization: Bearer $OVERSTEP_TOKEN_BOB\" -H 'Content-Type: application/json' --data '{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"initialize\", \"params\": {\"protocolVersion\": \"2025-06-18\", \"capabilities\": {}, \"clientInfo\": {\"name\": \"overstep\", \"version\": \"1\"}}}' http://127.0.0.1:9000/mcp | tr -d '\\r' | awk 'tolower($1) == \"mcp-session-id:\" { print $2 }')\n# 2. the same request carrying that session id and no credential at all\ncurl -sS -X POST -H 'MCP-Protocol-Version: 2025-06-18' -H \"Mcp-Session-Id: $OVERSTEP_SESSION\" --data '{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/list\", \"params\": {}}' http://127.0.0.1:9000/mcp",
+      "request": {
+        "method": "tools/list",
+        "url": "http://127.0.0.1:9000/mcp",
+        "tool": "",
+        "arguments": {},
+        "uri": "",
+        "headers": {
+          "MCP-Protocol-Version": "2025-06-18"
+        },
+        "handshake": {
+          "method": "initialize",
+          "headers": {
+            "Authorization": "Bearer $OVERSTEP_TOKEN_BOB",
+            "Content-Type": "application/json"
+          }
+        }
+      },
+      "confidence": "confirmed",
+      "group": "mcp:docs::tools/list::session-hijack",
+      "cwe": "CWE-287",
+      "owasp_api": "API2:2023 Broken Authentication"
+    },
+    {
+      "test_id": "mcp:docs::root::session",
+      "vuln_class": "session-hijack",
+      "severity": "high",
+      "resource": "mcp:docs",
+      "subject": "root",
+      "role": "admin",
+      "method": "tools/list",
+      "path": "docs",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200,
+      "variant": "session",
+      "detail": "a request carrying root's session id and no credential of its own was served by http://127.0.0.1:9000/mcp, while the same request without the session id was refused — the session is acting as authentication, so anyone who obtains the id becomes root.",
+      "evidence": {
+        "test_id": "mcp:docs::root::session",
+        "status": 200,
+        "effect": "allow",
+        "latency_ms": "<VOLATILE>",
+        "headers": {
+          "content-length": "920",
+          "content-type": "application/json"
+        },
+        "body_snippet": "{\"tools\": [{\"annotations\": {\"readOnlyHint\": true}, \"description\": \"Read a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"read_document\"}, {\"annotations\": {\"readOnlyHint\": true}, \"description\": \"List all users (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"list_all_users\"}, {\"annotations\": {\"destructiveHint\": true, \"readOnlyHint\": false}, \"description\": \"Reset the tenant (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"reset_tenant\"}, {\"annotations\": {\"readOnlyHint\": false}, \"description\": \"Create a document owned by the caller\", \"inputSchema\": {\"properties\": {\"body\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"create_document\"}, {\"annotations\": {\"destructiveHint\": true}, \"description\": \"Delete a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"delete_document\"}]}",
+        "error": null,
+        "matched_markers": [],
+        "listed_tools": [
+          "read_document",
+          "list_all_users",
+          "reset_tenant",
+          "create_document",
+          "delete_document"
+        ],
+        "skipped": false
+      },
+      "curl": "# 1. open a session as root and keep the id the server issues\nOVERSTEP_SESSION=$(curl -sS -D - -o /dev/null -X POST -H \"Authorization: Bearer $OVERSTEP_TOKEN_ROOT\" -H 'Content-Type: application/json' --data '{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"initialize\", \"params\": {\"protocolVersion\": \"2025-06-18\", \"capabilities\": {}, \"clientInfo\": {\"name\": \"overstep\", \"version\": \"1\"}}}' http://127.0.0.1:9000/mcp | tr -d '\\r' | awk 'tolower($1) == \"mcp-session-id:\" { print $2 }')\n# 2. the same request carrying that session id and no credential at all\ncurl -sS -X POST -H 'MCP-Protocol-Version: 2025-06-18' -H \"Mcp-Session-Id: $OVERSTEP_SESSION\" --data '{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/list\", \"params\": {}}' http://127.0.0.1:9000/mcp",
+      "request": {
+        "method": "tools/list",
+        "url": "http://127.0.0.1:9000/mcp",
+        "tool": "",
+        "arguments": {},
+        "uri": "",
+        "headers": {
+          "MCP-Protocol-Version": "2025-06-18"
+        },
+        "handshake": {
+          "method": "initialize",
+          "headers": {
+            "Authorization": "Bearer $OVERSTEP_TOKEN_ROOT",
+            "Content-Type": "application/json"
+          }
+        }
+      },
+      "confidence": "confirmed",
+      "group": "mcp:docs::tools/list::session-hijack",
+      "cwe": "CWE-287",
+      "owasp_api": "API2:2023 Broken Authentication"
+    },
+    {
+      "test_id": "read_doc_resource::alice::other",
+      "vuln_class": "BOLA",
+      "severity": "high",
+      "resource": "read_doc_resource",
+      "subject": "alice",
+      "role": "user",
+      "method": "resources/read",
+      "path": "doc://acme/d-bob",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200,
+      "variant": "other",
+      "detail": "alice (user) read another subject's object via resources/read doc://acme/d-bob and got 200 and the response exposed the owner's data (bob@corp.example); the matrix only allows owners here.",
+      "evidence": {
+        "test_id": "read_doc_resource::alice::other",
+        "status": 200,
+        "effect": "allow",
+        "latency_ms": "<VOLATILE>",
+        "headers": {
+          "content-length": "197",
+          "content-type": "application/json"
+        },
+        "body_snippet": "{\"owner\": \"bob\", \"email\": \"bob@corp.example\", \"body\": \"bob's private notes\"}",
+        "error": null,
+        "matched_markers": [
+          "bob@corp.example"
+        ],
+        "listed_tools": [],
+        "skipped": false
+      },
+      "curl": "curl -sS -X POST -H \"Authorization: Bearer $OVERSTEP_TOKEN_ALICE\" -H 'MCP-Protocol-Version: 2025-06-18' -H 'Content-Type: application/json' --data '{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"resources/read\", \"params\": {\"uri\": \"doc://acme/d-bob\"}}' http://127.0.0.1:9000/mcp",
+      "request": {
+        "method": "resources/read",
+        "url": "http://127.0.0.1:9000/mcp",
+        "tool": "",
+        "arguments": {},
+        "uri": "doc://acme/d-bob",
+        "headers": {
+          "Authorization": "Bearer $OVERSTEP_TOKEN_ALICE",
+          "MCP-Protocol-Version": "2025-06-18"
+        }
+      },
+      "confidence": "confirmed",
+      "group": "read_doc_resource::resources/read::BOLA",
+      "cwe": "CWE-639",
+      "owasp_api": "API1:2023 Broken Object Level Authorization"
+    },
+    {
+      "test_id": "read_doc_resource::anon::other",
+      "vuln_class": "privilege-escalation",
+      "severity": "high",
+      "resource": "read_doc_resource",
+      "subject": "anon",
+      "role": "anonymous",
+      "method": "resources/read",
+      "path": "doc://acme/d-alice",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200,
+      "variant": "other",
+      "detail": "anon (anonymous) reached resources/read doc://acme/d-alice (status 200) which the matrix reserves for admin, user.",
+      "evidence": {
+        "test_id": "read_doc_resource::anon::other",
+        "status": 200,
+        "effect": "allow",
+        "latency_ms": "<VOLATILE>",
+        "headers": {
+          "content-length": "205",
+          "content-type": "application/json"
+        },
+        "body_snippet": "{\"owner\": \"alice\", \"email\": \"alice@corp.example\", \"body\": \"alice's private notes\"}",
+        "error": null,
+        "matched_markers": [
+          "alice@corp.example"
+        ],
+        "listed_tools": [],
+        "skipped": false
+      },
+      "curl": "curl -sS -X POST -H 'MCP-Protocol-Version: 2025-06-18' -H 'Content-Type: application/json' --data '{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"resources/read\", \"params\": {\"uri\": \"doc://acme/d-alice\"}}' http://127.0.0.1:9000/mcp",
+      "request": {
+        "method": "resources/read",
+        "url": "http://127.0.0.1:9000/mcp",
+        "tool": "",
+        "arguments": {},
+        "uri": "doc://acme/d-alice",
+        "headers": {
+          "MCP-Protocol-Version": "2025-06-18"
+        }
+      },
+      "confidence": "confirmed",
+      "group": "read_doc_resource::resources/read::privilege-escalation",
+      "cwe": "CWE-269",
+      "owasp_api": "API5:2023 Broken Function Level Authorization"
+    },
+    {
+      "test_id": "read_doc_resource::bob::other",
+      "vuln_class": "BOLA",
+      "severity": "high",
+      "resource": "read_doc_resource",
+      "subject": "bob",
+      "role": "user",
+      "method": "resources/read",
+      "path": "doc://acme/d-alice",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200,
+      "variant": "other",
+      "detail": "bob (user) read another subject's object via resources/read doc://acme/d-alice and got 200 and the response exposed the owner's data (alice@corp.example); the matrix only allows owners here.",
+      "evidence": {
+        "test_id": "read_doc_resource::bob::other",
+        "status": 200,
+        "effect": "allow",
+        "latency_ms": "<VOLATILE>",
+        "headers": {
+          "content-length": "205",
+          "content-type": "application/json"
+        },
+        "body_snippet": "{\"owner\": \"alice\", \"email\": \"alice@corp.example\", \"body\": \"alice's private notes\"}",
+        "error": null,
+        "matched_markers": [
+          "alice@corp.example"
+        ],
+        "listed_tools": [],
+        "skipped": false
+      },
+      "curl": "curl -sS -X POST -H \"Authorization: Bearer $OVERSTEP_TOKEN_BOB\" -H 'MCP-Protocol-Version: 2025-06-18' -H 'Content-Type: application/json' --data '{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"resources/read\", \"params\": {\"uri\": \"doc://acme/d-alice\"}}' http://127.0.0.1:9000/mcp",
+      "request": {
+        "method": "resources/read",
+        "url": "http://127.0.0.1:9000/mcp",
+        "tool": "",
+        "arguments": {},
+        "uri": "doc://acme/d-alice",
+        "headers": {
+          "Authorization": "Bearer $OVERSTEP_TOKEN_BOB",
+          "MCP-Protocol-Version": "2025-06-18"
+        }
+      },
+      "confidence": "confirmed",
+      "group": "read_doc_resource::resources/read::BOLA",
+      "cwe": "CWE-639",
+      "owasp_api": "API1:2023 Broken Object Level Authorization"
+    },
+    {
+      "test_id": "read_document::alice::other",
+      "vuln_class": "BOLA",
+      "severity": "high",
+      "resource": "read_document",
+      "subject": "alice",
+      "role": "user",
+      "method": "tools/call",
+      "path": "read_document",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200,
+      "variant": "other",
+      "detail": "alice (user) read another subject's object via tools/call read_document and got 200 and the response exposed the owner's data (bob@corp.example); the matrix only allows owners here.",
+      "evidence": {
+        "test_id": "read_document::alice::other",
+        "status": 200,
+        "effect": "allow",
+        "latency_ms": "<VOLATILE>",
+        "headers": {
+          "content-length": "200",
+          "content-type": "application/json"
+        },
+        "body_snippet": "{\"doc_id\": \"d-bob\", \"owner\": \"bob\", \"email\": \"bob@corp.example\", \"body\": \"bob's private notes\"}",
+        "error": null,
+        "matched_markers": [
+          "bob@corp.example"
+        ],
+        "listed_tools": [],
+        "skipped": false
+      },
+      "curl": "curl -sS -X POST -H \"Authorization: Bearer $OVERSTEP_TOKEN_ALICE\" -H 'MCP-Protocol-Version: 2025-06-18' -H 'Content-Type: application/json' --data '{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/call\", \"params\": {\"name\": \"read_document\", \"arguments\": {\"doc_id\": \"d-bob\"}}}' http://127.0.0.1:9000/mcp",
+      "request": {
+        "method": "tools/call",
+        "url": "http://127.0.0.1:9000/mcp",
+        "tool": "read_document",
+        "arguments": {
+          "doc_id": "d-bob"
+        },
+        "uri": "",
+        "headers": {
+          "Authorization": "Bearer $OVERSTEP_TOKEN_ALICE",
+          "MCP-Protocol-Version": "2025-06-18"
+        }
+      },
+      "confidence": "confirmed",
+      "group": "read_document::tools/call::BOLA",
+      "cwe": "CWE-639",
+      "owasp_api": "API1:2023 Broken Object Level Authorization"
+    },
+    {
+      "test_id": "read_document::anon::other",
+      "vuln_class": "privilege-escalation",
+      "severity": "high",
+      "resource": "read_document",
+      "subject": "anon",
+      "role": "anonymous",
+      "method": "tools/call",
+      "path": "read_document",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200,
+      "variant": "other",
+      "detail": "anon (anonymous) reached tools/call read_document (status 200) which the matrix reserves for admin, user.",
+      "evidence": {
+        "test_id": "read_document::anon::other",
+        "status": 200,
+        "effect": "allow",
+        "latency_ms": "<VOLATILE>",
+        "headers": {
+          "content-length": "208",
+          "content-type": "application/json"
+        },
+        "body_snippet": "{\"doc_id\": \"d-alice\", \"owner\": \"alice\", \"email\": \"alice@corp.example\", \"body\": \"alice's private notes\"}",
+        "error": null,
+        "matched_markers": [
+          "alice@corp.example"
+        ],
+        "listed_tools": [],
+        "skipped": false
+      },
+      "curl": "curl -sS -X POST -H 'MCP-Protocol-Version: 2025-06-18' -H 'Content-Type: application/json' --data '{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/call\", \"params\": {\"name\": \"read_document\", \"arguments\": {\"doc_id\": \"d-alice\"}}}' http://127.0.0.1:9000/mcp",
+      "request": {
+        "method": "tools/call",
+        "url": "http://127.0.0.1:9000/mcp",
+        "tool": "read_document",
+        "arguments": {
+          "doc_id": "d-alice"
+        },
+        "uri": "",
+        "headers": {
+          "MCP-Protocol-Version": "2025-06-18"
+        }
+      },
+      "confidence": "confirmed",
+      "group": "read_document::tools/call::privilege-escalation",
+      "cwe": "CWE-269",
+      "owasp_api": "API5:2023 Broken Function Level Authorization"
+    },
+    {
+      "test_id": "read_document::bob::other",
+      "vuln_class": "BOLA",
+      "severity": "high",
+      "resource": "read_document",
+      "subject": "bob",
+      "role": "user",
+      "method": "tools/call",
+      "path": "read_document",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200,
+      "variant": "other",
+      "detail": "bob (user) read another subject's object via tools/call read_document and got 200 and the response exposed the owner's data (alice@corp.example); the matrix only allows owners here.",
+      "evidence": {
+        "test_id": "read_document::bob::other",
+        "status": 200,
+        "effect": "allow",
+        "latency_ms": "<VOLATILE>",
+        "headers": {
+          "content-length": "208",
+          "content-type": "application/json"
+        },
+        "body_snippet": "{\"doc_id\": \"d-alice\", \"owner\": \"alice\", \"email\": \"alice@corp.example\", \"body\": \"alice's private notes\"}",
+        "error": null,
+        "matched_markers": [
+          "alice@corp.example"
+        ],
+        "listed_tools": [],
+        "skipped": false
+      },
+      "curl": "curl -sS -X POST -H \"Authorization: Bearer $OVERSTEP_TOKEN_BOB\" -H 'MCP-Protocol-Version: 2025-06-18' -H 'Content-Type: application/json' --data '{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/call\", \"params\": {\"name\": \"read_document\", \"arguments\": {\"doc_id\": \"d-alice\"}}}' http://127.0.0.1:9000/mcp",
+      "request": {
+        "method": "tools/call",
+        "url": "http://127.0.0.1:9000/mcp",
+        "tool": "read_document",
+        "arguments": {
+          "doc_id": "d-alice"
+        },
+        "uri": "",
+        "headers": {
+          "Authorization": "Bearer $OVERSTEP_TOKEN_BOB",
+          "MCP-Protocol-Version": "2025-06-18"
+        }
+      },
+      "confidence": "confirmed",
+      "group": "read_document::tools/call::BOLA",
+      "cwe": "CWE-639",
+      "owasp_api": "API1:2023 Broken Object Level Authorization"
+    },
+    {
+      "test_id": "mcp:docs::alice::enumerate::list_all_users",
+      "vuln_class": "tool-enumeration",
+      "severity": "medium",
+      "resource": "mcp:docs",
+      "subject": "alice",
+      "role": "user",
+      "method": "tools/list",
+      "path": "docs",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200,
+      "variant": "enumerate",
+      "detail": "alice (user) was shown tool 'list_all_users' in tools/list on server 'docs', but has no allow rule for it — the privileged half of the surface is advertised to callers who may not use it.",
+      "evidence": {
+        "test_id": "mcp:docs::alice::enumerate",
+        "status": 200,
+        "effect": "allow",
+        "latency_ms": "<VOLATILE>",
+        "headers": {
+          "content-length": "920",
+          "content-type": "application/json"
+        },
+        "body_snippet": "{\"tools\": [{\"annotations\": {\"readOnlyHint\": true}, \"description\": \"Read a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"read_document\"}, {\"annotations\": {\"readOnlyHint\": true}, \"description\": \"List all users (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"list_all_users\"}, {\"annotations\": {\"destructiveHint\": true, \"readOnlyHint\": false}, \"description\": \"Reset the tenant (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"reset_tenant\"}, {\"annotations\": {\"readOnlyHint\": false}, \"description\": \"Create a document owned by the caller\", \"inputSchema\": {\"properties\": {\"body\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"create_document\"}, {\"annotations\": {\"destructiveHint\": true}, \"description\": \"Delete a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"delete_document\"}]}",
+        "error": null,
+        "matched_markers": [],
+        "listed_tools": [
+          "read_document",
+          "list_all_users",
+          "reset_tenant",
+          "create_document",
+          "delete_document"
+        ],
+        "skipped": false
+      },
+      "curl": "curl -sS -X POST -H \"Authorization: Bearer $OVERSTEP_TOKEN_ALICE\" -H 'MCP-Protocol-Version: 2025-06-18' -H 'Content-Type: application/json' --data '{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/list\", \"params\": {}}' http://127.0.0.1:9000/mcp",
+      "request": {
+        "method": "tools/list",
+        "url": "http://127.0.0.1:9000/mcp",
+        "tool": "",
+        "arguments": {},
+        "uri": "",
+        "headers": {
+          "Authorization": "Bearer $OVERSTEP_TOKEN_ALICE",
+          "MCP-Protocol-Version": "2025-06-18"
+        }
+      },
+      "confidence": "confirmed",
+      "group": "mcp:docs::tools/list::tool-enumeration",
+      "cwe": "CWE-200",
+      "owasp_api": "API5:2023 Broken Function Level Authorization"
+    },
+    {
+      "test_id": "mcp:docs::alice::enumerate::reset_tenant",
+      "vuln_class": "tool-enumeration",
+      "severity": "medium",
+      "resource": "mcp:docs",
+      "subject": "alice",
+      "role": "user",
+      "method": "tools/list",
+      "path": "docs",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200,
+      "variant": "enumerate",
+      "detail": "alice (user) was shown tool 'reset_tenant' in tools/list on server 'docs', but has no allow rule for it — the privileged half of the surface is advertised to callers who may not use it.",
+      "evidence": {
+        "test_id": "mcp:docs::alice::enumerate",
+        "status": 200,
+        "effect": "allow",
+        "latency_ms": "<VOLATILE>",
+        "headers": {
+          "content-length": "920",
+          "content-type": "application/json"
+        },
+        "body_snippet": "{\"tools\": [{\"annotations\": {\"readOnlyHint\": true}, \"description\": \"Read a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"read_document\"}, {\"annotations\": {\"readOnlyHint\": true}, \"description\": \"List all users (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"list_all_users\"}, {\"annotations\": {\"destructiveHint\": true, \"readOnlyHint\": false}, \"description\": \"Reset the tenant (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"reset_tenant\"}, {\"annotations\": {\"readOnlyHint\": false}, \"description\": \"Create a document owned by the caller\", \"inputSchema\": {\"properties\": {\"body\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"create_document\"}, {\"annotations\": {\"destructiveHint\": true}, \"description\": \"Delete a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"delete_document\"}]}",
+        "error": null,
+        "matched_markers": [],
+        "listed_tools": [
+          "read_document",
+          "list_all_users",
+          "reset_tenant",
+          "create_document",
+          "delete_document"
+        ],
+        "skipped": false
+      },
+      "curl": "curl -sS -X POST -H \"Authorization: Bearer $OVERSTEP_TOKEN_ALICE\" -H 'MCP-Protocol-Version: 2025-06-18' -H 'Content-Type: application/json' --data '{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/list\", \"params\": {}}' http://127.0.0.1:9000/mcp",
+      "request": {
+        "method": "tools/list",
+        "url": "http://127.0.0.1:9000/mcp",
+        "tool": "",
+        "arguments": {},
+        "uri": "",
+        "headers": {
+          "Authorization": "Bearer $OVERSTEP_TOKEN_ALICE",
+          "MCP-Protocol-Version": "2025-06-18"
+        }
+      },
+      "confidence": "confirmed",
+      "group": "mcp:docs::tools/list::tool-enumeration",
+      "cwe": "CWE-200",
+      "owasp_api": "API5:2023 Broken Function Level Authorization"
+    },
+    {
+      "test_id": "mcp:docs::bob::enumerate::list_all_users",
+      "vuln_class": "tool-enumeration",
+      "severity": "medium",
+      "resource": "mcp:docs",
+      "subject": "bob",
+      "role": "user",
+      "method": "tools/list",
+      "path": "docs",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200,
+      "variant": "enumerate",
+      "detail": "bob (user) was shown tool 'list_all_users' in tools/list on server 'docs', but has no allow rule for it — the privileged half of the surface is advertised to callers who may not use it.",
+      "evidence": {
+        "test_id": "mcp:docs::bob::enumerate",
+        "status": 200,
+        "effect": "allow",
+        "latency_ms": "<VOLATILE>",
+        "headers": {
+          "content-length": "920",
+          "content-type": "application/json"
+        },
+        "body_snippet": "{\"tools\": [{\"annotations\": {\"readOnlyHint\": true}, \"description\": \"Read a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"read_document\"}, {\"annotations\": {\"readOnlyHint\": true}, \"description\": \"List all users (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"list_all_users\"}, {\"annotations\": {\"destructiveHint\": true, \"readOnlyHint\": false}, \"description\": \"Reset the tenant (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"reset_tenant\"}, {\"annotations\": {\"readOnlyHint\": false}, \"description\": \"Create a document owned by the caller\", \"inputSchema\": {\"properties\": {\"body\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"create_document\"}, {\"annotations\": {\"destructiveHint\": true}, \"description\": \"Delete a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"delete_document\"}]}",
+        "error": null,
+        "matched_markers": [],
+        "listed_tools": [
+          "read_document",
+          "list_all_users",
+          "reset_tenant",
+          "create_document",
+          "delete_document"
+        ],
+        "skipped": false
+      },
+      "curl": "curl -sS -X POST -H \"Authorization: Bearer $OVERSTEP_TOKEN_BOB\" -H 'MCP-Protocol-Version: 2025-06-18' -H 'Content-Type: application/json' --data '{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/list\", \"params\": {}}' http://127.0.0.1:9000/mcp",
+      "request": {
+        "method": "tools/list",
+        "url": "http://127.0.0.1:9000/mcp",
+        "tool": "",
+        "arguments": {},
+        "uri": "",
+        "headers": {
+          "Authorization": "Bearer $OVERSTEP_TOKEN_BOB",
+          "MCP-Protocol-Version": "2025-06-18"
+        }
+      },
+      "confidence": "confirmed",
+      "group": "mcp:docs::tools/list::tool-enumeration",
+      "cwe": "CWE-200",
+      "owasp_api": "API5:2023 Broken Function Level Authorization"
+    },
+    {
+      "test_id": "mcp:docs::bob::enumerate::reset_tenant",
+      "vuln_class": "tool-enumeration",
+      "severity": "medium",
+      "resource": "mcp:docs",
+      "subject": "bob",
+      "role": "user",
+      "method": "tools/list",
+      "path": "docs",
+      "expected": "deny",
+      "observed": "allow",
+      "status": 200,
+      "variant": "enumerate",
+      "detail": "bob (user) was shown tool 'reset_tenant' in tools/list on server 'docs', but has no allow rule for it — the privileged half of the surface is advertised to callers who may not use it.",
+      "evidence": {
+        "test_id": "mcp:docs::bob::enumerate",
+        "status": 200,
+        "effect": "allow",
+        "latency_ms": "<VOLATILE>",
+        "headers": {
+          "content-length": "920",
+          "content-type": "application/json"
+        },
+        "body_snippet": "{\"tools\": [{\"annotations\": {\"readOnlyHint\": true}, \"description\": \"Read a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"read_document\"}, {\"annotations\": {\"readOnlyHint\": true}, \"description\": \"List all users (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"list_all_users\"}, {\"annotations\": {\"destructiveHint\": true, \"readOnlyHint\": false}, \"description\": \"Reset the tenant (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"reset_tenant\"}, {\"annotations\": {\"readOnlyHint\": false}, \"description\": \"Create a document owned by the caller\", \"inputSchema\": {\"properties\": {\"body\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"create_document\"}, {\"annotations\": {\"destructiveHint\": true}, \"description\": \"Delete a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"delete_document\"}]}",
+        "error": null,
+        "matched_markers": [],
+        "listed_tools": [
+          "read_document",
+          "list_all_users",
+          "reset_tenant",
+          "create_document",
+          "delete_document"
+        ],
+        "skipped": false
+      },
+      "curl": "curl -sS -X POST -H \"Authorization: Bearer $OVERSTEP_TOKEN_BOB\" -H 'MCP-Protocol-Version: 2025-06-18' -H 'Content-Type: application/json' --data '{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/list\", \"params\": {}}' http://127.0.0.1:9000/mcp",
+      "request": {
+        "method": "tools/list",
+        "url": "http://127.0.0.1:9000/mcp",
+        "tool": "",
+        "arguments": {},
+        "uri": "",
+        "headers": {
+          "Authorization": "Bearer $OVERSTEP_TOKEN_BOB",
+          "MCP-Protocol-Version": "2025-06-18"
+        }
+      },
+      "confidence": "confirmed",
+      "group": "mcp:docs::tools/list::tool-enumeration",
+      "cwe": "CWE-200",
+      "owasp_api": "API5:2023 Broken Function Level Authorization"
+    }
+  ],
+  "waived": [],
+  "warnings": []
+}

@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.37.2] - 2026-08-19
+
+### Added
+- **The serialized surface of a run is pinned against golden files.**
+  `tests/test_wire_contract.py` runs both bundled demos end to end and compares
+  every document they produce — `findings.json`, `overstep.sarif`, `junit.xml`,
+  `report.html` and a snapshot's `baseline.json` — against a stored copy under
+  `tests/golden/`.
+
+  Three things overstep emits are consumed by something other than a human and
+  cannot move without breaking it: `test_id`, which is the key a drift baseline
+  and a waivers file are written against; the `vuln_class` wire values, which a
+  waiver narrows on and a SARIF rule id carries; and the report documents
+  themselves. None of that was covered. The rest of the suite tests behaviour
+  through Python objects and would have stayed green while the serialized form
+  changed underneath it — so a refactor could have turned every committed
+  `baseline.json` into a wall of false drift, and every waiver into a no-op,
+  without a single failing test.
+
+  Alongside the golden files: the full set of generated `test_id`s for both demos
+  as literals, the `VulnClass` and `Variant` member-to-value maps (renaming a
+  member is free, renaming a value is not), a baseline round trip that must
+  report zero drift against its own build, waiver matching asserted through a
+  real finding, the CLI's command and option names, and the `--fail-on` gate's
+  mapping to exit codes 0/1/2/3.
+
+  These are change detectors, not a freeze. Regenerate with
+  `OVERSTEP_UPDATE_GOLDEN=1` when a change to the serialized form is intended —
+  the resulting diff is the record of what a release breaks, which is what the
+  reorganisation ahead of 1.0.0 needs in order to state its breaking changes
+  precisely instead of discovering them afterwards. `CONTRIBUTING.md` documents
+  the workflow.
+
+  Each guard was verified by mutation: a changed `VulnClass` value, a changed
+  `test_id` separator and a renamed `latency_ms` each fail it, while a version
+  bump does not — the package version is normalized out, or every release would
+  look like a broken contract.
+
+### Fixed
+- **`.gitignore` no longer swallows the golden SARIF files.** The `*.sarif` rule
+  exists so a user's run output stays out of the repository, and it silently
+  excluded the two stored copies as they were written: the suite passed on the
+  machine that generated them and would have failed on a fresh clone with a
+  missing fixture. The rule now carries an exception for `tests/golden/`, and a
+  test asks `git ls-files` rather than the filesystem, because the comparison
+  itself cannot see this — the file is right there.
+
 ## [0.37.1] - 2026-08-19
 
 ### Changed

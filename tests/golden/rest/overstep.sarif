@@ -1,0 +1,526 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "overstep",
+          "version": "<VERSION>",
+          "informationUri": "https://github.com/kabiri-labs/overstep",
+          "rules": [
+            {
+              "id": "BOLA",
+              "name": "BOLA",
+              "shortDescription": {
+                "text": "BOLA"
+              },
+              "fullDescription": {
+                "text": "Broken Object Level Authorization: a subject accessed an object it does not own."
+              },
+              "helpUri": "https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/",
+              "help": {
+                "text": "Broken Object Level Authorization: a subject accessed an object it does not own.\n\nCWE-639 (Authorization Bypass Through User-Controlled Key) · API1:2023 Broken Object Level Authorization"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "cwe": "CWE-639",
+                "owasp-api": "API1:2023 Broken Object Level Authorization",
+                "security-severity": "8.1",
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-639",
+                  "API1:2023"
+                ]
+              }
+            },
+            {
+              "id": "BFLA",
+              "name": "BFLA",
+              "shortDescription": {
+                "text": "BFLA"
+              },
+              "fullDescription": {
+                "text": "Broken Function Level Authorization: a subject invoked a function it is not permitted to."
+              },
+              "helpUri": "https://owasp.org/API-Security/editions/2023/en/0xa5-broken-function-level-authorization/",
+              "help": {
+                "text": "Broken Function Level Authorization: a subject invoked a function it is not permitted to.\n\nCWE-285 (Improper Authorization) · API5:2023 Broken Function Level Authorization"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "cwe": "CWE-285",
+                "owasp-api": "API5:2023 Broken Function Level Authorization",
+                "security-severity": "8.1",
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-285",
+                  "API5:2023"
+                ]
+              }
+            },
+            {
+              "id": "BOPLA",
+              "name": "BOPLA",
+              "shortDescription": {
+                "text": "BOPLA"
+              },
+              "fullDescription": {
+                "text": "Broken Object Property Level Authorization: an allowed response exposed a property the caller should not see."
+              },
+              "helpUri": "https://owasp.org/API-Security/editions/2023/en/0xa3-broken-object-property-level-authorization/",
+              "help": {
+                "text": "Broken Object Property Level Authorization: an allowed response exposed a property the caller should not see.\n\nCWE-213 (Exposure of Sensitive Information Due to Incompatible Policies) · API3:2023 Broken Object Property Level Authorization"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "cwe": "CWE-213",
+                "owasp-api": "API3:2023 Broken Object Property Level Authorization",
+                "security-severity": "7.5",
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-213",
+                  "API3:2023"
+                ]
+              }
+            },
+            {
+              "id": "privilege-escalation",
+              "name": "PRIVILEGE_ESCALATION",
+              "shortDescription": {
+                "text": "privilege-escalation"
+              },
+              "fullDescription": {
+                "text": "A subject reached a resource reserved for a more privileged role."
+              },
+              "helpUri": "https://owasp.org/API-Security/editions/2023/en/0xa5-broken-function-level-authorization/",
+              "help": {
+                "text": "A subject reached a resource reserved for a more privileged role.\n\nCWE-269 (Improper Privilege Management) · API5:2023 Broken Function Level Authorization"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "cwe": "CWE-269",
+                "owasp-api": "API5:2023 Broken Function Level Authorization",
+                "security-severity": "8.8",
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-269",
+                  "API5:2023"
+                ]
+              }
+            },
+            {
+              "id": "token-audience",
+              "name": "TOKEN_AUDIENCE",
+              "shortDescription": {
+                "text": "token-audience"
+              },
+              "fullDescription": {
+                "text": "An MCP server accepted a token that was issued for a different audience."
+              },
+              "helpUri": "https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/",
+              "help": {
+                "text": "An MCP server accepted a token that was issued for a different audience.\n\nCWE-863 (Incorrect Authorization) · API2:2023 Broken Authentication"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "cwe": "CWE-863",
+                "owasp-api": "API2:2023 Broken Authentication",
+                "security-severity": "8.6",
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-863",
+                  "API2:2023"
+                ]
+              }
+            },
+            {
+              "id": "session-hijack",
+              "name": "SESSION_HIJACK",
+              "shortDescription": {
+                "text": "session-hijack"
+              },
+              "fullDescription": {
+                "text": "An MCP server let a session id stand in for a credential."
+              },
+              "helpUri": "https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/",
+              "help": {
+                "text": "An MCP server let a session id stand in for a credential.\n\nCWE-287 (Improper Authentication) · API2:2023 Broken Authentication"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "cwe": "CWE-287",
+                "owasp-api": "API2:2023 Broken Authentication",
+                "security-severity": "8.1",
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-287",
+                  "API2:2023"
+                ]
+              }
+            },
+            {
+              "id": "tool-enumeration",
+              "name": "TOOL_ENUMERATION",
+              "shortDescription": {
+                "text": "tool-enumeration"
+              },
+              "fullDescription": {
+                "text": "An MCP server advertised tools to a subject that may not invoke them."
+              },
+              "helpUri": "https://owasp.org/API-Security/editions/2023/en/0xa5-broken-function-level-authorization/",
+              "help": {
+                "text": "An MCP server advertised tools to a subject that may not invoke them.\n\nCWE-200 (Exposure of Sensitive Information to an Unauthorized Actor) · API5:2023 Broken Function Level Authorization"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "cwe": "CWE-200",
+                "owasp-api": "API5:2023 Broken Function Level Authorization",
+                "security-severity": "5.3",
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-200",
+                  "API5:2023"
+                ]
+              }
+            },
+            {
+              "id": "authorization-drift",
+              "name": "AUTHORIZATION_DRIFT",
+              "shortDescription": {
+                "text": "authorization-drift"
+              },
+              "fullDescription": {
+                "text": "The authorization decision changed relative to the recorded baseline."
+              },
+              "helpUri": "https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/",
+              "help": {
+                "text": "The authorization decision changed relative to the recorded baseline.\n\nCWE-285 (Improper Authorization) · API1:2023 Broken Object Level Authorization"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "cwe": "CWE-285",
+                "owasp-api": "API1:2023 Broken Object Level Authorization",
+                "security-severity": "5.0",
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-285",
+                  "API1:2023"
+                ]
+              }
+            },
+            {
+              "id": "unexpected-deny",
+              "name": "UNEXPECTED_DENY",
+              "shortDescription": {
+                "text": "unexpected-deny"
+              },
+              "fullDescription": {
+                "text": "A subject was denied access the matrix says should be allowed."
+              },
+              "helpUri": "https://owasp.org/API-Security/editions/2023/en/",
+              "help": {
+                "text": "A subject was denied access the matrix says should be allowed.\n\nCWE-285 (Improper Authorization) · API5:2023 Broken Function Level Authorization"
+              },
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "properties": {
+                "cwe": "CWE-285",
+                "owasp-api": "API5:2023 Broken Function Level Authorization",
+                "security-severity": "0.0",
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-285",
+                  "API5:2023"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "privilege-escalation",
+          "level": "error",
+          "message": {
+            "text": "alice (user) reached GET /admin/users (status 200) which the matrix reserves for admin."
+          },
+          "properties": {
+            "subject": "alice",
+            "role": "user",
+            "status": 200,
+            "expected": "deny",
+            "observed": "allow",
+            "confidence": "confirmed",
+            "cwe": "CWE-269",
+            "owasp-api": "API5:2023 Broken Function Level Authorization",
+            "security-severity": "8.8"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "authorization-matrix.yaml"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "GET /admin/users",
+                  "kind": "resource"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ruleId": "privilege-escalation",
+          "level": "error",
+          "message": {
+            "text": "bob (user) reached GET /admin/users (status 200) which the matrix reserves for admin."
+          },
+          "properties": {
+            "subject": "bob",
+            "role": "user",
+            "status": 200,
+            "expected": "deny",
+            "observed": "allow",
+            "confidence": "confirmed",
+            "cwe": "CWE-269",
+            "owasp-api": "API5:2023 Broken Function Level Authorization",
+            "security-severity": "8.8"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "authorization-matrix.yaml"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "GET /admin/users",
+                  "kind": "resource"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ruleId": "privilege-escalation",
+          "level": "error",
+          "message": {
+            "text": "alice (user) reached DELETE /users/u2 (status 200) which the matrix reserves for admin."
+          },
+          "properties": {
+            "subject": "alice",
+            "role": "user",
+            "status": 200,
+            "expected": "deny",
+            "observed": "allow",
+            "confidence": "confirmed",
+            "cwe": "CWE-269",
+            "owasp-api": "API5:2023 Broken Function Level Authorization",
+            "security-severity": "8.8"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "authorization-matrix.yaml"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "DELETE /users/u2",
+                  "kind": "resource"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ruleId": "privilege-escalation",
+          "level": "error",
+          "message": {
+            "text": "alice (user) reached DELETE /users/u1 (status 200) which the matrix reserves for admin."
+          },
+          "properties": {
+            "subject": "alice",
+            "role": "user",
+            "status": 200,
+            "expected": "deny",
+            "observed": "allow",
+            "confidence": "confirmed",
+            "cwe": "CWE-269",
+            "owasp-api": "API5:2023 Broken Function Level Authorization",
+            "security-severity": "8.8"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "authorization-matrix.yaml"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "DELETE /users/u1",
+                  "kind": "resource"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ruleId": "privilege-escalation",
+          "level": "error",
+          "message": {
+            "text": "bob (user) reached DELETE /users/u1 (status 200) which the matrix reserves for admin."
+          },
+          "properties": {
+            "subject": "bob",
+            "role": "user",
+            "status": 200,
+            "expected": "deny",
+            "observed": "allow",
+            "confidence": "confirmed",
+            "cwe": "CWE-269",
+            "owasp-api": "API5:2023 Broken Function Level Authorization",
+            "security-severity": "8.8"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "authorization-matrix.yaml"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "DELETE /users/u1",
+                  "kind": "resource"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ruleId": "privilege-escalation",
+          "level": "error",
+          "message": {
+            "text": "bob (user) reached DELETE /users/u2 (status 200) which the matrix reserves for admin."
+          },
+          "properties": {
+            "subject": "bob",
+            "role": "user",
+            "status": 200,
+            "expected": "deny",
+            "observed": "allow",
+            "confidence": "confirmed",
+            "cwe": "CWE-269",
+            "owasp-api": "API5:2023 Broken Function Level Authorization",
+            "security-severity": "8.8"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "authorization-matrix.yaml"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "DELETE /users/u2",
+                  "kind": "resource"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ruleId": "BOLA",
+          "level": "error",
+          "message": {
+            "text": "alice (user) read another subject's object via GET /users/u2 and got 200; the matrix only allows owners here (no content marker configured to confirm the leak)."
+          },
+          "properties": {
+            "subject": "alice",
+            "role": "user",
+            "status": 200,
+            "expected": "deny",
+            "observed": "allow",
+            "confidence": "unverified",
+            "cwe": "CWE-639",
+            "owasp-api": "API1:2023 Broken Object Level Authorization",
+            "security-severity": "8.1"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "authorization-matrix.yaml"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "GET /users/u2",
+                  "kind": "resource"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ruleId": "BOLA",
+          "level": "error",
+          "message": {
+            "text": "bob (user) read another subject's object via GET /users/u1 and got 200; the matrix only allows owners here (no content marker configured to confirm the leak)."
+          },
+          "properties": {
+            "subject": "bob",
+            "role": "user",
+            "status": 200,
+            "expected": "deny",
+            "observed": "allow",
+            "confidence": "unverified",
+            "cwe": "CWE-639",
+            "owasp-api": "API1:2023 Broken Object Level Authorization",
+            "security-severity": "8.1"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "authorization-matrix.yaml"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "GET /users/u1",
+                  "kind": "resource"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
