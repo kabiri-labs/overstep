@@ -1,9 +1,14 @@
-"""overstep — a matrix-driven authorization testing tool for HTTP APIs.
+"""overstep — authorization testing for REST APIs and MCP servers.
+
+Authorization is one problem class: does the callee verify that this caller may
+perform this action on this object? REST and MCP are two surfaces on which it
+shows up, so they are modules over a shared core rather than two tools.
 
 overstep takes a declarative *authorization matrix* (who is allowed to do what)
-and turns it into concrete positive and negative HTTP tests. Negative tests that
-unexpectedly succeed are reported as authorization vulnerabilities and classified
-as BOLA, BFLA or privilege escalation. Results can be snapshotted so that CI can
+and turns it into concrete positive and negative requests, delivered over
+whichever transport each resource declares. Negative tests that unexpectedly
+succeed are reported as authorization vulnerabilities and classified as BOLA,
+BFLA, BOPLA or privilege escalation. Results can be snapshotted so that CI can
 fail on *authorization drift* between releases.
 
 The public API mirrors the pipeline stages, so an embedding application can do::
@@ -17,7 +22,7 @@ The public API mirrors the pipeline stages, so an embedding application can do::
         raise SystemExit(1)
 """
 
-__version__ = "0.37.2"
+__version__ = "0.37.3"
 
 from overstep.auth import authenticate
 from overstep.matrix import Matrix, Problem, Severity, load_matrix

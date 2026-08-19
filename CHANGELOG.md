@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.37.3] - 2026-08-19
+
+### Fixed
+- **Every place the project describes itself now tells the same story.** overstep
+  describes itself in six surfaces — the README tagline, the PyPI summary, the OCI
+  image label, `overstep --help`, the package docstring and `ABOUT.md` — and
+  nothing connected them, so they had drifted into describing two different tools.
+
+  `overstep --help` read "matrix-driven authorization testing for HTTP APIs" and
+  omitted MCP entirely, which was wrong under the old positioning as much as the
+  new one and had been for many releases. `pyproject.toml` said the opposite,
+  "Authorization testing for MCP servers; works on HTTP APIs too", so the PyPI page
+  and the terminal disagreed about what the tool covers. The `Dockerfile` label
+  matched the CLI, `ABOUT.md` matched pyproject, and the README — as of 0.37.1 —
+  matched neither.
+
+  All six now lead with the problem class and name both surfaces. One canonical
+  sentence appears verbatim in the three long-form surfaces; the short forms are
+  free in their wording but must name REST and MCP.
+
+- **`agent-security` is gone from the packaging keywords.** 0.37.1 added a README
+  section explaining that overstep is not an AI or LLM security tool — it tests a
+  server's enforcement and has no opinion about what an agent was persuaded to
+  ask for — while the keyword advertising exactly that stayed in `pyproject.toml`.
+  A keyword is a claim, and PyPI search is where most people meet a project. The
+  keyword list also now names the REST surface (`rest`, `idor`,
+  `broken-access-control`), which it never did.
+
+### Added
+- `tests/test_positioning.py` — the six surfaces pinned to each other rather than
+  reviewed by eye: verbatim equality on the long forms, a both-modules-named check
+  on the short forms, a length bound where GitHub truncates, and a guard that no
+  self-description or keyword claims the non-goal the README states. Each was
+  mutation-verified: a paraphrased label, an omitted module and a reinstated
+  `agent-security` keyword each fail it.
+
 ## [0.37.2] - 2026-08-19
 
 ### Added

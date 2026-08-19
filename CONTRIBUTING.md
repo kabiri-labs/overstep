@@ -12,6 +12,14 @@ Thanks for considering a contribution!
   functions and uses pytest fixtures, so `unittest` discovery collects none of
   it; `tests/test_runner.py` fails loudly if you reach for the wrong runner.
   No test touches the network, but they do need the `dev` extras installed.
+
+  Run it exactly that way, not as `python -m pytest`. The `-m` form puts the
+  working directory on `sys.path`, which CI does not, so an import that only
+  resolves from the repository root passes locally and fails in CI. `tests/` has
+  no `__init__.py`: a test importing a helper from a sibling writes
+  `from test_distribution import …`, never `from tests.test_distribution import …`.
+  `PYTHONSAFEPATH=1 python -m pytest -q` reproduces the CI conditions if the
+  bare command is not on your path.
 - `python -m uvicorn examples.mock_api.server:app --port 8000`
 - `overstep run examples/mock_api/matrix.yaml --out out`
 

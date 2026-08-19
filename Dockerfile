@@ -7,7 +7,7 @@
 FROM python:3.12-slim
 
 LABEL org.opencontainers.image.title="overstep" \
-      org.opencontainers.image.description="Matrix-driven authorization testing for HTTP APIs (BOLA/BFLA/privilege escalation/auth drift)." \
+      org.opencontainers.image.description="Authorization testing for REST APIs and MCP servers. Declare who may do what as a matrix, and overstep turns it into positive and negative tests that catch BOLA, BFLA, BOPLA and privilege escalation — with drift baselines, confidence grading and CWE/OWASP-tagged SARIF for CI." \
       org.opencontainers.image.source="https://github.com/kabiri-labs/overstep" \
       org.opencontainers.image.licenses="Apache-2.0"
 
