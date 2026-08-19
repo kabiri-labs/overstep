@@ -635,7 +635,7 @@ async def _call(
     if inv is None:
         return Observation(test_id=case.id, status=0, effect=Effect.DENY, error="no MCP target on case")
 
-    if read_only and inv.mutating:
+    if read_only and case.is_mutating:
         return Observation(
             test_id=case.id,
             status=0,

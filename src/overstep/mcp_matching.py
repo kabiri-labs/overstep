@@ -22,7 +22,7 @@ import base64
 import re
 from typing import Any, List, Optional
 
-from overstep.matching import status_matches
+from overstep.statuses import status_matches
 from overstep.models import Effect, McpMatcher
 
 

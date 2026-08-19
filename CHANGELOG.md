@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.38.2] - 2026-08-19
+
+### Added
+- **The module boundary is measured instead of asserted.**
+  `tests/test_module_boundary.py` builds the real import graph and holds it to two
+  rules: no core module may import a surface module's internals, and neither
+  surface may import the other.
+
+  The README has claimed since 0.37.1 that overstep is one shared core with two
+  peer modules over it, and that delivery is the only seam between them. Measured
+  for the first time, that was not true. `models`, `planner`, `auth`, `fixtures`
+  and `repro` all reached into MCP internals; `preflight` reached into the REST
+  executor; and the MCP matcher imported the REST matcher in order to read its own
+  `deny_status`. None of it is visible from a file listing, which is why it
+  survived a positioning rewrite that was specifically about this.
+
+  What remains is listed in `KNOWN_VIOLATIONS`, each entry naming what it waits
+  on. The list is a ratchet: a new violation fails the build, and so does an entry
+  that has been fixed but not removed — so it cannot decay into documentation for
+  a problem nobody is addressing.
+
+### Changed
+- **Reading a status specification moved out of the REST matcher** into
+  `overstep.statuses`. `allow_status` and `deny_status` accept the same three
+  spellings because they describe the same thing, but sharing the parser by having
+  the MCP matcher import the REST one made two peer surfaces into a base and an
+  extension. An HTTP status is a fact about HTTP, and MCP's Streamable HTTP
+  transport has an HTTP leg of its own.
+
+- **`--read-only` asks the case whether it mutates.** The REST executor compared
+  the verb against a constant it owned, the MCP transport read a flag off the
+  invocation, and `preflight` imported the REST executor's constant to prefer a
+  side-effect-free probe. `TestCase.is_mutating` answers for either surface, which
+  removes the import and leaves one definition where there were three.
+
 ## [0.38.1] - 2026-08-19
 
 ### Fixed

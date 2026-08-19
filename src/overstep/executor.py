@@ -122,7 +122,7 @@ async def _fire(
     backoff_base: float = 0.5,
 ) -> Observation:
     # Read-only mode never sends a state-changing request against a live target.
-    if read_only and case.method.upper() in MUTATING_METHODS:
+    if read_only and case.is_mutating:
         return Observation(
             test_id=case.id,
             status=0,

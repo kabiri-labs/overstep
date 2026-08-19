@@ -24,7 +24,6 @@ from typing import Callable, Dict, List, Optional, Sequence
 
 from overstep.auth import AuthError
 from overstep.auth import authenticate as default_authenticator
-from overstep.executor import MUTATING_METHODS
 from overstep.matrix import Matrix, Problem, Severity
 from overstep.models import Effect, Observation, TestCase
 from overstep.planner import plan
@@ -40,7 +39,7 @@ def _positive_control(cases: Sequence[TestCase], subject: str) -> Optional[TestC
     under read-only and reported as unverifiable.
     """
     mine = [c for c in cases if c.subject == subject and c.is_positive_control]
-    safe = [c for c in mine if c.method.upper() not in MUTATING_METHODS]
+    safe = [c for c in mine if not c.is_mutating]
     return (safe or mine or [None])[0]
 
 
