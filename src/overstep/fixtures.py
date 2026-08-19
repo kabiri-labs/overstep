@@ -17,8 +17,6 @@ import httpx
 
 from overstep.jsonpath import extract
 from overstep.matrix import Matrix
-from overstep.mcp_client import mcp_tool_call
-from overstep.mcp_matching import content_text
 from overstep.models import SetupStep, Subject
 from overstep.templating import render
 
@@ -49,23 +47,22 @@ def _step_label(step: SetupStep) -> str:
 
 
 def _mcp_step_result(matrix: Matrix, step: SetupStep, subject, context, label, *, verify_tls: bool) -> str:
-    """Run an MCP setup/teardown tool-call and return its result content text.
+    """Ask the MCP transport to run this step, and hand back its content text.
 
-    Raises SetupError on an unknown server, a JSON-RPC error or an isError result.
+    Both setup and teardown come through here. What the step *is* — sequencing,
+    templating, captures, the warning on a failed teardown — stays shared; how a
+    tool-call is made is the surface's own knowledge and lives with it.
     """
-    server = matrix.server_map().get(step.call.server)
-    if server is None:
-        raise SetupError(f"setup step '{label}' references unknown server '{step.call.server}'")
-    arguments = render(dict(step.call.arguments), context)
-    message = mcp_tool_call(server, subject, step.call.tool, arguments, verify_tls=verify_tls)
-    error = message.get("error") if isinstance(message, dict) else None
-    result = message.get("result") if isinstance(message, dict) else None
-    result = result if isinstance(result, dict) else {}
-    if error is not None:
-        raise SetupError(f"setup step '{label}' errored: {error.get('message')}")
-    if result.get("isError"):
-        raise SetupError(f"setup step '{label}' returned an error result")
-    return content_text(result.get("content"))
+    from overstep.transports import capability
+
+    run = capability("mcp", "run_step")
+    if run is None:
+        raise SetupError(
+            f"step '{label}' is an MCP call, but the mcp transport registered "
+            f"no way to run one"
+        )
+    return run(matrix, step, subject, context, label,
+               verify_tls=verify_tls, error_cls=SetupError)
 
 
 def _run_mcp_setup_step(matrix: Matrix, step: SetupStep, subject, context, label, *, verify_tls: bool) -> None:

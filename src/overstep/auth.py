@@ -16,7 +16,8 @@ import httpx
 
 from overstep.jsonpath import extract
 from overstep.matrix import Matrix
-from overstep.mcp_auth import DiscoveryError, DiscoveryResult, discover_token_endpoint
+from overstep.discovery import Discovered, DiscoveryFailed
+from overstep.discovery import resolve as resolve_discovery
 from overstep.models import AuthProvider, Subject
 from overstep.templating import render
 
@@ -140,8 +141,7 @@ def authenticate(
     if not providers or not subjects_with_auth:
         return
 
-    server_map = matrix.server_map()
-    discovery_cache: Dict[str, "DiscoveryResult"] = {}
+    discovery_cache: Dict[str, Discovered] = {}
 
     owns_client = client is None
     client = client or httpx.Client(timeout=15.0, verify=verify_tls, follow_redirects=True)
@@ -158,28 +158,11 @@ def authenticate(
             resource: Optional[str] = None
             if provider.discover_from:
                 if provider.name not in discovery_cache:
-                    server = server_map.get(provider.discover_from)
-                    server_url = server.url if server and server.url else provider.discover_from
-                    if not server_url or "://" not in server_url:
-                        raise AuthError(
-                            f"provider '{provider.name}' discover_from '{provider.discover_from}' "
-                            f"is not a known HTTP server or URL"
-                        )
                     try:
-                        discovery_cache[provider.name] = discover_token_endpoint(
-                            server_url,
-                            client=client,
-                            expected_issuer=provider.issuer,
-                            # A pinned resource is an identifier the run already
-                            # trusts, so metadata claiming it is not the target
-                            # choosing its own audience.
-                            expected_resource=provider.resource,
-                            # A run that already accepted unverified TLS has made
-                            # its own call about transport security; anything else
-                            # must not be handed a secret over plaintext.
-                            allow_plaintext=not verify_tls,
+                        discovery_cache[provider.name] = resolve_discovery(
+                            matrix, provider, client=client, verify_tls=verify_tls
                         )
-                    except DiscoveryError as exc:
+                    except DiscoveryFailed as exc:
                         raise AuthError(str(exc)) from exc
                 disc = discovery_cache[provider.name]
                 token_url = disc.token_endpoint

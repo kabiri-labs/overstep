@@ -31,11 +31,12 @@ SRC = os.path.join(
 
 # Delivery, and everything only one surface understands.
 REST_MODULES = {
-    "executor", "matching", "transports.http", "loaders.openapi", "loaders.har",
+    "executor", "matching", "http_repro", "transports.http",
+    "loaders.openapi", "loaders.har",
 }
 MCP_MODULES = {
-    "mcp_auth", "mcp_client", "mcp_matching", "mcp_protocol", "transports.mcp",
-    "loaders.mcp",
+    "mcp_auth", "mcp_client", "mcp_fixtures", "mcp_matching", "mcp_protocol",
+    "mcp_repro", "transports.mcp", "loaders.mcp",
 }
 MODULE_OWNED = REST_MODULES | MCP_MODULES
 
@@ -45,18 +46,12 @@ EXEMPT = {"cli", "__main__", ""}
 # Every core -> module import still standing, and what it is waiting on. Removing
 # an entry is the unit of progress here.
 KNOWN_VIOLATIONS = {
-    # `DEFAULT_PROTOCOL_VERSION` defaults two MCP models that still live in the
-    # shared models module. Goes when those models move to the MCP module.
+    # All that is left. `DEFAULT_PROTOCOL_VERSION` defaults two MCP models that
+    # still live in the shared models module, and the planner reads the same
+    # constant to build an invocation. Both go when those models move to the MCP
+    # module — a relocation, not a seam, and the last thing on this list.
     ("models", "mcp_protocol"),
     ("planner", "mcp_protocol"),
-    # Discovery, tool-calls and setup steps are dispatched by hand instead of
-    # through a registry. Each needs a seam, not a move.
-    ("auth", "mcp_auth"),
-    ("fixtures", "mcp_client"),
-    ("fixtures", "mcp_matching"),
-    ("repro", "mcp_protocol"),
-    ("repro", "transports.mcp"),
-    ("repro", "executor"),
 }
 
 
@@ -109,7 +104,7 @@ def test_the_graph_is_actually_being_read():
     graph = _graph()
 
     assert len(graph) > 20, f"only {len(graph)} modules found; the walk is wrong"
-    assert "transports.mcp" in graph["repro"], "the import parser missed a known edge"
+    assert "mcp_protocol" in graph["models"], "the import parser missed a known edge"
 
 
 def test_no_core_module_imports_a_module_beyond_the_known_list():

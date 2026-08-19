@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.39.0] - 2026-08-19
+
+### Changed
+- **A surface answers its own questions, through the registry.** 0.38.2 measured
+  eight places where a core module reached into a surface's internals. Six were
+  the same shape — a question only the surface can answer, asked inline by core —
+  and each now goes through a seam. `KNOWN_VIOLATIONS` is down to two.
+
+  `TransportSpec` gains three optional capabilities beside `execute`:
+  `build_record` and `build_repro` for turning a case into evidence, and
+  `run_step` for a setup or teardown step. Rendering moves to
+  `overstep.http_repro` and `overstep.mcp_repro`; running an MCP step moves to
+  `overstep.mcp_fixtures`. `overstep.repro` keeps what is genuinely shared —
+  masking, shell quoting, the per-subject credential variable — and dispatches
+  the rest.
+
+  Discovery gets a registry of its own in `overstep.discovery`, because resolving
+  a provider's `discover_from` is not a per-case question. A resolver returning
+  `None` means "not mine" and the next surface is asked; raising `DiscoveryFailed`
+  means it recognised the reference and could not complete it, which stops the
+  run. A metadata document failing its issuer check must not fall through to
+  another surface's guess.
+
+  The capabilities are optional. A transport registering only delivery still
+  runs; a missing repro is described in the report rather than raised, because a
+  finding without a repro is still a real finding.
+
+### Fixed
+- **`transports.restore` puts a whole spec back.** `register` defines a transport
+  completely, so re-registering a saved *execute function* silently dropped
+  everything else it could do. That was harmless while delivery was the only
+  capability and became a trap the moment it was not: a test that stubbed HTTP
+  delivery and restored it that way left the real transport unable to render a
+  repro for every case that followed, surfacing as an unexplained diff in the
+  golden files of an unrelated suite. Anything round-tripping a spec should use
+  `restore`.
+
+### Added
+- `tests/test_transport_capabilities.py` — each surface registers its own
+  rendering, a delivery-only transport still runs and describes what it cannot
+  do, a restored spec keeps every capability, and the two discovery outcomes stay
+  distinguishable.
+
 ## [0.38.3] - 2026-08-19
 
 ### Fixed

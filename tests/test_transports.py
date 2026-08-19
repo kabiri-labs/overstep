@@ -18,6 +18,7 @@ from overstep.transports import (
     dispatch,
     get_transport,
     register,
+    restore,
 )
 
 
@@ -57,7 +58,7 @@ def test_dispatch_routes_cases_by_transport(matrix):
         return [Observation(test_id=c.id, status=403, effect=Effect.DENY) for c in cases]
 
     register("dummy", dummy_exec)
-    original_http = get_transport("http").execute
+    original_http = get_transport("http")
     register("http", http_exec)  # temporarily swap the http executor for a stub
     try:
         cases = plan(matrix)
@@ -74,7 +75,7 @@ def test_dispatch_routes_cases_by_transport(matrix):
         # Every case produced exactly one observation, regardless of transport.
         assert {o.test_id for o in obs} == {c.id for c in cases}
     finally:
-        register("http", original_http)  # restore the real http transport
+        restore(original_http)  # the whole spec, not just its executor
 
 
 def test_dispatch_over_http_end_to_end(matrix):

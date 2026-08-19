@@ -10,9 +10,11 @@ from overstep.transports.base import (
     DEFAULT_TRANSPORT,
     TransportSpec,
     all_transports,
+    capability,
     dispatch,
     get_transport,
     register,
+    restore,
     transport_names,
 )
 
@@ -24,8 +26,10 @@ __all__ = [
     "DEFAULT_TRANSPORT",
     "TransportSpec",
     "all_transports",
+    "capability",
     "dispatch",
     "get_transport",
     "register",
+    "restore",
     "transport_names",
 ]
