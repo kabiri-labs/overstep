@@ -12,31 +12,7 @@ import re
 from typing import List, Optional, Union
 
 from overstep.models import Effect, ResponseMatcher
-
-
-def status_matches(spec: List[Union[int, str]], status: int) -> bool:
-    """Does ``status`` satisfy one of the entries in ``spec``?
-
-    Entries may be an exact code (``200``/``"200"``), an inclusive range
-    (``"200-299"``) or a status class (``"2xx"``).
-    """
-    for item in spec:
-        if isinstance(item, int):
-            if status == item:
-                return True
-            continue
-        token = str(item).strip().lower()
-        if len(token) == 3 and token.endswith("xx") and token[0].isdigit():
-            if status // 100 == int(token[0]):
-                return True
-        elif "-" in token:
-            low, high = token.split("-", 1)
-            if low.strip().isdigit() and high.strip().isdigit():
-                if int(low) <= status <= int(high):
-                    return True
-        elif token.isdigit() and status == int(token):
-            return True
-    return False
+from overstep.statuses import status_matches
 
 
 def _search(pattern: Optional[str], body: str) -> bool:

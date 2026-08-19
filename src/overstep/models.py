@@ -7,7 +7,7 @@ here as pydantic models so that (de)serialization to JSON is free and validated.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, ClassVar, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
@@ -680,6 +680,25 @@ class TestCase(BaseModel):
     @property
     def is_negative(self) -> bool:
         return self.expected == Effect.DENY
+
+    # The verbs that change state over HTTP. MCP has no verb, so an MCP case
+    # says so on its invocation instead; `is_mutating` is what asks either one.
+    MUTATING_METHODS: ClassVar[frozenset] = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+    @property
+    def is_mutating(self) -> bool:
+        """Whether `--read-only` must skip this case.
+
+        Both modules answer this, and they answered it in different places and
+        different ways: the REST executor compared the verb against a constant it
+        owned, the MCP transport read a flag off the invocation, and `preflight`
+        reached into the REST executor for the constant in order to prefer a safe
+        probe. One question asked of the case settles all three, and stops a core
+        module importing a module's private knowledge to ask it.
+        """
+        if self.mcp is not None:
+            return self.mcp.mutating
+        return self.method.upper() in self.MUTATING_METHODS
 
     @property
     def is_positive_control(self) -> bool:
