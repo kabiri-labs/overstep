@@ -40,7 +40,7 @@ def _http_matrix(resource_extra, request=None):
         **resource_extra,
     }
     return Matrix(
-        base_url="http://api.test",
+        modules={"rest": {"base_url": "http://api.test"}},
         roles=["user"],
         subjects=[dict(s) for s in _SUBJECTS],
         resources=[resource],
@@ -173,7 +173,7 @@ def test_owner_attr_only_injection_drives_variant_generation():
     """A resource whose sole locator is an owner_attr injection must still emit
     real SELF/OTHER probes for subjects that carry that attribute."""
     m = Matrix(
-        base_url="http://api.test",
+        modules={"rest": {"base_url": "http://api.test"}},
         roles=["user"],
         subjects=[
             {"name": "alice", "role": "user", "token": "a", "attributes": {"tenant": "t1"}},
@@ -222,16 +222,15 @@ def test_cookie_injection_survives_subject_cookie_auth():
 def _mcp_matrix(ownership_or_legacy):
     resource = {
         "name": "read_doc",
-        "transport": "mcp",
         "call": {"server": "docs", "tool": "read_document"},
         "type": "object",
         "objects": dict(_OBJECTS),
         **ownership_or_legacy,
     }
     return Matrix(
+        modules={"mcp": {"servers": [{"name": "docs", "url": "http://mcp.test/mcp"}]}},
         roles=["user"],
         subjects=[dict(s) for s in _SUBJECTS],
-        servers=[{"name": "docs", "url": "http://mcp.test/mcp"}],
         resources=[resource],
         policy={"read_doc": {"allow": [{"role": "user", "scope": "any"}]}},
     )
@@ -284,7 +283,7 @@ def test_validation_flags_path_injection_that_is_not_a_parameter():
 
 def test_validation_warns_on_unresolvable_ownership():
     m = Matrix(
-        base_url="http://api.test",
+        modules={"rest": {"base_url": "http://api.test"}},
         roles=["user"],
         subjects=[{"name": "carol", "role": "user", "token": "c"}],  # no objects, no user_id
         resources=[

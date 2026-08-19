@@ -7,7 +7,7 @@ from overstep.matrix import Matrix
 @pytest.fixture
 def matrix() -> Matrix:
     return Matrix(
-        base_url="http://testserver",
+        modules={"rest": {"base_url": "http://testserver"}},
         roles=["anonymous", "user", "admin"],
         subjects=[
             {"name": "alice", "role": "user", "token": "a", "attributes": {"user_id": "u1", "tenant": "t1"}},

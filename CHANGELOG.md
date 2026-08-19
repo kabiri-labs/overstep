@@ -1,5 +1,76 @@
 # Changelog
 
+## [0.38.0] - 2026-08-19
+
+### Changed
+- **BREAKING: the matrix has two levels.** Everything a run needs regardless of how
+  a request is delivered — `subjects`, `resources`, `policy`, `auth`, `setup`,
+  `teardown`, `probe_victims` — stays at the top. Everything that only means
+  something to one surface moves under that surface's name in `modules:`.
+
+  Five of the fifteen top-level keys were MCP-only while reading as global. A
+  REST-only matrix carried `servers`, `mcp_access` and three `probe_*` switches
+  that could never apply to it, and nothing in the file said which of the two the
+  next key belonged to — the same "one real tool plus an addition" shape that
+  0.37.1 removed from the README, still present in the format.
+
+  ```yaml
+  modules:
+    rest:
+      base_url: http://127.0.0.1:8000
+      access: { allow_status: ["2xx"] }
+    mcp:
+      servers:
+        - { name: docs, url: http://127.0.0.1:9000/mcp }
+      access: { is_error_is_deny: true }
+      probes: { tool_enumeration: true }
+  ```
+
+  | Was | Is now |
+  |---|---|
+  | `base_url` | `modules.rest.base_url` |
+  | `access` | `modules.rest.access` |
+  | `servers` | `modules.mcp.servers` |
+  | `mcp_access` | `modules.mcp.access` |
+  | `probe_token_audience` | `modules.mcp.probes.token_audience` |
+  | `probe_session_binding` | `modules.mcp.probes.session_binding` |
+  | `probe_tool_enumeration` | `modules.mcp.probes.tool_enumeration` |
+
+  There are no aliases: a matrix on the old layout is refused with an error naming
+  every key's new home. Accepting one silently was never an option — pydantic
+  ignores keys it does not know, so a matrix still declaring `servers:` would have
+  loaded, planned no MCP cases, and reported a clean run against a server it never
+  contacted.
+
+- **BREAKING: a resource no longer declares `transport:`.** Its module is read off
+  its body: a `request` is REST, a `call` or a `read` is MCP. The field was a
+  second, independent declaration that could contradict what the resource actually
+  sent, and `matrix.py` carried validation whose only job was to catch that
+  disagreement. Deriving it makes the state unrepresentable and deletes the check.
+
+- **BREAKING: `access:` and `mcp_access:` are one key on a resource.** Which
+  matcher parses it follows from the body, so a REST resource cannot be handed an
+  MCP matcher by accident — it is now an error rather than, as before, silently
+  ignored keys and a resource judged by the defaults its author was replacing.
+
+### Fixed
+- **An unknown key in a matrix is an error, not a comment.** `Matrix`,
+  `ResponseMatcher` and `McpMatcher` reject extra fields. Writing the migration
+  turned up what the old behaviour cost: a test passing `servers=[...]` as an
+  override had it dropped on the floor and asserted against the default server
+  instead, and had been doing so silently.
+- **The README's headline matrix example could never have been pasted.** `${VAR}`
+  inside a *flow* mapping opens a nested mapping unless quoted, so
+  `- { name: alice, token: ${ALICE_TOKEN} }` was a YAML syntax error. Every fenced
+  yaml block in the README is now parsed by a test.
+
+### Added
+- `tests/test_matrix_modules.py` — the split, the migration error for each
+  relocated key, rejection of unknown keys from both YAML and the library API, the
+  module derived from each body shape, `access` routing to the right matcher, a
+  mixed-surface plan where nothing names a transport, and every bundled example
+  matrix loading.
+
 ## [0.37.3] - 2026-08-19
 
 ### Fixed

@@ -19,7 +19,9 @@ paths:
 """
 
 CLEAN_MATRIX = """
-base_url: http://127.0.0.1:1
+modules:
+  rest:
+    base_url: http://127.0.0.1:1
 roles: [user, admin]
 subjects:
   - { name: a, role: user, token: t1, attributes: { user_id: u1 } }

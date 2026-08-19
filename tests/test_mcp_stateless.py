@@ -42,11 +42,14 @@ _TOKENS = {"alice-token": "alice", "bob-token": "bob", "admin-token": "root"}
 _ADMINS = {"root"}
 
 
-def _matrix(**overrides) -> Matrix:
+def _matrix(probes=None, servers=None, **overrides) -> Matrix:
     data = dict(
+        modules={"mcp": {
+            "probes": probes or {},
+            "servers": servers or [{"name": "docs", "url": "http://docs.test/mcp",
+                                    "protocol_version": STATELESS}],
+        }},
         roles=["anonymous", "user", "admin"],
-        servers=[{"name": "docs", "url": "http://docs.test/mcp",
-                  "protocol_version": STATELESS}],
         subjects=[
             {"name": "alice", "role": "user", "token": "alice-token",
              "attributes": {"doc_id": "alice"}},
@@ -56,12 +59,10 @@ def _matrix(**overrides) -> Matrix:
              "attributes": {"doc_id": "root"}},
         ],
         resources=[
-            {"name": "read_document", "transport": "mcp",
-             "call": {"server": "docs", "tool": "read_document",
+            {"name": "read_document", "call": {"server": "docs", "tool": "read_document",
                       "arguments": {"doc_id": "${doc_id}"}},
              "type": "object", "owner_arg": "doc_id", "owner_attr": "doc_id"},
-            {"name": "reset_tenant", "transport": "mcp",
-             "call": {"server": "docs", "tool": "reset_tenant"}, "type": "function"},
+            {"name": "reset_tenant", "call": {"server": "docs", "tool": "reset_tenant"}, "type": "function"},
         ],
         policy={
             "read_document": {"allow": [{"role": "user", "scope": "own"},
@@ -262,7 +263,7 @@ def test_a_correctly_enforcing_stateless_server_comes_back_clean():
 
 def test_the_session_probe_is_not_applicable_and_sends_nothing():
     server = StrictStatelessServer(bola=False)
-    matrix = _matrix(probe_session_binding=True)
+    matrix = _matrix(probes={"session_binding": True})
     result = _run(matrix, server)
 
     session_ids = {c.id for c in plan(matrix) if c.variant == Variant.SESSION}

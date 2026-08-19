@@ -341,8 +341,8 @@ def scaffold_matrix(
             )
 
     matrix = {
-        "base_url": base_url,
         "roles": roles,
+        "modules": {"rest": {"base_url": base_url}},
         "subjects": subjects,
         "resources": _resource_payload(resources),
         "policy": policy,

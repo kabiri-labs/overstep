@@ -11,7 +11,7 @@ from overstep.models import Effect
 
 def _matrix() -> Matrix:
     return Matrix(
-        base_url="http://api.test",
+        modules={"rest": {"base_url": "http://api.test"}},
         roles=["user"],
         subjects=[{"name": "alice", "role": "user", "token": "a", "attributes": {"user_id": "u1"}}],
         resources=[

@@ -64,7 +64,7 @@ def _shared_object_matrix(same_id: str = "p-1"):
     from overstep.matrix import Matrix
 
     return Matrix(
-        base_url="http://testserver",
+        modules={"rest": {"base_url": "http://testserver"}},
         roles=["user"],
         subjects=[
             {"name": "alice", "role": "user", "token": "a", "attributes": {"pid": same_id}},
@@ -117,7 +117,7 @@ def test_no_other_probe_when_every_subject_shares_one_object():
     from overstep.matrix import Matrix
 
     matrix = Matrix(
-        base_url="http://testserver",
+        modules={"rest": {"base_url": "http://testserver"}},
         roles=["user"],
         subjects=[
             {"name": "alice", "role": "user", "token": "a", "attributes": {"pid": "p-1"}},
@@ -153,7 +153,7 @@ def _three_owners(**matrix_kwargs):
     from overstep.matrix import Matrix
 
     return Matrix(
-        base_url="http://testserver",
+        modules={"rest": {"base_url": "http://testserver"}},
         roles=["user"],
         subjects=[
             {"name": "alice", "role": "user", "token": "a", "attributes": {"pid": "p-1"}},
@@ -222,7 +222,7 @@ def test_victims_sharing_one_object_count_once():
     from overstep.matrix import Matrix
 
     matrix = Matrix(
-        base_url="http://testserver",
+        modules={"rest": {"base_url": "http://testserver"}},
         roles=["user"],
         probe_victims="all",
         subjects=[

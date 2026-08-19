@@ -118,13 +118,11 @@ def _matrix(issuer=None) -> Matrix:
     if issuer:
         provider["issuer"] = issuer
     return Matrix(
-        base_url="https://mcp.test",
+        modules={"rest": {"base_url": "https://mcp.test"}, "mcp": {"servers": [{"name": "docs", "url": MCP}]}},
         roles=["user"],
-        servers=[{"name": "docs", "url": MCP}],
         auth={"providers": [provider]},
         subjects=[{"name": "alice", "role": "user", "auth": {"provider": "idp"}}],
-        resources=[{"name": "read_doc", "transport": "mcp",
-                    "call": {"server": "docs", "tool": "read_doc"}, "type": "function"}],
+        resources=[{"name": "read_doc", "call": {"server": "docs", "tool": "read_doc"}, "type": "function"}],
         policy={"read_doc": {"allow": [{"role": "user"}]}},
     )
 

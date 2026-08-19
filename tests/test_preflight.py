@@ -12,7 +12,7 @@ from overstep.models import Effect, Observation
 from overstep.preflight import check
 
 MATRIX = Matrix(
-    base_url="http://t",
+    modules={"rest": {"base_url": "http://t"}},
     roles=["anonymous", "user", "admin"],
     subjects=[
         {"name": "alice", "role": "user", "token": "a", "attributes": {"user_id": "u1"}},
@@ -106,7 +106,7 @@ def test_one_probe_per_subject_that_has_a_positive_control():
 def test_non_mutating_probes_are_preferred():
     """So a subject is verified with its GET rather than skipped on its DELETE."""
     m = Matrix(
-        base_url="http://t",
+        modules={"rest": {"base_url": "http://t"}},
         roles=["user"],
         subjects=[{"name": "a", "role": "user", "token": "t", "attributes": {"user_id": "u1"}}],
         resources=[
@@ -137,7 +137,7 @@ def test_an_anonymous_subject_is_not_reported_as_unverifiable():
 def test_a_credentialled_subject_with_no_positive_control_warns():
     """A token nothing exercises is a token that can rot unnoticed."""
     m = Matrix(
-        base_url="http://t",
+        modules={"rest": {"base_url": "http://t"}},
         roles=["anonymous", "user"],
         subjects=[
             {"name": "alice", "role": "user", "token": "a", "attributes": {"user_id": "u1"}},
@@ -187,7 +187,9 @@ def test_errors_sort_before_warnings():
 # --- CLI wiring -------------------------------------------------------------
 
 LIVE_MATRIX = """
-base_url: http://127.0.0.1:1
+modules:
+  rest:
+    base_url: http://127.0.0.1:1
 roles: [user, admin]
 subjects:
   - { name: a, role: user, token: t1, attributes: { user_id: u1 } }

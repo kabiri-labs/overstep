@@ -95,7 +95,9 @@ def test_validate_fail_on_rejects_unknown_value():
 DEAD_TARGET = "http://127.0.0.1:1"
 
 MATRIX = """
-base_url: http://127.0.0.1:1
+modules:
+  rest:
+    base_url: http://127.0.0.1:1
 roles: [anonymous, user, admin]
 subjects:
   - { name: alice, role: user, token: a, attributes: { user_id: u1 } }

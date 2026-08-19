@@ -136,8 +136,8 @@ def test_discover_token_endpoint():
 
 def _oauth_matrix() -> Matrix:
     return Matrix(
+        modules={"mcp": {"servers": [{"name": "docs", "url": "http://mcp.test/mcp"}]}},
         roles=["anonymous", "user", "admin"],
-        servers=[{"name": "docs", "url": "http://mcp.test/mcp"}],
         auth={"providers": [{
             "name": "mcp_oauth", "type": "oauth2_client_credentials",
             "discover_from": "docs", "client_id": "{{client_id}}", "client_secret": "shhh",
@@ -150,8 +150,7 @@ def _oauth_matrix() -> Matrix:
              "attributes": {"doc_id": "d-bob"},
              "auth": {"provider": "mcp_oauth", "vars": {"client_id": "bob-client"}}},
         ],
-        resources=[{"name": "read_document", "transport": "mcp",
-                    "call": {"server": "docs", "tool": "read_document"},
+        resources=[{"name": "read_document", "call": {"server": "docs", "tool": "read_document"},
                     "type": "object", "owner_arg": "doc_id", "owner_attr": "doc_id"}],
         policy={"read_document": {"allow": [{"role": "user", "scope": "own"}, {"role": "admin", "scope": "any"}]}},
     )

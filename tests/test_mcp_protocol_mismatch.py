@@ -32,18 +32,16 @@ _UNKNOWN = "2099-01-01"
 
 def _matrix(**overrides) -> Matrix:
     data = dict(
+        modules={"mcp": {"servers": [{"name": "docs", "url": "http://docs.test/mcp"}]}},
         roles=["anonymous", "user", "admin"],
-        servers=[{"name": "docs", "url": "http://docs.test/mcp"}],
         subjects=[
             {"name": "alice", "role": "user", "token": "alice-token"},
             {"name": "root", "role": "admin", "token": "admin-token"},
             {"name": "anon", "role": "anonymous", "token": None},
         ],
         resources=[
-            {"name": "read_document", "transport": "mcp",
-             "call": {"server": "docs", "tool": "read_document"}, "type": "function"},
-            {"name": "reset_tenant", "transport": "mcp",
-             "call": {"server": "docs", "tool": "reset_tenant"}, "type": "function"},
+            {"name": "read_document", "call": {"server": "docs", "tool": "read_document"}, "type": "function"},
+            {"name": "reset_tenant", "call": {"server": "docs", "tool": "reset_tenant"}, "type": "function"},
         ],
         policy={
             "read_document": {"allow": [{"role": "user"}, {"role": "admin"}]},

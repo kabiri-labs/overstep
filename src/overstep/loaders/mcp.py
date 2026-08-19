@@ -464,7 +464,6 @@ def _template_entry(
 
     entry: Dict[str, Any] = {
         "name": name,
-        "transport": "mcp",
         "read": {"server": server_name, "uri": uri},
         "type": "object" if placeholders else "function",
     }
@@ -538,8 +537,7 @@ def scaffold_matrix_from_tools(
 
         entry: Dict[str, Any] = {
             "name": name,
-            "transport": "mcp",
-            "call": call,
+                "call": call,
             "type": "object" if is_object else "function",
         }
         if is_object:
@@ -601,12 +599,16 @@ def scaffold_matrix_from_tools(
 
     matrix = {
         "roles": ["anonymous", "user", "admin"],
-        "servers": [{
-            "name": server_name,
-            "url": server_url,
-            "protocol_version": protocol_version,
-        }],
-        "mcp_access": {"is_error_is_deny": True, "jsonrpc_error_is_deny": True},
+        "modules": {
+            "mcp": {
+                "servers": [{
+                    "name": server_name,
+                    "url": server_url,
+                    "protocol_version": protocol_version,
+                }],
+                "access": {"is_error_is_deny": True, "jsonrpc_error_is_deny": True},
+            },
+        },
         "subjects": [
             {"name": "anon", "role": "anonymous", "token": None},
             _user(1),

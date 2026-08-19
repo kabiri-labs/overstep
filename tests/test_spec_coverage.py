@@ -43,7 +43,7 @@ def _http(name, method, path, type_="function"):
 
 def _matrix(*resources):
     return Matrix(
-        base_url="http://t",
+        modules={"rest": {"base_url": "http://t"}},
         subjects=[{"name": "a", "role": "user", "token": "t"}],
         resources=list(resources),
         policy={r.name: {"allow": [{"role": "user"}]} for r in resources},
@@ -142,15 +142,14 @@ def test_duplicate_operations_in_the_spec_are_counted_once():
 
 def test_mcp_resources_are_matched_by_tool_name():
     m = Matrix(
+        modules={"mcp": {"servers": [{"name": "mcp", "url": "http://t/mcp"}]}},
         subjects=[{"name": "a", "role": "user", "token": "t"}],
-        servers=[{"name": "mcp", "url": "http://t/mcp"}],
-        resources=[Resource(name="read_doc", transport="mcp",
-                            call=McpCall(server="mcp", tool="read_doc"))],
+        resources=[Resource(name="read_doc",                            call=McpCall(server="mcp", tool="read_doc"))],
         policy={"read_doc": {"allow": [{"role": "user"}]}},
     )
     declared = [
-        Resource(name="read_doc", transport="mcp", call=McpCall(server="s", tool="read_doc")),
-        Resource(name="delete_doc", transport="mcp", call=McpCall(server="s", tool="delete_doc")),
+        Resource(name="read_doc", call=McpCall(server="s", tool="read_doc")),
+        Resource(name="delete_doc", call=McpCall(server="s", tool="delete_doc")),
     ]
     result = against_spec(m, declared)
 
@@ -168,17 +167,14 @@ def test_mcp_resource_reads_are_matched_by_uri_shape():
     from overstep.models import McpResourceRead
 
     m = Matrix(
+        modules={"mcp": {"servers": [{"name": "mcp", "url": "http://t/mcp"}]}},
         subjects=[{"name": "a", "role": "user", "token": "t"}],
-        servers=[{"name": "mcp", "url": "http://t/mcp"}],
-        resources=[Resource(name="doc", transport="mcp",
-                            read=McpResourceRead(server="mcp", uri="doc://acme/{id}"))],
+        resources=[Resource(name="doc",                            read=McpResourceRead(server="mcp", uri="doc://acme/{id}"))],
         policy={"doc": {"allow": [{"role": "user"}]}},
     )
     declared = [
-        Resource(name="doc", transport="mcp",
-                 read=McpResourceRead(server="s", uri="doc://acme/{doc_id}")),
-        Resource(name="other", transport="mcp",
-                 read=McpResourceRead(server="s", uri="note://{note_id}")),
+        Resource(name="doc",                 read=McpResourceRead(server="s", uri="doc://acme/{doc_id}")),
+        Resource(name="other",                 read=McpResourceRead(server="s", uri="note://{note_id}")),
     ]
     result = against_spec(m, declared)
 
@@ -189,7 +185,9 @@ def test_mcp_resource_reads_are_matched_by_uri_shape():
 # --- CLI --------------------------------------------------------------------
 
 MATRIX = """
-base_url: http://t
+modules:
+  rest:
+    base_url: http://t
 subjects:
   - { name: a, role: user, token: t }
 resources:

@@ -15,7 +15,7 @@ from overstep.repro import mask_headers, to_curl
 
 def _matrix() -> Matrix:
     return Matrix(
-        base_url="http://api.test",
+        modules={"rest": {"base_url": "http://api.test"}},
         roles=["user", "admin"],
         subjects=[
             {"name": "alice", "role": "user", "token": "alice-secret", "attributes": {"user_id": "u1"}},

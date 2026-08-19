@@ -20,7 +20,7 @@ OBJECT_RESOURCE = {
 
 def _matrix(*subjects, resources=(OBJECT_RESOURCE,)):
     return Matrix(
-        base_url="http://t",
+        modules={"rest": {"base_url": "http://t"}},
         roles=["user", "admin"],
         subjects=list(subjects),
         resources=list(resources),
@@ -77,7 +77,7 @@ def test_a_victimless_other_probe_does_not_count_as_coverage():
 def test_a_resource_nobody_can_reach_is_still_counted():
     """Counting from the cases alone would drop the worst offenders entirely."""
     m = Matrix(
-        base_url="http://t",
+        modules={"rest": {"base_url": "http://t"}},
         roles=["user", "admin"],
         subjects=[{"name": "a", "role": "admin", "token": "1"}],
         resources=[OBJECT_RESOURCE],
@@ -91,7 +91,7 @@ def test_a_resource_nobody_can_reach_is_still_counted():
 
 def test_function_resources_are_not_part_of_the_object_surface():
     m = Matrix(
-        base_url="http://t",
+        modules={"rest": {"base_url": "http://t"}},
         roles=["user", "admin"],
         subjects=[{"name": "a", "role": "admin", "token": "1"}],
         resources=[{"name": "admin_list", "request": {"method": "GET", "path": "/admin"}, "type": "function"}],

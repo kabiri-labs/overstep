@@ -76,7 +76,7 @@ def test_validate_warns_when_no_two_subjects_own_different_objects():
     from overstep.matrix import Matrix
 
     matrix = Matrix(
-        base_url="http://t",
+        modules={"rest": {"base_url": "http://t"}},
         roles=["user"],
         subjects=[
             {"name": "alice", "role": "user", "token": "a", "attributes": {"pid": "p-1"}},
@@ -104,7 +104,7 @@ def test_validate_is_quiet_when_objects_differ():
     from overstep.matrix import Matrix
 
     matrix = Matrix(
-        base_url="http://t",
+        modules={"rest": {"base_url": "http://t"}},
         roles=["user"],
         subjects=[
             {"name": "alice", "role": "user", "token": "a", "attributes": {"pid": "p-1"}},

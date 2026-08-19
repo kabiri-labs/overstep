@@ -54,7 +54,7 @@ def _client():
 
 def test_http_login_sets_bearer_per_subject():
     matrix = Matrix(
-        base_url="http://test",
+        modules={"rest": {"base_url": "http://test"}},
         auth={
             "providers": [
                 {
@@ -83,7 +83,7 @@ def test_http_login_sets_bearer_per_subject():
 
 def test_oauth2_client_credentials_flow():
     matrix = Matrix(
-        base_url="http://test",
+        modules={"rest": {"base_url": "http://test"}},
         auth={
             "providers": [
                 {
@@ -105,7 +105,7 @@ def test_oauth2_client_credentials_flow():
 
 def test_custom_token_header_and_format():
     matrix = Matrix(
-        base_url="http://test",
+        modules={"rest": {"base_url": "http://test"}},
         auth={
             "providers": [
                 {
@@ -129,7 +129,7 @@ def test_custom_token_header_and_format():
 
 def test_login_failure_raises():
     matrix = Matrix(
-        base_url="http://test",
+        modules={"rest": {"base_url": "http://test"}},
         auth={"providers": [{"name": "p", "type": "http",
                              "request": {"method": "GET", "path": "/bad"}}]},
         subjects=[{"name": "a", "role": "user", "auth": {"provider": "p"}}],
@@ -141,7 +141,7 @@ def test_login_failure_raises():
 
 def test_missing_token_in_response_raises():
     matrix = Matrix(
-        base_url="http://test",
+        modules={"rest": {"base_url": "http://test"}},
         auth={"providers": [{"name": "p", "type": "http",
                              "request": {"method": "GET", "path": "/notoken"}}]},
         subjects=[{"name": "a", "role": "user", "auth": {"provider": "p"}}],
@@ -152,7 +152,7 @@ def test_missing_token_in_response_raises():
 
 
 def test_no_providers_is_a_noop():
-    matrix = Matrix(base_url="http://test", subjects=[{"name": "a", "role": "user", "token": "static"}], resources=[])
+    matrix = Matrix(modules={"rest": {"base_url": "http://test"}}, subjects=[{"name": "a", "role": "user", "token": "static"}], resources=[])
     authenticate(matrix, base_url="http://test")  # must not touch the network
     assert matrix.subjects[0].headers == {}
 

@@ -30,7 +30,7 @@ def _client(recorder=None):
 
 def _setup_matrix():
     return Matrix(
-        base_url="http://test",
+        modules={"rest": {"base_url": "http://test"}},
         subjects=[
             {"name": "alice", "role": "user", "headers": {"Authorization": "Bearer tok-alice"},
              "attributes": {"user_id": "u1"}},
@@ -57,13 +57,13 @@ def test_setup_captures_value_and_uses_subject_auth():
 
 
 def test_setup_is_noop_without_steps():
-    matrix = Matrix(base_url="http://test", subjects=[], resources=[])
+    matrix = Matrix(modules={"rest": {"base_url": "http://test"}}, subjects=[], resources=[])
     assert run_setup(matrix, base_url="http://test") == {}
 
 
 def test_setup_raises_on_error_status():
     matrix = Matrix(
-        base_url="http://test",
+        modules={"rest": {"base_url": "http://test"}},
         subjects=[{"name": "a", "role": "user"}],
         setup=[{"request": {"method": "GET", "path": "/fail"}}],
         resources=[],
@@ -74,7 +74,7 @@ def test_setup_raises_on_error_status():
 
 def test_setup_raises_when_capture_missing():
     matrix = Matrix(
-        base_url="http://test",
+        modules={"rest": {"base_url": "http://test"}},
         subjects=[{"name": "a", "role": "user"}],
         setup=[{"request": {"method": "POST", "path": "/orders"}, "extract": {"X": "$.nope"}}],
         resources=[],
@@ -85,7 +85,7 @@ def test_setup_raises_when_capture_missing():
 
 def test_expect_status_allows_declared_code():
     matrix = Matrix(
-        base_url="http://test",
+        modules={"rest": {"base_url": "http://test"}},
         subjects=[{"name": "a", "role": "user"}],
         setup=[{"request": {"method": "POST", "path": "/orders"}, "expect_status": [201]}],
         resources=[],
@@ -98,7 +98,7 @@ def test_expect_status_allows_declared_code():
 
 def _object_matrix():
     return Matrix(
-        base_url="http://test",
+        modules={"rest": {"base_url": "http://test"}},
         roles=["user"],
         subjects=[
             {"name": "alice", "role": "user", "attributes": {"user_id": "u1"}},

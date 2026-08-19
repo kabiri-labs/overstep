@@ -2,7 +2,7 @@
 
 **Authorization testing for REST APIs and MCP servers — one problem class, two surfaces.**
 
-![Version](https://img.shields.io/badge/version-0.37.3-blue)
+![Version](https://img.shields.io/badge/version-0.38.0-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -93,9 +93,15 @@ report format. Delivery lives behind a transport registry (`overstep.transports`
 which is the only seam between the two. **The architecture is module-based**; the
 built-in modules are `http` and `mcp`.
 
-A single matrix can span both. The dispatcher groups planned cases by transport
-and routes each group to its executor, so a REST API and the MCP server in front
-of it are one run, one baseline and one report.
+The matrix file has the same shape. Its top level is the shared core — subjects,
+resources, policy, credentials, fixtures — and each module's own configuration
+sits under its name in [`modules:`](#the-authorization-matrix). Neither surface is
+the unmarked default, so adding a third would add a block rather than rearrange
+the two that exist.
+
+A single matrix can span both. The dispatcher groups planned cases by the module
+each resource belongs to and routes each group to its executor, so a REST API and
+the MCP server in front of it are one run, one baseline and one report.
 
 ### MCP: the newest and hardest instance of the class
 
@@ -193,17 +199,26 @@ allow-list). Everything not explicitly allowed is denied. `roles:` is ordered
 least- to most-privileged, which is what separates BFLA from vertical privilege
 escalation.
 
-The same file describes both modules. A resource declares an HTTP `request`, or an
-MCP `call` (a tool) or `read` (a resource URI); `transport: http` is the default
-and may be omitted.
+The file has **two levels**. Everything a run needs regardless of how a request is
+delivered — subjects, resources, policy, credentials, fixtures — is declared once
+at the top. Everything that only means something to one surface lives under that
+surface's name in `modules:`.
+
+A resource never names its module. It declares an HTTP `request`, or an MCP
+`call` (a tool) or `read` (a resource URI), and that body is what places it — so
+a resource cannot contradict itself about what it sends.
 
 ```yaml
 roles: [anonymous, user, admin]
 
+modules:
+  rest:
+    base_url: http://127.0.0.1:8000
+
 subjects:
-  - { name: alice, role: user,  token: ${ALICE_TOKEN}, marker: "alice@corp", attributes: { user_id: u1 } }
-  - { name: bob,   role: user,  token: ${BOB_TOKEN},   marker: "bob@corp",   attributes: { user_id: u2 } }
-  - { name: root,  role: admin, token: ${ADMIN_TOKEN}, attributes: { user_id: u9 } }
+  - { name: alice, role: user,  token: "${ALICE_TOKEN}", marker: "alice@corp", attributes: { user_id: u1 } }
+  - { name: bob,   role: user,  token: "${BOB_TOKEN}",   marker: "bob@corp",   attributes: { user_id: u2 } }
+  - { name: root,  role: admin, token: "${ADMIN_TOKEN}", attributes: { user_id: u9 } }
   - { name: anon,  role: anonymous, token: null }
 
 resources:
@@ -301,28 +316,28 @@ overstep run examples/mcp_api/matrix.yaml --out out
  Object resources probed             2/2
 ```
 
-Its matrix declares the same three parts, with MCP-shaped resources:
+Its matrix has the same shape — the same core at the top, a different module
+block, and resources whose bodies place them:
 
 ```yaml
-servers:
-  - name: docs
-    url: http://127.0.0.1:9000/mcp     # Streamable HTTP (JSON-RPC)
+modules:
+  mcp:
+    servers:
+      - name: docs
+        url: http://127.0.0.1:9000/mcp     # Streamable HTTP (JSON-RPC)
 
 resources:
   - name: read_document
-    transport: mcp
     call: { server: docs, tool: read_document }
     type: object            # object-level -> BOLA surface on the tool argument
     owner_arg: doc_id
     owner_attr: doc_id
   - name: read_doc_resource
-    transport: mcp
     read: { server: docs, uri: "doc://acme/{doc_id}" }
     type: object            # object-level -> BOLA surface on the resource URI
     owner_uri: doc_id       # the {placeholder} carrying the object id
     owner_attr: doc_id
   - name: reset_tenant
-    transport: mcp
     call: { server: docs, tool: reset_tenant, mutating: true }   # skipped under --read-only
     type: function
 ```
@@ -394,27 +409,36 @@ preferred.
 
 The allow/deny signal is the one thing a tool cannot infer, so it is declared.
 
+Each module declares it under the same key — `access:` — and the schema is the
+module's own. A resource may override it with the same key; which matcher parses
+it follows from the resource's body, so a REST resource cannot be handed an MCP
+matcher by accident.
+
 **REST.** By default `2xx` means granted and anything else means denied. For APIs
 that redirect on success, return `200` with an error body, or mask `403` as `404`:
 
 ```yaml
-access:
-  allow_status: ["2xx"]             # exact codes, ranges ("200-299") or classes ("2xx")
-  deny_body_regex: "access denied|not authorized"   # a 200 with this body -> deny
-  treat_redirect_as: deny           # deny | allow | status
+modules:
+  rest:
+    access:
+      allow_status: ["2xx"]         # exact codes, ranges ("200-299") or classes ("2xx")
+      deny_body_regex: "access denied|not authorized"   # a 200 with this body -> deny
+      treat_redirect_as: deny       # deny | allow | status
 ```
 
 Evaluation order: `deny_body_regex` (wins, fails safe) → `allow_body_regex` →
-redirect handling → `allow_status`. Settable matrix-wide and per resource.
+redirect handling → `allow_status`.
 
 **MCP.** There is no `403`, so the deny signal is spelled out on both legs:
 
 ```yaml
-mcp_access:
-  is_error_is_deny: true                  # a result with isError: true -> denied
-  jsonrpc_error_is_deny: true             # a JSON-RPC error -> denied
-  deny_status: ["4xx", "5xx"]             # an HTTP-leg refusal (401/403) -> denied
-  # deny_content_regex: "permission denied"
+modules:
+  mcp:
+    access:
+      is_error_is_deny: true              # a result with isError: true -> denied
+      jsonrpc_error_is_deny: true         # a JSON-RPC error -> denied
+      deny_status: ["4xx", "5xx"]         # an HTTP-leg refusal (401/403) -> denied
+      # deny_content_regex: "permission denied"
 ```
 
 `deny_status` is the half that is easy to miss. The MCP authorization spec has an
@@ -572,7 +596,7 @@ that credential at every server the audience does not identify:
 
 ```yaml
 subjects:
-  - { name: alice, role: user, token: ${ALICE_DOCS_TOKEN}, token_audience: docs }
+  - { name: alice, role: user, token: "${ALICE_DOCS_TOKEN}", token_audience: docs }
 ```
 
 The audience is inferred when a subject authenticates through a provider that
@@ -581,8 +605,9 @@ token *is* audience-bound. With no audience known, no probe is generated: overst
 does not guess which credential belongs where. The probe is `tools/list`, which
 requires authorization, takes no arguments and changes nothing, so it isolates the
 single question. The policy is deliberately not consulted — an admin's token bound
-to server A must still be refused by server B. Set `probe_token_audience: false`
-if one credential is legitimately valid at several of your declared servers.
+to server A must still be refused by server B. Set
+`modules.mcp.probes.token_audience: false` if one credential is legitimately
+valid at several of your declared servers.
 
 **Session binding.** Streamable HTTP hands out an `Mcp-Session-Id` at `initialize`,
 and the spec is explicit that it must not authenticate. The probe opens a session
@@ -592,7 +617,7 @@ is simply public answers both, and calling that a hijack would be a finding abou
 nothing. Only the difference counts. A server that issues no session id has
 nothing to hijack, and the probe is recorded as skipped rather than passed.
 
-**Tool enumeration.** Opt-in via `probe_tool_enumeration: true`, because listing
+**Tool enumeration.** Opt-in via `modules.mcp.probes.tool_enumeration: true`, because listing
 everything and enforcing at call time is a common and defensible design. It calls
 `tools/list` as each subject and compares the result against the policy already
 written; a paginated listing is followed to the end. A tool the matrix does not
@@ -614,10 +639,12 @@ overstep drives both. The default stays on the stateful wire, because which
 revision to speak is a fact about the target, not a preference:
 
 ```yaml
-servers:
-  - name: docs
-    url: https://mcp.example.com/mcp
-    protocol_version: "2026-07-28"     # default: 2025-06-18
+modules:
+  mcp:
+    servers:
+      - name: docs
+        url: https://mcp.example.com/mcp
+        protocol_version: "2026-07-28"     # default: 2025-06-18
 ```
 
 You do not have to know which one to write — `scaffold` asks the server
@@ -668,10 +695,12 @@ There is no HTTP header for identity, so the subject's token goes into the proce
 environment:
 
 ```yaml
-servers:
-  - name: docs
-    command: ["python", "server.py"]
-    token_env: MCP_TOKEN               # each subject's token -> this env var
+modules:
+  mcp:
+    servers:
+      - name: docs
+        command: ["python", "server.py"]
+        token_env: MCP_TOKEN           # each subject's token -> this env var
 ```
 
 Everything else is identical — object and function resources, ownership, markers,
