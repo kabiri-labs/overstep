@@ -258,3 +258,49 @@ def test_the_mcp_matcher_is_not_subject_to_this():
     from overstep.models import McpMatcher
 
     assert McpMatcher(deny_status=[]).deny_status == []
+
+
+def test_a_deny_regex_that_matches_every_body_is_refused():
+    """`deny_body_regex` is read first, so one that always matches dominates.
+
+    The other three fields can each name a route to allow and none of them will
+    ever run. `.*` matches an empty body too, so there is no response the target
+    could send that this matcher would grant.
+    """
+    import pytest
+
+    for pattern in (".*", "", "^", "$", "a|", ".?"):
+        with pytest.raises(Exception, match="matches every response body"):
+            Matrix(**_matrix_with_access({"deny_body_regex": pattern}))
+
+
+def test_a_deny_regex_that_spares_the_empty_body_is_accepted():
+    """The check is sound, not complete, and stops exactly where it stops being sound.
+
+    `[\\s\\S]+` matches every non-empty body but not an empty one, so a target
+    answering with no body is still granted and the matcher is not dead. Refusing
+    it would be a guess.
+    """
+    m = Matrix(**_matrix_with_access({"deny_body_regex": r"[\s\S]+"}))
+    assert m.access.deny_body_regex == r"[\s\S]+"
+
+
+def test_a_regex_that_does_not_compile_is_refused_at_load():
+    """It used to raise from the executor, part-way through a run.
+
+    `validate` reported the matrix fine, then `run` died on the first response
+    with an unhandled re.error and exit 1 — the code that means "vulnerabilities
+    found", so a pipeline could not tell a crash from a result.
+    """
+    import pytest
+
+    for field in ("allow_body_regex", "deny_body_regex"):
+        with pytest.raises(Exception, match="not a valid regular expression"):
+            Matrix(**_matrix_with_access({field: "([unclosed"}))
+
+
+def test_ordinary_body_regexes_still_load():
+    m = Matrix(**_matrix_with_access(
+        {"deny_body_regex": "access denied|not authorized", "allow_body_regex": r'"ok":\s*true'}
+    ))
+    assert m.access.deny_body_regex == "access denied|not authorized"

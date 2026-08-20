@@ -20,19 +20,36 @@ It is caught downstream when a matrix has positive controls, since they fail
 too — but an all-negative matrix has none to lose, and `health` deliberately
 does not condemn one for that. So the loader refuses it instead.
 
-The condition is exact rather than heuristic, read straight off the evaluation
+Two other shapes reach the same dead end and are refused with it:
+
+* **A deny pattern that dominates.** `deny_body_regex` is read before anything
+  that could allow, so one matching every body — `.*`, `^`, `a|` — makes the
+  rest of the order dead code however it is written. The test is whether the
+  pattern matches the *empty* string, since a pattern that does matches at
+  position 0 of every string. That makes the check sound; it is deliberately not
+  complete, because a pattern like `[\s\S]+` leaves an empty body grantable and
+  such a matcher is not dead.
+* **A pattern that does not compile.** It used to raise nothing until the
+  executor searched with it, part-way through a run, as an unhandled `re.error`
+  — after `validate` had reported the matrix fine, and with exit 1, the code
+  that means "vulnerabilities found".
+
+Each condition is exact rather than heuristic, read straight off the evaluation
 order: a response can be allowed by `allow_body_regex`, by being a 3xx under
 `treat_redirect_as: allow`, or by its status matching `allow_status`. Only when
-all three are gone is no response grantable, and only then is the matcher
-refused. The MCP matcher is unaffected — it falls through to *allow*, so an
-empty `deny_status` remains what it is documented to be.
+all three are gone — or when the deny pattern swallows them — is no response
+grantable, and only then is the matcher refused. The MCP matcher is unaffected —
+it falls through to *allow*, so an empty `deny_status` remains what it is
+documented to be.
 
 ### Breaking
 
-A REST matcher with an empty `allow_status`, no `allow_body_regex` and
-`treat_redirect_as` other than `allow` is refused when the matrix loads (exit 2)
-rather than accepted. There is no legitimate matrix in that shape: nothing it
-sends could ever be read as granted. All six bundled example matrices still
+A REST matcher is refused when the matrix loads (exit 2) rather than accepted
+when it has an empty `allow_status`, no `allow_body_regex` and
+`treat_redirect_as` other than `allow`; when its `deny_body_regex` matches every
+body; or when either body pattern does not compile. There is no legitimate
+matrix in any of those shapes: nothing it sends could ever be read as granted,
+or it would crash on the first response. All six bundled example matrices still
 validate unchanged.
 
 ## [1.3.1] - 2026-08-20
