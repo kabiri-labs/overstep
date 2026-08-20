@@ -141,6 +141,39 @@ def referenced_attributes(expr: str) -> Set[Tuple[str, str]]:
     return found
 
 
+def _check(tree: ast.AST, names: Dict[str, Any]) -> None:
+    """Reject anything the evaluator may not run, anywhere in the expression.
+
+    Legality is a property of the expression, not of the path taken through it.
+    While every operand was evaluated that distinction did not exist — checking
+    each node as it was reached amounted to checking all of them. Once ``and``
+    and ``or`` stop early it does exist, and an unreached branch would never be
+    checked at all: ``True or __import__('os')`` would answer ``True``, and in
+    the planner a condition that used to raise and deny would grant.
+
+    So the whole tree is checked first and evaluation stays lazy. Names and
+    private attributes are checked here too, for the same reason and by the same
+    argument: ``True or secret`` and ``True or subject.__class__`` are refusals
+    that must not depend on which half runs.
+    """
+    for node in ast.walk(tree):
+        if type(node) not in _ALLOWED_NODES:
+            raise ValueError(f"expression node not allowed: {type(node).__name__}")
+        if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
+            raise ValueError(
+                f"private attribute not allowed in expression: {node.attr}"
+            )
+        if isinstance(node, ast.Name) and node.id not in names:
+            raise ValueError(f"unknown name in expression: {node.id}")
+
+
 def safe_eval(expr: str, names: Dict[str, Any]) -> Any:
-    """Evaluate ``expr`` against ``names`` using only the allow-listed nodes."""
-    return _eval(ast.parse(expr, mode="eval"), names)
+    """Evaluate ``expr`` against ``names`` using only the allow-listed nodes.
+
+    The expression is checked in full before any of it is evaluated, so what it
+    is allowed to contain does not depend on which branch a short-circuiting
+    operator takes.
+    """
+    tree = ast.parse(expr, mode="eval")
+    _check(tree, names)
+    return _eval(tree, names)
