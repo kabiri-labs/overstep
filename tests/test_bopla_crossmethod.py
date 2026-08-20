@@ -179,12 +179,62 @@ def test_bopla_is_found_past_the_evidence_snippet_cap():
     assert "password_hash" in bopla[0].detail
 
 
-def test_full_body_is_only_retained_when_the_case_asks_for_it():
-    """Holding every response in memory is the cost this check must not impose."""
-    with_fields = plan(_matrix(forbidden_fields=["password_hash"]))
-    without = plan(_matrix())
-    assert all(c.forbidden_fields == ["password_hash"] for c in with_fields)
-    assert all(c.forbidden_fields == [] for c in without)
+def test_only_a_case_the_check_can_read_retains_its_body():
+    """Holding every response in memory is the cost this check must not impose.
+
+    Declaring the keys is not enough on its own: the property-level check lives
+    in the classifier's expected-allow branch, so a negative probe's body could
+    never be inspected. Those are also the cases that multiply — with several
+    subjects each reaching for each other's objects, the bodies nothing can read
+    would outnumber the ones something can.
+    """
+    cases = {c.id: c for c in plan(_matrix(forbidden_fields=["password_hash"]))}
+
+    own = cases["get_user::alice::self"]
+    assert own.expected == Effect.ALLOW
+    assert own.retains_body
+
+    cross = cases["get_user::alice::other"]
+    assert cross.expected == Effect.DENY
+    assert cross.forbidden_fields == ["password_hash"]
+    assert not cross.retains_body, "a case the BOPLA branch cannot reach must not retain"
+
+    # And a resource that declares nothing retains nothing either way.
+    assert not any(c.retains_body for c in plan(_matrix()))
+
+
+def test_a_negative_probe_records_no_body_to_retain():
+    """The gate has to hold in the transport, not only on the case."""
+    from overstep.models import Subject
+    from overstep.modules.rest.executor import _fire
+
+    import asyncio
+
+    import httpx
+
+    cases = {c.id: c for c in plan(_matrix(forbidden_fields=["password_hash"]))}
+    body = '{"id": "u2", "password_hash": "$2b$12$abcdef"}'
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=body, headers={"content-type": "application/json"})
+
+    async def fire(case):
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport) as client:
+            return await _fire(
+                client,
+                "http://api.test",
+                Subject(name="alice", role="user", token="a"),
+                case,
+                asyncio.Semaphore(1),
+            )
+
+    allowed = asyncio.run(fire(cases["get_user::alice::self"]))
+    denied = asyncio.run(fire(cases["get_user::alice::other"]))
+    assert allowed.full_body == body
+    assert denied.full_body == ""
+    # The evidence snippet is unconditional; only the retained body is gated.
+    assert denied.body_snippet == body
 
 
 def test_retained_body_is_reported_as_evidence():
