@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.4.0] - 2026-08-20
+
+### Fixed
+
+**A response matcher with no route to `allow` was accepted.** 1.2.0 taught the
+loader to refuse a status entry it could not read; an *empty* `allow_status` is
+the same failure through a different door. It is not garbage the parser skips —
+it is a list the parser reads correctly and that no status satisfies. Every
+response then reads as denied, every negative test passes for the wrong reason,
+and `overstep validate` said the matrix was fine.
+
+Measured against the bundled vulnerable demo, on an all-negative matrix whose
+one probe is a real BFLA: `allow_status: []` reported 0 vulnerabilities and
+exited 0, while the identical matrix with `allow_status: ["2xx"]` reported the
+privilege escalation and exited 1.
+
+It is caught downstream when a matrix has positive controls, since they fail
+too — but an all-negative matrix has none to lose, and `health` deliberately
+does not condemn one for that. So the loader refuses it instead.
+
+The condition is exact rather than heuristic, read straight off the evaluation
+order: a response can be allowed by `allow_body_regex`, by being a 3xx under
+`treat_redirect_as: allow`, or by its status matching `allow_status`. Only when
+all three are gone is no response grantable, and only then is the matcher
+refused. The MCP matcher is unaffected — it falls through to *allow*, so an
+empty `deny_status` remains what it is documented to be.
+
+### Breaking
+
+A REST matcher with an empty `allow_status`, no `allow_body_regex` and
+`treat_redirect_as` other than `allow` is refused when the matrix loads (exit 2)
+rather than accepted. There is no legitimate matrix in that shape: nothing it
+sends could ever be read as granted. All six bundled example matrices still
+validate unchanged.
+
 ## [1.3.1] - 2026-08-20
 
 ### Fixed
