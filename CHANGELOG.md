@@ -16,11 +16,19 @@ They now stop at the operand that decides the answer and yield that operand
 rather than a bool, which is what Python does and what anyone writing a
 condition expects.
 
-Skipping an operand at *runtime* does not skip it at *check time*:
-`overstep validate` reads a condition statically, so an attribute no subject
-declares is still reported even on a branch that would never be evaluated. That
-is what keeps a short-circuiting `or` from quietly granting on a rule whose
-second half is a typo.
+**The allow-list was enforced per path, not per expression.** It was applied as
+each node was reached, which while every operand was evaluated amounted to
+checking all of them. Short-circuiting made the difference observable:
+`True or __import__('os')` answered `True`, as did `True or subject.__class__`
+and `True or secret`. All three are refusals. What an expression may contain is
+now decided in one pass over the whole tree before evaluation begins, and
+evaluation stays lazy.
+
+Skipping an operand at *runtime* does not skip it at *check time*, at either
+level: the allow-list sees the whole expression, and `overstep validate` reads
+conditions statically, so an attribute no subject declares is still reported on
+a branch that would never be evaluated. That is what keeps a short-circuiting
+`or` from quietly granting on a rule whose second half is wrong.
 
 ## [1.3.0] - 2026-08-20
 
