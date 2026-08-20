@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.3.1] - 2026-08-20
+
+### Fixed
+
+**`and` and `or` in a condition did not short-circuit.** Both operands were
+evaluated before the operator was applied, so the one idiom that most wants
+writing — a condition guarding its own dereference — raised instead of being
+falsy. `subject.tags and 'x' in subject.tags` is `None` in Python when `tags` is
+None; here the membership test ran anyway and raised `TypeError`, the planner
+read the error as "this rule grants nothing", and an allow the author had
+written correctly became a denial in silence.
+
+They now stop at the operand that decides the answer and yield that operand
+rather than a bool, which is what Python does and what anyone writing a
+condition expects.
+
+Skipping an operand at *runtime* does not skip it at *check time*:
+`overstep validate` reads a condition statically, so an attribute no subject
+declares is still reported even on a branch that would never be evaluated. That
+is what keeps a short-circuiting `or` from quietly granting on a rule whose
+second half is a typo.
+
 ## [1.3.0] - 2026-08-20
 
 A request that never arrived is not evidence, and until now it was counted as

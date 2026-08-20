@@ -77,10 +77,22 @@ def _eval(node: ast.AST, names: Dict[str, Any]) -> Any:
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
         return not _eval(node.operand, names)
     if isinstance(node, ast.BoolOp):
-        values = [_eval(v, names) for v in node.values]
-        if isinstance(node.op, ast.And):
-            return all(values)
-        return any(values)
+        # Python's `and`/`or` stop at the operand that decides the answer, and
+        # yield that operand rather than a bool. Evaluating all of them up front
+        # broke the one idiom that most wants writing — a condition guarding its
+        # own dereference. `subject.tags and 'x' in subject.tags` is falsy in
+        # Python when `tags` is None; here it raised TypeError on the membership
+        # test, the planner read the error as "this rule grants nothing", and an
+        # allow the author had written correctly became a denial in silence.
+        result = _eval(node.values[0], names)
+        for operand in node.values[1:]:
+            if isinstance(node.op, ast.And):
+                if not result:
+                    return result
+            elif result:
+                return result
+            result = _eval(operand, names)
+        return result
     if isinstance(node, ast.Compare):
         left = _eval(node.left, names)
         for op, comparator in zip(node.ops, node.comparators):

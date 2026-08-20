@@ -94,3 +94,67 @@ def test_referenced_attributes_reports_what_a_condition_reads():
         ("subject", "tier"),
         ("subject", "tags"),
     }
+
+
+def test_and_stops_at_the_operand_that_decides():
+    """The idiom this most needs to support: a guard before a dereference.
+
+    `subject.tags and 'x' in subject.tags` is falsy in Python when `tags` is
+    None. Evaluating both operands up front raised TypeError on the membership
+    test instead, the planner read the error as "this rule grants nothing", and
+    an allow the author had written correctly became a denial in silence.
+    """
+    ctx = {"subject": {"tags": None, "role": "user"}}
+    assert safe_eval("subject.tags and 'x' in subject.tags", ctx) is None
+    assert safe_eval("subject.role == 'user' or 'x' in subject.tags", ctx) is True
+
+
+def test_boolean_operators_yield_python_values():
+    """Not just truthiness: `and`/`or` return the deciding operand."""
+    ctx = {"subject": {"tags": [], "role": "user", "tier": 3}}
+    assert safe_eval("subject.tags or subject.role", ctx) == "user"
+    assert safe_eval("subject.role and subject.tier", ctx) == 3
+    assert safe_eval("subject.tags and subject.tier", ctx) == []
+
+
+def test_short_circuit_chains_beyond_two_operands():
+    ctx = {"subject": {"a": False, "role": "user"}}
+    # The third operand would raise if it were reached.
+    assert safe_eval("subject.a and subject.role and 'x' in subject.a", ctx) is False
+
+
+def test_short_circuiting_does_not_hide_a_typo_from_validate():
+    """The negative half, and the reason this is safe to do at all.
+
+    Skipping an operand at runtime must not skip it at check time. `validate`
+    reads a condition statically, so an attribute nobody declares is still
+    reported even when the operand naming it would never be evaluated — which is
+    what keeps `or` from quietly granting on a rule whose second half is wrong.
+    """
+    from overstep.matrix import Matrix
+
+    m = Matrix(
+        modules={"rest": {"base_url": "http://api.test"}},
+        roles=["user"],
+        subjects=[{"name": "alice", "role": "user", "attributes": {"department": "eng"}}],
+        resources=[{"name": "r", "request": {"method": "GET", "path": "/x"}}],
+        policy={
+            "r": {
+                "allow": [
+                    # The left operand is true for alice, so the right is never
+                    # evaluated — and `dept` is still a typo for `department`.
+                    {"role": "user", "condition": "subject.department == 'eng' or subject.dept == 'x'"}
+                ]
+            }
+        },
+    )
+    problems = m.validate_refs()
+    assert any("subject.dept" in p and "no subject declares" in p for p in problems)
+
+
+def test_referenced_attributes_sees_past_a_short_circuit():
+    """The static reader must not inherit the evaluator's laziness."""
+    assert referenced_attributes("subject.a or subject.b") == {
+        ("subject", "a"),
+        ("subject", "b"),
+    }
