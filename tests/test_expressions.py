@@ -1,7 +1,7 @@
 """Tests for the safe expression evaluator."""
 import pytest
 
-from overstep.expressions import safe_eval
+from overstep.expressions import referenced_attributes, safe_eval
 
 
 def test_equality_and_membership():
@@ -56,3 +56,41 @@ def test_ordinary_attribute_access_still_works():
     # A leading underscore is refused even where a dict really does hold the key.
     with pytest.raises(ValueError):
         safe_eval("subject._internal == 'x'", ctx)
+
+
+def test_missing_attribute_is_an_error_not_none():
+    """The typo that used to grant access.
+
+    Returning ``None`` for an attribute that is not there read a typo as a
+    value, and two typos compared equal. `subject.dept == target.dept`, written
+    for an attribute really called `department`, was `None == None` — true, so
+    the rule granted.
+    """
+    ctx = {
+        "subject": {"user_id": "u1", "department": "eng"},
+        "target": {"user_id": "u2", "department": "sales"},
+    }
+    assert safe_eval("subject.department == target.department", ctx) is False
+    with pytest.raises(ValueError, match="unknown attribute"):
+        safe_eval("subject.dept == target.dept", ctx)
+    # One side missing was already false; it must stay an error, not silently
+    # agree with the other side's real value.
+    with pytest.raises(ValueError, match="unknown attribute"):
+        safe_eval("subject.dept == target.department", ctx)
+
+
+def test_attribute_holding_none_is_still_a_value():
+    """Absent and ``None`` are different, and only one of them is a mistake."""
+    ctx = {"subject": {"tier": None}, "target": {"tier": None}}
+    assert safe_eval("subject.tier == target.tier", ctx) is True
+
+
+def test_referenced_attributes_reports_what_a_condition_reads():
+    assert referenced_attributes("subject.tenant == target.tenant") == {
+        ("subject", "tenant"),
+        ("target", "tenant"),
+    }
+    assert referenced_attributes("subject.tier > 1 and 'x' in subject.tags") == {
+        ("subject", "tier"),
+        ("subject", "tags"),
+    }

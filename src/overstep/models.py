@@ -9,7 +9,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
 # Imports nothing from overstep, so it stays safe to pull in from the module
 # every other one depends on.
@@ -98,6 +98,28 @@ class VulnClass(str, Enum):
     UNEXPECTED_DENY = "unexpected-deny"
 
 
+def _reject_unreadable_statuses(field: str, spec: List[Union[int, str]]) -> List[Union[int, str]]:
+    """Refuse a status entry the matcher would silently skip.
+
+    An unreadable entry is not a harmless typo here. A spec whose entries are all
+    unreadable matches nothing, so every response reads as the opposite of what
+    the author wrote — for ``allow_status`` that means nothing is ever allowed,
+    every negative test passes, and the run reports a clean authorization surface
+    it never tested.
+    """
+    from overstep.statuses import MAX_STATUS, MIN_STATUS, invalid_entries
+
+    bad = invalid_entries(spec)
+    if bad:
+        raise ValueError(
+            f"{field} has {len(bad)} entry/entries that are not status "
+            f"specifications: {', '.join(bad)}. Write an exact code (200), an "
+            f"inclusive range (\"200-299\") or a class (\"2xx\"), within "
+            f"{MIN_STATUS}-{MAX_STATUS}."
+        )
+    return spec
+
+
 class ResponseMatcher(BaseModel):
     """How to decide whether a response means access was *granted*.
 
@@ -128,6 +150,11 @@ class ResponseMatcher(BaseModel):
     allow_body_regex: Optional[str] = None
     deny_body_regex: Optional[str] = None
     treat_redirect_as: Literal["allow", "deny", "status"] = "deny"
+
+    @field_validator("allow_status")
+    @classmethod
+    def _check_allow_status(cls, v: List[Union[int, str]]) -> List[Union[int, str]]:
+        return _reject_unreadable_statuses("allow_status", v)
 
 
 class SubjectAuth(BaseModel):
@@ -301,6 +328,11 @@ class McpMatcher(BaseModel):
     deny_content_regex: Optional[str] = None
     allow_content_regex: Optional[str] = None
     deny_status: List[Union[int, str]] = Field(default_factory=lambda: ["4xx", "5xx"])
+
+    @field_validator("deny_status")
+    @classmethod
+    def _check_deny_status(cls, v: List[Union[int, str]]) -> List[Union[int, str]]:
+        return _reject_unreadable_statuses("deny_status", v)
 
 
 class McpInvocation(BaseModel):
