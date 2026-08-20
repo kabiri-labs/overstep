@@ -186,14 +186,18 @@ def test_validate_refuses_every_condition_the_evaluator_would():
         assert any(fragment in p for p in problems), f"not reported: {condition}"
 
 
-def test_validate_reports_a_condition_too_deep_to_parse():
-    """It used to escape as a RecursionError traceback with exit 1.
+def test_validate_reports_a_condition_that_nests_too_deeply():
+    """It used to escape as a RecursionError traceback.
 
-    Exit 1 is the code that means "vulnerabilities found", so a pipeline could
-    not tell a crashed validate from a matrix with findings.
+    The depth at which a parser gives up, and whether it gives up with
+    RecursionError or MemoryError, differs by Python version — so the limit is
+    decided in the evaluator and this reports it rather than pinning a depth.
     """
-    problems = _conditioned("not " * 3000 + "subject.department == 'eng'").validate_refs()
-    assert any("nested too deeply" in p for p in problems)
+    for depth in (3000, 10000):
+        problems = _conditioned(
+            "not " * depth + "subject.department == 'eng'"
+        ).validate_refs()
+        assert any("nests deeper than" in p for p in problems), depth
 
 
 def test_a_condition_the_evaluator_accepts_is_not_reported():
