@@ -8,9 +8,9 @@ import shlex
 
 from overstep.classifier import classify
 from overstep.matrix import Matrix
-from overstep.models import Effect, Observation, VulnClass
+from overstep.models import Effect, Observation, Subject, VulnClass
 from overstep.planner import plan
-from overstep.repro import mask_headers, to_curl
+from overstep.repro import credential_values, mask_headers, redact, to_curl
 
 
 def _matrix() -> Matrix:
@@ -143,3 +143,106 @@ def test_a_subject_name_with_punctuation_makes_a_valid_variable():
     masked = mask_headers({"Authorization": "Bearer t"}, "svc-a.eu")
 
     assert masked["Authorization"] == "Bearer $OVERSTEP_TOKEN_SVC_A_EU"
+
+
+# --- credentials in a response the target wrote -----------------------------
+
+
+def test_credential_values_collects_what_a_run_holds():
+    subjects = [
+        Subject(name="alice", role="user", token="alice-supersecret"),
+        Subject(name="bob", role="user", headers={"X-API-Key": "bob-key-value"}),
+        Subject(name="carol", role="user", headers={"Authorization": "Bearer carol-tok"}),
+    ]
+    values = credential_values(subjects)
+    assert "alice-supersecret" in values
+    assert "bob-key-value" in values
+    # Both spellings: a body may echo the header or just the credential.
+    assert "Bearer carol-tok" in values and "carol-tok" in values
+
+
+def test_credential_values_ignores_a_value_too_short_to_be_a_secret():
+    """Replacing every "a" in a body would destroy the evidence it protects."""
+    assert credential_values([Subject(name="t", role="user", token="a")]) == set()
+
+
+def test_redact_replaces_longest_first():
+    text = "tok=abc123 short=abc"
+    assert redact(text, {"abc", "abc123"}) == "tok=*** short=***"
+
+
+def test_a_reflected_credential_does_not_reach_a_finding():
+    """The request's credentials are masked; the response's were not.
+
+    Some endpoints reflect what they were given — a debug route, a session
+    endpoint, an error echoing the header it could not parse — and the evidence
+    a finding carries is that response verbatim. A token used to travel into
+    findings.json beside a curl line that had replaced the same value with a
+    shell variable.
+    """
+    matrix = Matrix(
+        modules={"rest": {"base_url": "http://api.test"}},
+        roles=["user"],
+        subjects=[
+            {"name": "alice", "role": "user", "token": "alice-supersecret",
+             "attributes": {"user_id": "u1"}},
+            {"name": "bob", "role": "user", "token": "bob-supersecret",
+             "attributes": {"user_id": "u2"}},
+        ],
+        resources=[{
+            "name": "get_user",
+            "request": {"method": "GET", "path": "/users/{id}"},
+            "type": "object", "owner": "id", "owner_attr": "user_id",
+        }],
+        policy={"get_user": {"allow": [{"role": "user", "scope": "own"}]}},
+    )
+    cases = plan(matrix)
+    body = '{"id":"u2","session_token":"alice-supersecret"}'
+    obs = [
+        Observation(
+            test_id=c.id,
+            status=200 if c.expected == Effect.ALLOW else 200,
+            effect=Effect.ALLOW,
+            body_snippet=body,
+            full_body=body,
+        )
+        for c in cases
+    ]
+
+    findings = classify(matrix, cases, obs)
+    assert findings, "the fixture must produce something to inspect"
+    for f in findings:
+        assert "supersecret" not in f.evidence.body_snippet
+        assert "supersecret" not in f.evidence.full_body
+        assert "supersecret" not in (f.curl or "")
+        assert "supersecret" not in f.model_dump_json()
+    # And what is left is still the response, not a hole where it was.
+    assert '"id":"u2"' in findings[0].evidence.body_snippet
+
+
+def test_redaction_does_not_disturb_classification():
+    """The classifier reads what the target sent; only the copy written out changes."""
+    matrix = Matrix(
+        modules={"rest": {"base_url": "http://api.test"}},
+        roles=["user"],
+        subjects=[{"name": "alice", "role": "user", "token": "alice-supersecret",
+                   "attributes": {"user_id": "u1"}}],
+        resources=[{
+            "name": "get_user",
+            "request": {"method": "GET", "path": "/users/{id}"},
+            "type": "object", "owner": "id", "owner_attr": "user_id",
+            "forbidden_fields": ["alice-supersecret"],
+        }],
+        policy={"get_user": {"allow": [{"role": "user", "scope": "own"}]}},
+    )
+    cases = plan(matrix)
+    # The forbidden key *is* the credential, so a redact-first order would hide it.
+    body = '{"id":"u1","alice-supersecret":"x"}'
+    obs = [
+        Observation(test_id=c.id, status=200, effect=Effect.ALLOW,
+                    body_snippet=body, full_body=body)
+        for c in cases
+    ]
+    bopla = [f for f in classify(matrix, cases, obs) if f.vuln_class == VulnClass.BOPLA]
+    assert len(bopla) == 1
+    assert bopla[0].leaked_fields == ["alice-supersecret"]

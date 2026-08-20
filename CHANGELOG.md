@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.4.2] - 2026-08-20
+
+### Fixed
+
+**A credential reflected in a response reached the reports.** Requests have
+their credentials masked where they are built — `curl` carries
+`$OVERSTEP_TOKEN_ALICE`, never the token — but a *response* is written by the
+target, and some endpoints echo what they were given: a debug route, a session
+endpoint, an error quoting the header it could not parse. The evidence a finding
+carries is that response verbatim, so the token travelled into `findings.json`
+and `report.html` beside a `curl` line that had carefully replaced the same
+value.
+
+Every credential the run holds — each subject's token, each secret header on a
+subject or a resource, and the scheme-stripped tail of each, since a body may
+echo `Bearer abc` or just `abc` — is now removed from the evidence a finding
+carries. `overstep.sarif` and `junit.xml` were already clean and stay so.
+
+The removal happens where evidence enters a report, not where it is captured,
+so classification still reads exactly what the target sent: a `forbidden_fields`
+entry that happens to equal a credential is still detected, and the response is
+still recognisable rather than a hole where it was. A value shorter than four
+characters is left alone — nothing that short is a credential, and replacing
+every occurrence of it would destroy the evidence it was meant to protect.
+
 ## [1.4.1] - 2026-08-20
 
 ### Fixed
