@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.0.1] - 2026-08-20
+
+Three defects found by reviewing the tool against a live target rather than
+through its own suite. All are cases where overstep stayed quiet about something
+it was supposed to catch.
+
+### Fixed
+
+**BOPLA detection was capped at 2048 bytes.** The check read `body_snippet`,
+which every transport truncates so a report stays readable — so a forbidden
+property was found in a small response and silently missed in a large one, and
+an endpoint that over-shares is exactly the kind that returns a lot. Transports
+now retain the untruncated body for the cases that declare `forbidden_fields`,
+and the check reads that. Nothing else holds a full body, so a run without
+`forbidden_fields` carries no extra memory, and the retained body stays out of
+the reports: `body_snippet` is still the evidence a reader sees.
+
+**A condition could reach `__class__` and the module globals behind it.**
+Expression attribute access used a bare `getattr`, so `subject.__class__` —
+and from there `__init__.__globals__` — resolved. Nothing in the allow-list can
+call, so this was not an escape on its own; it was the gap that becomes one if
+another node type is ever allowed. Private and dunder names are now refused.
+
+**`overstep.fixtures` annotations could not be resolved.** `List` was never
+imported. `from __future__ import annotations` hid it at runtime, but the
+package ships `py.typed`, so `typing.get_type_hints(run_teardown)` raised
+`NameError` for anyone reading the annotations the package advertises. The suite
+now resolves the annotations of every public function, which is what makes the
+promise testable rather than assumed.
+
+### Unchanged
+
+No report document changed shape: the golden files are byte-identical, and the
+matrix format, `test_id` shape, finding classes and exit codes are as 1.0.0
+froze them.
+
 ## [1.0.0] - 2026-08-19
 
 The end of the reorganisation that began at 0.37.1. Nothing new is added here;

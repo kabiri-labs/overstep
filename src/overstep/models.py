@@ -678,6 +678,9 @@ class TestCase(BaseModel):
     # response body contains one of these, a slipped-through probe is a *confirmed*
     # data leak, not merely a permissive status code.
     expect_markers: List[str] = Field(default_factory=list)
+    # The resource's BOPLA keys, carried so a transport can tell whether this
+    # case's response body has to survive truncation (see Observation.full_body).
+    forbidden_fields: List[str] = Field(default_factory=list)
     # For transport: mcp — the fully-resolved tool-call to deliver. None for HTTP.
     mcp: Optional[McpInvocation] = None
     # For an AUDIENCE-variant probe: the audience the credential being replayed
@@ -733,6 +736,12 @@ class Observation(BaseModel):
     latency_ms: float = 0.0
     headers: Dict[str, str] = Field(default_factory=dict)
     body_snippet: str = ""
+    # The untruncated body, retained only when the case declares forbidden_fields.
+    # ``body_snippet`` is *evidence* — capped so a report stays readable — but the
+    # BOPLA check reads the body as *data*, and a forbidden key past the cap was
+    # being missed. Excluded from serialization: reports keep showing the snippet,
+    # and the finding names the keys that leaked.
+    full_body: str = Field(default="", exclude=True)
     error: Optional[str] = None
     # Which of the test case's expected victim markers actually appeared in the
     # response body (empty when none were configured or none matched).
