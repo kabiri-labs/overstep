@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import re
 import shlex
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterable, Optional, Set
 from urllib.parse import urlencode, urljoin
 
 from overstep.models import SECRET_HEADERS as _SECRET_HEADERS
@@ -59,6 +59,66 @@ def mask_headers(headers: Dict[str, str], subject_name: Optional[str] = None) ->
         parts = value.split(" ", 1)
         masked[key] = f"{parts[0]} {secret}" if len(parts) == 2 and parts[0].isalpha() else secret
     return masked
+
+
+# A credential shorter than this is not redacted from a response body. Nothing
+# that short is a secret worth protecting, and replacing every occurrence of a
+# one- or two-character string would shred the evidence it was meant to keep
+# safe — a token of "a" would turn a JSON body into punctuation.
+_MIN_REDACTABLE = 4
+
+
+def credential_values(
+    subjects: Iterable[Subject], cases: Iterable[TestCase] = ()
+) -> Set[str]:
+    """Every credential this run holds, for finding them in text it did not write.
+
+    A request's credentials are masked where they are built. A *response* is
+    written by the target, and some endpoints reflect what they were given — a
+    debug route, a session endpoint, an error that echoes the header it could not
+    parse. The evidence a finding carries is that response verbatim, so the
+    credential has to be recognised in it, and that means knowing the values.
+
+    Both the raw value and its scheme-stripped tail are collected: a body may
+    echo ``Bearer abc123`` or just ``abc123``, and only the second is what a
+    ``token:`` in the matrix actually says.
+    """
+    values: Set[str] = set()
+
+    def add(value: Optional[str]) -> None:
+        if not value:
+            return
+        values.add(value)
+        # "Bearer abc123" also hides abc123, which is what the matrix declared.
+        scheme, _, rest = value.partition(" ")
+        if rest and scheme.isalpha():
+            values.add(rest)
+
+    for subject in subjects:
+        add(subject.token)
+        for key, value in subject.headers.items():
+            if key.lower() in _SECRET_HEADERS:
+                add(value)
+    for case in cases:
+        for key, value in case.headers.items():
+            if key.lower() in _SECRET_HEADERS:
+                add(value)
+
+    return {v for v in values if len(v) >= _MIN_REDACTABLE}
+
+
+def redact(text: str, secrets: Iterable[str]) -> str:
+    """Replace every known credential wherever it appears in ``text``.
+
+    Longest first, so a token that contains another one does not leave the
+    shorter half behind.
+    """
+    if not text:
+        return text
+    for secret in sorted(secrets, key=len, reverse=True):
+        if secret in text:
+            text = text.replace(secret, _MASK)
+    return text
 
 
 def _escape_for_double_quotes(text: str) -> str:

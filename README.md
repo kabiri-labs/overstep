@@ -2,7 +2,7 @@
 
 **Authorization testing for REST APIs and MCP servers — one problem class, two surfaces.**
 
-![Version](https://img.shields.io/badge/version-1.4.1-blue)
+![Version](https://img.shields.io/badge/version-1.4.2-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
