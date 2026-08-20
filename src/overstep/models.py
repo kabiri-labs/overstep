@@ -6,6 +6,7 @@ here as pydantic models so that (de)serialization to JSON is free and validated.
 """
 from __future__ import annotations
 
+import re
 from enum import Enum
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Union
 
@@ -156,25 +157,58 @@ class ResponseMatcher(BaseModel):
 
     @model_validator(mode="after")
     def _reject_a_matcher_that_can_never_allow(self) -> "ResponseMatcher":
-        """Refuse a matcher with no route to ``allow`` at all.
+        r"""Refuse a matcher that could never grant a response.
 
-        Read the evaluation order above from the bottom: a response is allowed by
-        ``allow_body_regex``, by being a 3xx under ``treat_redirect_as: allow``,
-        or by its status matching ``allow_status``. Take away all three and no
-        response can ever be granted, whatever the target does.
+        Such a matcher reads every response as *deny*, so every negative test
+        passes for the wrong reason and the run reports a clean authorization
+        surface it never tested. That is caught downstream when a matrix has
+        positive controls, since they fail too — but an all-negative matrix has
+        none to lose, and ``health`` deliberately does not condemn one for that.
+        So it is refused here, where the shape is visible without running
+        anything.
 
-        That is the same failure the unreadable-entry check refuses, reached by a
-        different door. ``allow_status: []`` is not garbage the parser skips, it
-        is a list the parser reads correctly and that matches nothing — so every
-        response reads as *deny*, every negative test passes for the wrong
-        reason, and the run reports a clean authorization surface it never
-        tested. It is caught downstream when the matrix has positive controls,
-        since they fail too; an all-negative matrix has none to lose, and
-        ``health`` deliberately does not condemn one for that.
+        Three ways to reach it, each checked exactly rather than by heuristic:
 
-        The condition is exact rather than heuristic: it is false whenever any
-        route to allow survives, so nothing legitimate is refused.
+        **An unusable pattern.** A regex that does not compile raised nothing
+        until the executor searched with it, mid-run, as an unhandled
+        ``re.error``.
+
+        **A deny pattern that dominates.** ``deny_body_regex`` is consulted
+        first, so one matching every body makes the rest of the order dead code
+        however it is written. A pattern that matches the empty string matches at
+        position 0 of *every* string, which makes this sound; it is deliberately
+        not complete, since a pattern like ``[\s\S]+`` leaves an empty body
+        grantable and the matcher is therefore not dead.
+
+        **No route to allow.** Read the evaluation order from the bottom: a
+        response is allowed by ``allow_body_regex``, by being a 3xx under
+        ``treat_redirect_as: allow``, or by its status matching ``allow_status``.
+        Take away all three — ``allow_status: []`` is not garbage the parser
+        skips, it is a list it reads correctly and that no status satisfies — and
+        nothing is grantable.
         """
+        for field in ("allow_body_regex", "deny_body_regex"):
+            pattern = getattr(self, field)
+            if pattern is None:
+                continue
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                raise ValueError(
+                    f"{field} is not a valid regular expression ({exc}). It would "
+                    f"raise when the first response was read, part-way through a "
+                    f"run."
+                ) from None
+
+        if self.deny_body_regex is not None and re.search(self.deny_body_regex, ""):
+            raise ValueError(
+                f"deny_body_regex {self.deny_body_regex!r} matches every response "
+                f"body, and it is read before anything that could allow one. Every "
+                f"response would be denied and every negative test would pass "
+                f"without testing anything. Narrow it to the text that actually "
+                f"marks a refusal."
+            )
+
         if self.allow_status or self.allow_body_regex or self.treat_redirect_as == "allow":
             return self
         raise ValueError(
