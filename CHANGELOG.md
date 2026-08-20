@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.4.1] - 2026-08-20
+
+### Fixed
+
+**`validate` accepted conditions the evaluator refuses.** It restated the
+evaluator's rules instead of asking it, and the two had drifted: a condition
+using arithmetic (`subject.level + 1 > 2`), or naming a root nothing can bind
+(`request == 1`), parsed cleanly and referenced only declared attributes — so
+`validate` reported the matrix fine while `safe_eval` refused it at plan time
+and `_expected_effect` read the refusal as "this rule grants nothing". A rule
+the author meant to grant became a denial, and the positive test it should have
+produced became a negative one, with nothing said anywhere.
+
+Both callers now ask one function, `expressions.refusal_reason`, so validation
+and evaluation cannot disagree by construction. Everything decidable without
+running anything — node types, private names, roots — is answered there; whether
+a particular subject carries an attribute stays with the matrix, which is the
+only part that needs to know the subjects.
+
+**`validate` crashed on a condition too deeply nested to parse.** `ast.parse`
+exhausts the stack before raising anything catchable as a syntax error, and the
+`RecursionError` escaped as a traceback. It is reported as a refusal like any
+other now.
+
+A condition echoed in an error message is capped at 120 characters, so one that
+broke the parser by being enormous no longer fills the terminal with itself.
+
 ## [1.4.0] - 2026-08-20
 
 ### Fixed

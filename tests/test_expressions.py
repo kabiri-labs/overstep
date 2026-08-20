@@ -190,3 +190,46 @@ def test_slices_are_still_refused():
     ctx = {"subject": {"tags": [1, 2, 3]}}
     with pytest.raises(ValueError):
         safe_eval("subject.tags[0:2] == [1, 2]", ctx)
+
+
+def test_refusal_reason_answers_for_the_evaluator():
+    """One function decides what a condition may contain, for both callers."""
+    from overstep.expressions import refusal_reason
+
+    assert refusal_reason("subject.tenant == target.tenant") is None
+    assert refusal_reason("'x' in subject.tags") is None
+    assert "BinOp" in refusal_reason("subject.a + 1 > 2")
+    assert "unknown name" in refusal_reason("request == 1")
+    assert "private attribute" in refusal_reason("subject.__class__ == 1")
+    assert "does not parse" in refusal_reason("subject.a ==")
+
+
+def test_refusal_reason_does_not_let_a_deep_expression_escape():
+    """`ast.parse` exhausts the stack before it raises anything catchable as syntax."""
+    from overstep.expressions import refusal_reason
+
+    assert "nested too deeply" in refusal_reason("not " * 3000 + "subject.a")
+
+
+def test_refusal_reason_agrees_with_safe_eval():
+    """The property that makes delegating worth it: no expression is refused by
+    one and accepted by the other."""
+    from overstep.expressions import refusal_reason
+
+    ctx = {"subject": {"a": 1, "tags": [1]}, "target": {"a": 2}}
+    for expr in (
+        "subject.a == target.a",
+        "subject.a + 1 > 2",
+        "request == 1",
+        "subject.__class__ == 1",
+        "[x for x in subject.tags]",
+        "subject.a if subject.a else 0",
+        "'x' in subject.tags",
+    ):
+        refused = refusal_reason(expr) is not None
+        try:
+            safe_eval(expr, ctx)
+            evaluated = True
+        except ValueError:
+            evaluated = False
+        assert refused != evaluated, expr

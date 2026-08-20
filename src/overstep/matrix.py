@@ -375,9 +375,26 @@ class Matrix(BaseModel):
 
         Only an attribute *no* subject declares is reported. Subjects are allowed
         to differ — a condition reading ``subject.tier`` where half of them have
-        a tier is a deliberate narrowing, not a mistake.
+        a tier is a deliberate narrowing, not a mistake, and short-circuiting
+        means the arm naming it may never be reached anyway.
+
+        Everything that does not depend on a particular subject is asked of the
+        evaluator itself, through :func:`refusal_reason`. Restating its rules
+        here let the two drift: a condition using arithmetic, or naming a root
+        the evaluator cannot bind, parsed cleanly and referenced only declared
+        attributes, so this reported nothing while ``safe_eval`` refused it and
+        the planner turned the rule into a denial in silence.
         """
-        from overstep.expressions import referenced_attributes
+        from overstep.expressions import refusal_reason, referenced_attributes
+
+        def quote(condition: str) -> str:
+            """The condition, short enough to read in an error message.
+
+            Long enough to recognise which rule is meant, capped because a
+            condition has no length limit and one that broke the parser by being
+            enormous would otherwise fill the terminal with itself.
+            """
+            return repr(condition if len(condition) <= 120 else condition[:117] + "...")
 
         declared = {key for s in self.subjects for key in s.attributes}
         problems: List[Problem] = []
@@ -385,29 +402,22 @@ class Matrix(BaseModel):
             for rule in entry.allow:
                 if not rule.condition:
                     continue
-                try:
-                    refs = referenced_attributes(rule.condition)
-                except SyntaxError as exc:
+                reason = refusal_reason(rule.condition)
+                if reason is not None:
                     problems.append(Problem(
-                        f"policy for '{resource}' has a condition that does not "
-                        f"parse ({exc.msg}): {rule.condition!r}",
+                        f"policy for '{resource}' has a condition the evaluator "
+                        f"refuses ({reason}), so the rule would grant nothing and "
+                        f"the tests it shapes would be wrong: {quote(rule.condition)}",
                         Severity.ERROR,
                     ))
                     continue
-                for root, attribute in sorted(refs):
-                    if root not in ("subject", "target"):
-                        problems.append(Problem(
-                            f"policy for '{resource}' has a condition naming "
-                            f"'{root}', which is not something a condition can "
-                            f"read; use 'subject' or 'target': {rule.condition!r}",
-                            Severity.ERROR,
-                        ))
-                    elif attribute not in declared:
+                for root, attribute in sorted(referenced_attributes(rule.condition)):
+                    if attribute not in declared:
                         problems.append(Problem(
                             f"policy for '{resource}' has a condition reading "
                             f"'{root}.{attribute}', which no subject declares — "
                             f"the rule would grant nothing and the tests it "
-                            f"shapes would be wrong: {rule.condition!r}",
+                            f"shapes would be wrong: {quote(rule.condition)}",
                             Severity.ERROR,
                         ))
         return problems

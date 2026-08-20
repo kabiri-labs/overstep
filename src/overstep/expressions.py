@@ -10,7 +10,7 @@ mutation.
 from __future__ import annotations
 
 import ast
-from typing import Any, Dict, Set, Tuple
+from typing import Any, Dict, Optional, Set, Tuple
 
 _ALLOWED_NODES = {
     ast.Expression, ast.BoolOp, ast.UnaryOp, ast.Compare, ast.Name, ast.Load,
@@ -122,6 +122,46 @@ def _compare(op: ast.cmpop, left: Any, right: Any) -> bool:
     if isinstance(op, ast.NotIn):
         return left not in right
     raise ValueError(f"comparison not allowed: {type(op).__name__}")
+
+
+# The only roots a condition can read. Anything else is a name the evaluator has
+# nothing to bind, so naming one is a mistake rather than a narrowing.
+CONTEXT_ROOTS = ("subject", "target")
+
+
+def refusal_reason(expr: str) -> Optional[str]:
+    """Why the evaluator would refuse ``expr``, or ``None`` if it would not.
+
+    Validation and evaluation have to agree about what a condition may contain,
+    and the only way to guarantee that is to ask the same code. Reimplementing
+    the rules here would let the two drift, and the drift is silent in the worst
+    direction: ``_expected_effect`` reads a refusal as "this rule grants
+    nothing", so a condition ``validate`` called fine turns a rule the author
+    meant to grant into one that denies, and the positive test it should have
+    produced into a negative one.
+
+    Everything except the *values* is decidable without running anything — the
+    node types, the private names, the roots — so all of it is answered here.
+    Whether a particular subject actually carries an attribute is not, and stays
+    with the caller that knows the subjects.
+    """
+    try:
+        tree = ast.parse(expr, mode="eval")
+    except SyntaxError as exc:
+        return f"does not parse ({exc.msg})"
+    except RecursionError:
+        # Deep enough nesting exhausts the stack inside the parser itself. It is
+        # a refusal like any other, and reporting it beats letting it escape as
+        # a traceback from whatever asked.
+        return "is nested too deeply to parse"
+
+    try:
+        _check(tree, {root: {} for root in CONTEXT_ROOTS})
+    except ValueError as exc:
+        return str(exc)
+    except RecursionError:
+        return "is nested too deeply to evaluate"
+    return None
 
 
 def referenced_attributes(expr: str) -> Set[Tuple[str, str]]:

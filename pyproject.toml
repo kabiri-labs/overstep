@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "overstep"
-version = "1.4.0"
+version = "1.4.1"
 description = "Authorization testing for REST APIs and MCP servers. Declare who may do what as a matrix, and overstep turns it into positive and negative tests that catch BOLA, BFLA, BOPLA and privilege escalation — with drift baselines, confidence grading and CWE/OWASP-tagged SARIF for CI."
 authors = [{name = "Ahmad Kabiri"}]
 readme = "README.md"
