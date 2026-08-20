@@ -52,9 +52,12 @@ checkable by a reader.
 which every transport truncates so a report stays readable — so the same
 forbidden property was reported in a small response and silently missed in a
 large one, and an endpoint that over-shares is exactly the kind that returns a
-lot. Transports now retain the untruncated body for the cases that declare
-`forbidden_fields`, and the check reads that. Nothing else retains one, so a run
-without `forbidden_fields` holds no extra memory.
+lot. Transports now retain the untruncated body for the cases the check can actually
+read — a resource that declares `forbidden_fields`, on a test the matrix expects
+to be *allowed*, since that is the only branch the property-level check runs in.
+Nothing else retains one, so a run without `forbidden_fields` holds no extra
+memory, and one with them does not hold the cross-owner probes that multiply
+with the subject count.
 
 **A condition could reach `__class__`, and `__init__.__globals__` behind it.**
 Expression attribute access used a bare `getattr`. Nothing in the allow-list can
