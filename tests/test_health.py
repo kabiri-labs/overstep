@@ -17,10 +17,15 @@ from overstep.models import (
 )
 
 
-def _case(case_id: str, expected: Effect, mcp: McpInvocation = None) -> TestCase:
+def _case(
+    case_id: str,
+    expected: Effect,
+    mcp: McpInvocation = None,
+    resource: str = "r",
+) -> TestCase:
     return TestCase(
         id=case_id,
-        resource="r",
+        resource=resource,
         subject="s",
         role="user",
         method="GET",
@@ -298,3 +303,128 @@ def test_threshold_is_tunable(ratio):
 
     # One error in four: condemned at a 0.25 threshold, tolerated at 0.75.
     assert assess(cases, obs, unreachable_ratio=ratio).inconclusive is (ratio == 0.25)
+
+
+# --- one endpoint down behind a healthy target ------------------------------
+
+
+def test_a_blacked_out_resource_condemns_the_run():
+    """A healthy target can still hold an endpoint that answered nothing.
+
+    The target ratio is deliberately blunt enough to survive a flaky timeout, so
+    a single wedged route sits far below it. Its negative tests are recorded as
+    denied — which is what the matrix expected — so they produce no finding and
+    read exactly like probes that ran and found the endpoint sound.
+    """
+    cases = [
+        _case("ok::allow", Effect.ALLOW, resource="healthy"),
+        _case("ok::deny", Effect.DENY, resource="healthy"),
+        _case("ok::deny2", Effect.DENY, resource="healthy"),
+        _case("wedged::allow", Effect.ALLOW, resource="wedged"),
+        _case("wedged::deny", Effect.DENY, resource="wedged"),
+    ]
+    obs = [
+        _delivered("ok::allow", Effect.ALLOW),
+        _delivered("ok::deny", Effect.DENY),
+        _delivered("ok::deny2", Effect.DENY),
+        _undelivered("wedged::allow"),
+        _undelivered("wedged::deny"),
+    ]
+
+    health = assess(cases, obs)
+
+    # 2 of 5 is below the target ratio, so the target itself is not condemned.
+    assert health.transport_errors == 2
+    assert health.inconclusive
+    assert health.untested_resources == ["wedged"]
+    assert any("resource 'wedged'" in r and "not tested" in r for r in health.reasons)
+    # And the healthy resource is not dragged in with it.
+    assert not any("healthy" in r for r in health.reasons)
+
+
+def test_one_flaky_timeout_does_not_condemn_the_run():
+    """The negative half, and the more important one.
+
+    Condemning a run for a single lost probe would teach the reader to pass
+    --allow-inconclusive permanently, which costs more than the check saves. A
+    resource that got something through was tested; only one that got nothing
+    through was not.
+    """
+    cases = [
+        _case("r::allow", Effect.ALLOW),
+        _case("r::deny", Effect.DENY),
+        _case("r::deny2", Effect.DENY),
+    ]
+    obs = [
+        _delivered("r::allow", Effect.ALLOW),
+        _delivered("r::deny", Effect.DENY),
+        _undelivered("r::deny2"),
+    ]
+
+    health = assess(cases, obs)
+
+    assert not health.inconclusive
+    assert health.reasons == []
+    assert health.untested_resources == []
+    # Silent is what it must not be: the loss is still counted.
+    assert health.transport_errors == 1
+    assert health.undelivered_negative == 1
+
+
+def test_undelivered_negative_tests_are_counted_apart():
+    """A lost negative test is the expensive kind: it leaves no trace at all."""
+    cases = [
+        _case("r::allow", Effect.ALLOW),
+        _case("r::deny", Effect.DENY),
+        _case("other::deny", Effect.DENY, resource="other"),
+    ]
+    obs = [
+        _undelivered("r::allow"),
+        _undelivered("r::deny"),
+        _delivered("other::deny", Effect.DENY),
+    ]
+
+    health = assess(cases, obs)
+
+    assert health.transport_errors == 3 - 1
+    assert health.undelivered_negative == 1
+
+
+def test_a_resource_on_an_unreachable_target_is_not_reported_twice():
+    """An unreachable target denies everything by definition."""
+    cases = [
+        _case("a::allow", Effect.ALLOW, resource="a"),
+        _case("b::deny", Effect.DENY, resource="b"),
+    ]
+    obs = [_undelivered("a::allow"), _undelivered("b::deny")]
+
+    health = assess(cases, obs)
+
+    assert health.inconclusive
+    assert health.untested_resources == []
+    assert len(health.reasons) == 1
+    assert "unreachable" in health.reasons[0]
+
+
+def test_a_healthy_run_reports_no_delivery_loss():
+    cases = [_case("a", Effect.ALLOW), _case("b", Effect.DENY)]
+    obs = [_delivered("a", Effect.ALLOW), _delivered("b", Effect.DENY)]
+
+    health = assess(cases, obs)
+
+    assert health.untested_resources == []
+    assert (health.transport_errors, health.undelivered_negative) == (0, 0)
+
+
+def test_a_skipped_resource_is_not_called_untested():
+    """Not sending a request was the point; it is not a delivery failure."""
+    cases = [
+        _case("r::allow", Effect.ALLOW),
+        _case("skip::deny", Effect.DENY, resource="skipped_res"),
+    ]
+    obs = [_delivered("r::allow", Effect.ALLOW), _skipped("skip::deny")]
+
+    health = assess(cases, obs)
+
+    assert health.untested_resources == []
+    assert health.undelivered_negative == 0

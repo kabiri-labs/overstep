@@ -1,5 +1,49 @@
 # Changelog
 
+## [1.3.0] - 2026-08-20
+
+A request that never arrived is not evidence, and until now it was counted as
+though it were.
+
+### Fixed
+
+**A negative test that never reached the target read as a pass.** Every
+transport records a delivery failure as a denial — status `0`, effect `deny` —
+which for a negative test is exactly what the matrix expected, so it produced no
+finding and left no trace in any count. `health` already refused to call such a
+run clean, but it judged reachability per *target* and only above a 50% failure
+ratio, deliberately blunt so one flaky timeout could not condemn a run. A single
+wedged endpoint behind an otherwise healthy API sits far below that line: its
+probes vanished, and the report read the same as if they had run and found the
+endpoint sound.
+
+Reachability is now judged per resource as well. A resource whose *every* sent
+request failed at the transport was not tested, and the run says so and exits 3.
+The threshold is every request rather than any, on purpose: a resource that got
+something through was tested, and condemning a run for one lost probe would
+teach the reader to pass `--allow-inconclusive` permanently, which costs more
+than the check saves. A resource on a target already reported unreachable is not
+named twice.
+
+The counts are reported whether or not the run is condemned, so a partial loss
+is visible even when it is not fatal. The summary table grows a `Never delivered`
+row when anything failed to arrive, and omits it otherwise.
+
+### Added — `findings.json` gains three summary fields
+
+All additive. Nothing already in the document changed shape or value, and
+`overstep.sarif`, `junit.xml`, `report.html` and `baseline.json` are untouched.
+
+* `undelivered_tests` — requests that never reached the target.
+* `undelivered_negative_tests` — how many of those were negative. This is the
+  expensive half: a lost positive control shows up as an `unexpected-deny`
+  finding, while a lost negative test shows up nowhere at all.
+* `untested_resources` — resources that got nothing through, so this run says
+  nothing about them however clean it reads.
+
+No change to the exit codes: an inconclusive run already exits 3, independent of
+`--fail-on`, and `--allow-inconclusive` still downgrades it to a report.
+
 ## [1.2.0] - 2026-08-20
 
 Two ways a matrix could be wrong and be run anyway. Both were silent, and both

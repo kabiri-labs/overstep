@@ -738,8 +738,25 @@ def _print_summary(result: RunResult) -> None:
     for cls, count in sorted(s["by_class"].items()):
         table.add_row(f"  {cls}", str(count))
     _add_coverage_row(table, result.coverage)
+    _add_delivery_row(table, result.health)
     console.print(table)
     _print_unprobed(result.coverage)
+
+
+def _add_delivery_row(table: Table, health: RunHealth) -> None:
+    """State how many requests never arrived, when any did not.
+
+    A delivery failure is recorded as a denial, so a negative test that never
+    left the building looks in every count exactly like one that ran and found
+    the endpoint sound. The row is omitted on a clean run rather than printed as
+    a zero: a number that is always there stops being read.
+    """
+    if not health.transport_errors:
+        return
+    cell = str(health.transport_errors)
+    if health.undelivered_negative:
+        cell += f" ({health.undelivered_negative} negative)"
+    table.add_row("[yellow]Never delivered[/]", cell)
 
 
 def _add_coverage_row(table: Table, coverage: ProbeCoverage) -> None:

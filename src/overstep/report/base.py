@@ -111,6 +111,14 @@ def summarize(result: RunResult) -> Dict[str, object]:
         # run never reached the target, so the verdict travels with the counts.
         "inconclusive": result.health.inconclusive,
         "inconclusive_reasons": list(result.health.reasons),
+        # A request that never arrived is not evidence. Counting these keeps
+        # "no finding" from reading as "nothing to find" — the negative ones
+        # especially, since those are recorded as denied, which is what the
+        # matrix expected, so they leave no trace in the finding count at all.
+        "undelivered_tests": result.health.transport_errors,
+        "undelivered_negative_tests": result.health.undelivered_negative,
+        # Resources that got nothing through, so this run says nothing about them.
+        "untested_resources": list(result.health.untested_resources),
         # "No BOLA findings" is only evidence for the object resources this run
         # could actually probe across owners; the rest were never asked.
         "object_resources": result.coverage.object_resources,

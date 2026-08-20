@@ -17,6 +17,9 @@
     },
     "inconclusive": false,
     "inconclusive_reasons": [],
+    "undelivered_tests": 0,
+    "undelivered_negative_tests": 0,
+    "untested_resources": [],
     "object_resources": 2,
     "object_resources_probed": 2,
     "object_resources_unprobed": []
