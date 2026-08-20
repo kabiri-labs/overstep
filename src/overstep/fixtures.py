@@ -10,7 +10,7 @@ tests point at genuine objects.
 from __future__ import annotations
 
 import json
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 from urllib.parse import urljoin
 
 import httpx

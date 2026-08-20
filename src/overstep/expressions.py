@@ -21,7 +21,17 @@ _ALLOWED_NODES = {
 
 
 def _member(obj: Any, name: str) -> Any:
-    """Attribute access that also works on plain dicts (subject.tenant)."""
+    """Attribute access that also works on plain dicts (subject.tenant).
+
+    Private and dunder names are refused. A condition describes identities and
+    objects, so it has no business reading ``__class__`` — and that one step
+    leads to ``__init__.__globals__`` and every module global behind it. Nothing
+    is callable here, so this is not an escape today; it is the gap that would
+    become one the moment another node type is allowed, and closing it costs a
+    condition nobody would write on purpose.
+    """
+    if name.startswith("_"):
+        raise ValueError(f"private attribute not allowed in expression: {name}")
     if isinstance(obj, dict):
         return obj.get(name)
     return getattr(obj, name, None)

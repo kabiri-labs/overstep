@@ -59,6 +59,23 @@ def test_condition_narrows_allow(matrix):
     assert cases["get_user::alice::self"].expected == Effect.ALLOW
 
 
+def test_condition_reaching_a_private_attribute_grants_nothing(matrix):
+    """A condition the evaluator refuses must leave the rule denying.
+
+    The planner swallows an unevaluable condition, so the only thing standing
+    between a rejected expression and a silent grant is that the rejection is
+    read as "this rule does not apply".
+    """
+    from overstep.models import AllowRule
+
+    matrix.policy["get_user"].allow = [
+        AllowRule(role="user", scope="any", condition="subject.__class__ == target.__class__")
+    ]
+    cases = _by_id(plan(matrix))
+    assert cases["get_user::alice::other"].expected == Effect.DENY
+    assert cases["get_user::alice::self"].expected == Effect.DENY
+
+
 def _shared_object_matrix(same_id: str = "p-1"):
     """Two peers pointing at one object, plus an outsider with a different one."""
     from overstep.matrix import Matrix

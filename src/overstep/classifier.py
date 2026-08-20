@@ -84,12 +84,20 @@ def _json_keys(body: str) -> Set[str]:
     return keys
 
 
-def _leaked_fields(resource, obs: Observation) -> Set[str]:
-    """Forbidden JSON keys present in an allowed response (BOPLA surface)."""
-    if resource is None or not resource.forbidden_fields:
+def _leaked_fields(case: TestCase, obs: Observation) -> Set[str]:
+    """Forbidden JSON keys present in an allowed response (BOPLA surface).
+
+    Read from the untruncated body the transport retained for exactly this
+    check. ``body_snippet`` is evidence and is capped, so reading it here made
+    the whole surface silently size-limited: the same leak was reported in a
+    small response and missed in a large one, and an over-sharing endpoint is
+    precisely the kind that returns a lot. The snippet remains the fallback for
+    an observation assembled without a transport.
+    """
+    if not case.forbidden_fields:
         return set()
-    present = _json_keys(obs.body_snippet)
-    return {f for f in resource.forbidden_fields if f in present}
+    present = _json_keys(obs.full_body or obs.body_snippet)
+    return {f for f in case.forbidden_fields if f in present}
 
 
 def _audience_confidence(obs: Observation) -> str:
@@ -230,7 +238,6 @@ def classify(
     by_id: Dict[str, TestCase] = {c.id: c for c in cases}
     by_case: Dict[str, TestCase] = by_id
     subjects = {s.name: s for s in matrix.subjects}
-    resources = matrix.resource_map()
     repro_base = base_url or matrix.base_url or ""
     findings: List[Finding] = []
 
@@ -298,7 +305,7 @@ def classify(
                 )
             elif obs.effect == Effect.ALLOW:
                 # BOPLA: an allowed read that over-shares forbidden properties.
-                leaked = _leaked_fields(resources.get(case.resource), obs)
+                leaked = _leaked_fields(case, obs)
                 if leaked:
                     fields = ", ".join(sorted(leaked))
                     findings.append(

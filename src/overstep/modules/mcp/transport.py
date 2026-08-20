@@ -616,6 +616,7 @@ async def _session_probe(
         latency_ms=elapsed(),
         headers=dict(with_session.headers),
         body_snippet=text[:2048],
+        full_body=text if case.forbidden_fields else "",
         listed_tools=listed,
         error=note or error,
     )
@@ -702,6 +703,7 @@ async def _call(
             latency_ms=round(elapsed, 1),
             headers=dict(resp.headers),
             body_snippet=text[:2048],
+            full_body=text if case.forbidden_fields else "",
             matched_markers=matched,
             listed_tools=listed,
             error=error,
@@ -804,6 +806,7 @@ async def _call_stdio(case: TestCase, inv) -> Observation:
         effect=effect,
         latency_ms=round(elapsed, 1),
         body_snippet=text[:2048],
+        full_body=text if case.forbidden_fields else "",
         matched_markers=matched,
         listed_tools=listed_tool_names(inv, result),
         error=(error.get("message") if isinstance(error, dict) else None),

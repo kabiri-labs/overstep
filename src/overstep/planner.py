@@ -659,6 +659,7 @@ def plan(matrix: Matrix, context: Optional[Dict[str, str]] = None) -> List[TestC
                     resource_type=resource.type,
                     required_roles=required,
                     expect_markers=expect_markers,
+                    forbidden_fields=resource.forbidden_fields,
                 )
 
                 if resource.transport == "mcp":

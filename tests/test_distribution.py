@@ -129,6 +129,35 @@ def test_requirements_txt_matches_pyproject():
     )
 
 
+def test_public_annotations_resolve_at_runtime():
+    """``py.typed`` promises these annotations can be read, so read them.
+
+    Every module here uses ``from __future__ import annotations``, which defers
+    them to strings and hides a missing import until something asks — and a
+    consumer of a py.typed package (a runtime validator, a docs generator,
+    pydantic) is exactly what asks. The suite never did, so a missing
+    ``typing`` import stayed invisible.
+    """
+    import importlib
+    import inspect
+    import pkgutil
+    import typing
+
+    import overstep
+
+    unresolved = []
+    for module in pkgutil.walk_packages(overstep.__path__, "overstep."):
+        mod = importlib.import_module(module.name)
+        for name, obj in vars(mod).items():
+            if not inspect.isfunction(obj) or obj.__module__ != mod.__name__:
+                continue
+            try:
+                typing.get_type_hints(obj)
+            except NameError as exc:
+                unresolved.append(f"{module.name}.{name}: {exc}")
+    assert not unresolved, "annotations that cannot be resolved: " + "; ".join(unresolved)
+
+
 def test_pyproject_version_matches_package_version():
     # Parsed with a regex rather than tomllib so the test still runs on 3.10.
     match = re.search(r'(?m)^version\s*=\s*"([^"]+)"', _read("pyproject.toml"))

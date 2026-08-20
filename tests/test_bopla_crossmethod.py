@@ -123,3 +123,96 @@ def test_bopla_only_checks_nested_keys_not_substrings():
     findings = classify(m, cases, obs)
     # No JSON *key* named is_admin -> no BOPLA.
     assert [f for f in findings if f.vuln_class == VulnClass.BOPLA] == []
+
+
+def _leaky_body(padding_keys: int) -> str:
+    """A JSON body whose forbidden key sits after ``padding_keys`` filler keys."""
+    import json
+
+    body = {f"note_{i}": "lorem ipsum dolor sit amet" for i in range(padding_keys)}
+    body["id"] = "u1"
+    body["password_hash"] = "$2b$12$abcdefghijklmnopqrstuv"
+    return json.dumps(body)
+
+
+def test_bopla_is_found_past_the_evidence_snippet_cap():
+    """The leak must be found wherever it sits in the body.
+
+    ``body_snippet`` is capped so a report stays readable, and reading the BOPLA
+    check off it made detection silently size-limited: the same leak was reported
+    in a small response and missed in a large one. An endpoint that over-shares
+    is exactly the kind that returns a lot, so the cap hid the common case.
+    """
+    body = _leaky_body(padding_keys=200)
+    assert body.index("password_hash") > 2048, "fixture must place the leak past the cap"
+
+    m = _matrix(forbidden_fields=["password_hash"])
+    cases = plan(m)
+    obs = []
+    for c in cases:
+        if c.id == "get_user::alice::self":
+            obs.append(
+                Observation(
+                    test_id=c.id,
+                    status=200,
+                    effect=Effect.ALLOW,
+                    body_snippet=body[:2048],
+                    full_body=body,
+                )
+            )
+        else:
+            eff = Effect.ALLOW if c.expected == Effect.ALLOW else Effect.DENY
+            obs.append(
+                Observation(test_id=c.id, status=200 if eff == Effect.ALLOW else 403, effect=eff)
+            )
+
+    bopla = [f for f in classify(m, cases, obs) if f.vuln_class == VulnClass.BOPLA]
+    assert len(bopla) == 1
+    assert bopla[0].test_id == "get_user::alice::self"
+    assert "password_hash" in bopla[0].detail
+
+
+def test_full_body_is_only_retained_when_the_case_asks_for_it():
+    """Holding every response in memory is the cost this check must not impose."""
+    with_fields = plan(_matrix(forbidden_fields=["password_hash"]))
+    without = plan(_matrix())
+    assert all(c.forbidden_fields == ["password_hash"] for c in with_fields)
+    assert all(c.forbidden_fields == [] for c in without)
+
+
+def test_full_body_stays_out_of_the_serialized_evidence():
+    """The report shows the snippet; the untruncated body is working state only."""
+    obs = Observation(
+        test_id="t", status=200, effect=Effect.ALLOW, body_snippet="{}", full_body="{}"
+    )
+    assert "full_body" not in obs.model_dump()
+    assert "body_snippet" in obs.model_dump()
+
+
+def test_no_bopla_past_the_cap_when_the_field_is_absent():
+    """The negative half: a big clean response must stay clean."""
+    import json
+
+    body = json.dumps({f"note_{i}": "lorem ipsum dolor sit amet" for i in range(200)})
+    assert len(body) > 2048
+
+    m = _matrix(forbidden_fields=["password_hash"])
+    cases = plan(m)
+    obs = []
+    for c in cases:
+        if c.id == "get_user::alice::self":
+            obs.append(
+                Observation(
+                    test_id=c.id,
+                    status=200,
+                    effect=Effect.ALLOW,
+                    body_snippet=body[:2048],
+                    full_body=body,
+                )
+            )
+        else:
+            eff = Effect.ALLOW if c.expected == Effect.ALLOW else Effect.DENY
+            obs.append(
+                Observation(test_id=c.id, status=200 if eff == Effect.ALLOW else 403, effect=eff)
+            )
+    assert [f for f in classify(m, cases, obs) if f.vuln_class == VulnClass.BOPLA] == []
