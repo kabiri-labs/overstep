@@ -726,6 +726,21 @@ class TestCase(BaseModel):
         """
         return self.expected == Effect.ALLOW and self.variant != Variant.ENUMERATE
 
+    @property
+    def retains_body(self) -> bool:
+        """Whether the BOPLA check can read this case's response at all.
+
+        Two conditions, and the second is the one that is easy to miss. A
+        resource has to declare the keys, obviously — but the property-level
+        check also lives inside the classifier's expected-*allow* branch, so a
+        negative probe's body can never be inspected however many keys the
+        resource names. Retaining it anyway is not a rounding error: with
+        ``probe_victims: all`` the negative cases grow with subjects times
+        victims while the positive ones grow with subjects, so the bodies
+        nothing can read would outnumber the ones something can.
+        """
+        return bool(self.forbidden_fields) and self.expected == Effect.ALLOW
+
 
 # How much of a retained response body a report may carry. The classifier reads
 # the untruncated value, so this bounds the artifact, never the check: a leak

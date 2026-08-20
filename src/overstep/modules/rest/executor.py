@@ -179,9 +179,9 @@ async def _fire(
             latency_ms=round(elapsed, 1),
             headers=dict(resp.headers),
             body_snippet=full_body[:2048],
-            # Only a case with BOPLA keys needs the untruncated body, so a run
-            # without them holds nothing extra in memory.
-            full_body=full_body if case.forbidden_fields else "",
+            # Only a case the BOPLA check can actually inspect needs the
+            # untruncated body; see TestCase.retains_body.
+            full_body=full_body if case.retains_body else "",
             matched_markers=matched,
         )
 
