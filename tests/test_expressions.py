@@ -1,7 +1,7 @@
 """Tests for the safe expression evaluator."""
 import pytest
 
-from overstep.expressions import referenced_attributes, safe_eval
+from overstep.expressions import MAX_DEPTH, referenced_attributes, safe_eval
 
 
 def test_equality_and_membership():
@@ -204,11 +204,41 @@ def test_refusal_reason_answers_for_the_evaluator():
     assert "does not parse" in refusal_reason("subject.a ==")
 
 
-def test_refusal_reason_does_not_let_a_deep_expression_escape():
-    """`ast.parse` exhausts the stack before it raises anything catchable as syntax."""
+@pytest.mark.parametrize("depth", [MAX_DEPTH + 1, 3000, 10000])
+def test_a_deep_expression_is_refused_the_same_way_on_every_version(depth):
+    """Pin the limit, not the interpreter's breaking point.
+
+    How much nesting a parser tolerates, and whether it gives up with
+    RecursionError or MemoryError, differs by version: 3.11 abandons 3000 nested
+    operators where 3.10, 3.12 and 3.13 parse them and leave the evaluator to
+    blow its own stack. An earlier version of this test pinned a depth that only
+    3.11 refused, passed locally, and failed CI on 3.12. The depth is decided
+    here now, so the answer is the same everywhere.
+    """
     from overstep.expressions import refusal_reason
 
-    assert "nested too deeply" in refusal_reason("not " * 3000 + "subject.a")
+    reason = refusal_reason("not " * depth + "subject.a")
+    assert reason is not None and "nests deeper than" in reason
+
+
+def test_safe_eval_refuses_a_deep_expression_rather_than_raising_recursion():
+    """The refusal has to be a ValueError like every other, on every version."""
+    ctx = {"subject": {"a": 1}}
+    with pytest.raises(ValueError, match="nests deeper than"):
+        safe_eval("not " * 3000 + "subject.a", ctx)
+
+
+def test_the_depth_limit_leaves_real_conditions_alone():
+    """Nothing a policy would write comes near the limit."""
+    from overstep.expressions import _depth
+    import ast
+
+    for expr in (
+        "subject.tenant == target.tenant",
+        "subject.tenant == target.tenant and subject.tier >= 2 and 'x' in subject.tags",
+        "not (subject.a == target.a) or subject.b == target.b",
+    ):
+        assert _depth(ast.parse(expr, mode="eval")) < MAX_DEPTH // 2
 
 
 def test_refusal_reason_agrees_with_safe_eval():

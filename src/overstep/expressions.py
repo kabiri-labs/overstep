@@ -12,6 +12,17 @@ from __future__ import annotations
 import ast
 from typing import Any, Dict, Optional, Set, Tuple
 
+# The deepest expression the evaluator will consider. A policy condition is a
+# comparison, or two joined by and/or; nothing legitimate comes near this. The
+# limit exists because `_eval` recurses, and because how much nesting a parser
+# tolerates before it dies — and whether it dies with RecursionError or
+# MemoryError — differs between Python versions: 3.11 gives up on 3000 nested
+# operators where 3.10, 3.12 and 3.13 parse them and leave `_eval` to blow the
+# stack instead. Deciding the limit here makes the answer the same everywhere,
+# and makes it a refusal with a reason rather than whatever the interpreter
+# happened to raise.
+MAX_DEPTH = 50
+
 _ALLOWED_NODES = {
     ast.Expression, ast.BoolOp, ast.UnaryOp, ast.Compare, ast.Name, ast.Load,
     ast.Constant, ast.List, ast.Tuple, ast.Dict, ast.And, ast.Or, ast.Not,
@@ -149,18 +160,20 @@ def refusal_reason(expr: str) -> Optional[str]:
         tree = ast.parse(expr, mode="eval")
     except SyntaxError as exc:
         return f"does not parse ({exc.msg})"
-    except RecursionError:
-        # Deep enough nesting exhausts the stack inside the parser itself. It is
-        # a refusal like any other, and reporting it beats letting it escape as
-        # a traceback from whatever asked.
-        return "is nested too deeply to parse"
+    except (RecursionError, MemoryError):
+        # Enough nesting kills the parser before there is a tree to measure, and
+        # which error it raises depends on the version and the depth. Either way
+        # it is a refusal, and reporting it beats letting it escape as a
+        # traceback from whatever asked.
+        return (
+            f"nests deeper than {MAX_DEPTH} levels — the parser gave up "
+            f"before the depth could even be measured"
+        )
 
     try:
         _check(tree, {root: {} for root in CONTEXT_ROOTS})
     except ValueError as exc:
         return str(exc)
-    except RecursionError:
-        return "is nested too deeply to evaluate"
     return None
 
 
@@ -181,6 +194,21 @@ def referenced_attributes(expr: str) -> Set[Tuple[str, str]]:
     return found
 
 
+def _depth(tree: ast.AST) -> int:
+    """The height of the expression tree, measured without recursing into it."""
+    deepest = 0
+    stack = [(tree, 1)]
+    while stack:
+        node, level = stack.pop()
+        if level > deepest:
+            deepest = level
+        if deepest > MAX_DEPTH:
+            # Nothing below can lower it, and the tree may be enormous.
+            return deepest
+        stack.extend((child, level + 1) for child in ast.iter_child_nodes(node))
+    return deepest
+
+
 def _check(tree: ast.AST, names: Dict[str, Any]) -> None:
     """Reject anything the evaluator may not run, anywhere in the expression.
 
@@ -196,6 +224,11 @@ def _check(tree: ast.AST, names: Dict[str, Any]) -> None:
     argument: ``True or secret`` and ``True or subject.__class__`` are refusals
     that must not depend on which half runs.
     """
+    if _depth(tree) > MAX_DEPTH:
+        raise ValueError(
+            f"expression nests deeper than {MAX_DEPTH} levels; a condition "
+            f"describes identities and objects and has no reason to"
+        )
     for node in ast.walk(tree):
         if type(node) not in _ALLOWED_NODES:
             raise ValueError(f"expression node not allowed: {type(node).__name__}")
@@ -214,6 +247,14 @@ def safe_eval(expr: str, names: Dict[str, Any]) -> Any:
     is allowed to contain does not depend on which branch a short-circuiting
     operator takes.
     """
-    tree = ast.parse(expr, mode="eval")
+    try:
+        tree = ast.parse(expr, mode="eval")
+    except (RecursionError, MemoryError):
+        # Which of these a parser raises, and at what depth, differs between
+        # versions. The refusal must not.
+        raise ValueError(
+            f"expression nests deeper than {MAX_DEPTH} levels — the parser gave "
+            f"up before the depth could even be measured"
+        ) from None
     _check(tree, names)
     return _eval(tree, names)

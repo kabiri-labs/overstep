@@ -19,10 +19,19 @@ running anything — node types, private names, roots — is answered there; whe
 a particular subject carries an attribute stays with the matrix, which is the
 only part that needs to know the subjects.
 
-**`validate` crashed on a condition too deeply nested to parse.** `ast.parse`
-exhausts the stack before raising anything catchable as a syntax error, and the
-`RecursionError` escaped as a traceback. It is reported as a refusal like any
-other now.
+**A deeply nested condition escaped as a `RecursionError` or `MemoryError`
+traceback, differently on every Python version.** `ast.parse` gives up before
+raising anything catchable as a syntax error, and where it gives up moves: 3.11
+abandons 3000 nested operators, while 3.10, 3.12 and 3.13 parse them and leave
+the evaluator to blow its own stack instead. Past roughly ten thousand, every
+version dies with `MemoryError`.
+
+Rather than catching whichever error each version happens to raise, the
+evaluator now decides the limit: an expression nesting deeper than 50 levels is
+refused with a reason, from both `safe_eval` and `validate`, identically
+everywhere. A policy condition is a comparison or two joined by `and`/`or` —
+nothing legitimate comes near it, and the bundled examples measure under a
+quarter of the limit.
 
 A condition echoed in an error message is capped at 120 characters, so one that
 broke the parser by being enormous no longer fills the terminal with itself.
