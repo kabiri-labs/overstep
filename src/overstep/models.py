@@ -727,6 +727,13 @@ class TestCase(BaseModel):
         return self.expected == Effect.ALLOW and self.variant != Variant.ENUMERATE
 
 
+# How much of a retained response body a report may carry. The classifier reads
+# the untruncated value, so this bounds the artifact, never the check: a leak
+# past this point is still found, still named in `leaked_fields`, and still
+# reported — only the long-form quotation behind it is clipped.
+EVIDENCE_BODY_LIMIT = 65536
+
+
 class Observation(BaseModel):
     """What actually came back from the target for a test case."""
 
@@ -736,12 +743,15 @@ class Observation(BaseModel):
     latency_ms: float = 0.0
     headers: Dict[str, str] = Field(default_factory=dict)
     body_snippet: str = ""
-    # The untruncated body, retained only when the case declares forbidden_fields.
-    # ``body_snippet`` is *evidence* — capped so a report stays readable — but the
-    # BOPLA check reads the body as *data*, and a forbidden key past the cap was
-    # being missed. Excluded from serialization: reports keep showing the snippet,
-    # and the finding names the keys that leaked.
-    full_body: str = Field(default="", exclude=True)
+    # The body the BOPLA check reads, retained only when the case declares
+    # forbidden_fields. ``body_snippet`` is a fixed head-of-body budget and the
+    # check needs the whole thing, so the two are separate: the snippet stays the
+    # short quotation every finding carries, and this is the long-form evidence
+    # behind a property-level one. Capped at EVIDENCE_BODY_LIMIT on the way into
+    # a report — a run that writes megabytes of response body into a CI artifact
+    # is not evidence anyone reads — while the in-memory value the classifier
+    # sees is never truncated, so the cap can never hide a leak.
+    full_body: str = Field(default="")
     error: Optional[str] = None
     # Which of the test case's expected victim markers actually appeared in the
     # response body (empty when none were configured or none matched).
@@ -783,6 +793,10 @@ class Finding(BaseModel):
     # "suspected" — access was granted but the expected victim data did not appear;
     # "unverified" — decided on status alone with no content check configured.
     confidence: Literal["confirmed", "suspected", "unverified"] = "confirmed"
+    # For a BOPLA finding: the forbidden keys actually present in the response.
+    # The detail sentence names them for a human; this is the same answer for a
+    # dashboard, and it survives the evidence cap when the body does not.
+    leaked_fields: List[str] = Field(default_factory=list)
 
     @computed_field  # type: ignore[prop-decorator]
     @property

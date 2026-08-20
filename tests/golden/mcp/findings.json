@@ -148,6 +148,7 @@
           "content-type": "application/json"
         },
         "body_snippet": "{\"users\": \"alice, bob\"}",
+        "full_body": "",
         "error": null,
         "matched_markers": [],
         "listed_tools": [],
@@ -166,6 +167,7 @@
         }
       },
       "confidence": "confirmed",
+      "leaked_fields": [],
       "group": "list_all_users::tools/call::privilege-escalation",
       "cwe": "CWE-269",
       "owasp_api": "API5:2023 Broken Function Level Authorization"
@@ -194,6 +196,7 @@
           "content-type": "application/json"
         },
         "body_snippet": "{\"users\": \"alice, bob\"}",
+        "full_body": "",
         "error": null,
         "matched_markers": [],
         "listed_tools": [],
@@ -211,6 +214,7 @@
         }
       },
       "confidence": "confirmed",
+      "leaked_fields": [],
       "group": "list_all_users::tools/call::privilege-escalation",
       "cwe": "CWE-269",
       "owasp_api": "API5:2023 Broken Function Level Authorization"
@@ -239,6 +243,7 @@
           "content-type": "application/json"
         },
         "body_snippet": "{\"users\": \"alice, bob\"}",
+        "full_body": "",
         "error": null,
         "matched_markers": [],
         "listed_tools": [],
@@ -257,6 +262,7 @@
         }
       },
       "confidence": "confirmed",
+      "leaked_fields": [],
       "group": "list_all_users::tools/call::privilege-escalation",
       "cwe": "CWE-269",
       "owasp_api": "API5:2023 Broken Function Level Authorization"
@@ -285,6 +291,7 @@
           "content-type": "application/json"
         },
         "body_snippet": "{\"tools\": [{\"annotations\": {\"readOnlyHint\": true}, \"description\": \"Read a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"read_document\"}, {\"annotations\": {\"readOnlyHint\": true}, \"description\": \"List all users (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"list_all_users\"}, {\"annotations\": {\"destructiveHint\": true, \"readOnlyHint\": false}, \"description\": \"Reset the tenant (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"reset_tenant\"}, {\"annotations\": {\"readOnlyHint\": false}, \"description\": \"Create a document owned by the caller\", \"inputSchema\": {\"properties\": {\"body\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"create_document\"}, {\"annotations\": {\"destructiveHint\": true}, \"description\": \"Delete a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"delete_document\"}]}",
+        "full_body": "",
         "error": null,
         "matched_markers": [],
         "listed_tools": [
@@ -315,6 +322,7 @@
         }
       },
       "confidence": "confirmed",
+      "leaked_fields": [],
       "group": "mcp:docs::tools/list::session-hijack",
       "cwe": "CWE-287",
       "owasp_api": "API2:2023 Broken Authentication"
@@ -343,6 +351,7 @@
           "content-type": "application/json"
         },
         "body_snippet": "{\"tools\": [{\"annotations\": {\"readOnlyHint\": true}, \"description\": \"Read a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"read_document\"}, {\"annotations\": {\"readOnlyHint\": true}, \"description\": \"List all users (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"list_all_users\"}, {\"annotations\": {\"destructiveHint\": true, \"readOnlyHint\": false}, \"description\": \"Reset the tenant (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"reset_tenant\"}, {\"annotations\": {\"readOnlyHint\": false}, \"description\": \"Create a document owned by the caller\", \"inputSchema\": {\"properties\": {\"body\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"create_document\"}, {\"annotations\": {\"destructiveHint\": true}, \"description\": \"Delete a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"delete_document\"}]}",
+        "full_body": "",
         "error": null,
         "matched_markers": [],
         "listed_tools": [
@@ -373,6 +382,7 @@
         }
       },
       "confidence": "confirmed",
+      "leaked_fields": [],
       "group": "mcp:docs::tools/list::session-hijack",
       "cwe": "CWE-287",
       "owasp_api": "API2:2023 Broken Authentication"
@@ -401,6 +411,7 @@
           "content-type": "application/json"
         },
         "body_snippet": "{\"tools\": [{\"annotations\": {\"readOnlyHint\": true}, \"description\": \"Read a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"read_document\"}, {\"annotations\": {\"readOnlyHint\": true}, \"description\": \"List all users (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"list_all_users\"}, {\"annotations\": {\"destructiveHint\": true, \"readOnlyHint\": false}, \"description\": \"Reset the tenant (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"reset_tenant\"}, {\"annotations\": {\"readOnlyHint\": false}, \"description\": \"Create a document owned by the caller\", \"inputSchema\": {\"properties\": {\"body\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"create_document\"}, {\"annotations\": {\"destructiveHint\": true}, \"description\": \"Delete a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"delete_document\"}]}",
+        "full_body": "",
         "error": null,
         "matched_markers": [],
         "listed_tools": [
@@ -431,6 +442,7 @@
         }
       },
       "confidence": "confirmed",
+      "leaked_fields": [],
       "group": "mcp:docs::tools/list::session-hijack",
       "cwe": "CWE-287",
       "owasp_api": "API2:2023 Broken Authentication"
@@ -459,6 +471,7 @@
           "content-type": "application/json"
         },
         "body_snippet": "{\"owner\": \"bob\", \"email\": \"bob@corp.example\", \"body\": \"bob's private notes\"}",
+        "full_body": "",
         "error": null,
         "matched_markers": [
           "bob@corp.example"
@@ -479,6 +492,7 @@
         }
       },
       "confidence": "confirmed",
+      "leaked_fields": [],
       "group": "read_doc_resource::resources/read::BOLA",
       "cwe": "CWE-639",
       "owasp_api": "API1:2023 Broken Object Level Authorization"
@@ -507,6 +521,7 @@
           "content-type": "application/json"
         },
         "body_snippet": "{\"owner\": \"alice\", \"email\": \"alice@corp.example\", \"body\": \"alice's private notes\"}",
+        "full_body": "",
         "error": null,
         "matched_markers": [
           "alice@corp.example"
@@ -526,6 +541,7 @@
         }
       },
       "confidence": "confirmed",
+      "leaked_fields": [],
       "group": "read_doc_resource::resources/read::privilege-escalation",
       "cwe": "CWE-269",
       "owasp_api": "API5:2023 Broken Function Level Authorization"
@@ -554,6 +570,7 @@
           "content-type": "application/json"
         },
         "body_snippet": "{\"owner\": \"alice\", \"email\": \"alice@corp.example\", \"body\": \"alice's private notes\"}",
+        "full_body": "",
         "error": null,
         "matched_markers": [
           "alice@corp.example"
@@ -574,6 +591,7 @@
         }
       },
       "confidence": "confirmed",
+      "leaked_fields": [],
       "group": "read_doc_resource::resources/read::BOLA",
       "cwe": "CWE-639",
       "owasp_api": "API1:2023 Broken Object Level Authorization"
@@ -602,6 +620,7 @@
           "content-type": "application/json"
         },
         "body_snippet": "{\"doc_id\": \"d-bob\", \"owner\": \"bob\", \"email\": \"bob@corp.example\", \"body\": \"bob's private notes\"}",
+        "full_body": "",
         "error": null,
         "matched_markers": [
           "bob@corp.example"
@@ -624,6 +643,7 @@
         }
       },
       "confidence": "confirmed",
+      "leaked_fields": [],
       "group": "read_document::tools/call::BOLA",
       "cwe": "CWE-639",
       "owasp_api": "API1:2023 Broken Object Level Authorization"
@@ -652,6 +672,7 @@
           "content-type": "application/json"
         },
         "body_snippet": "{\"doc_id\": \"d-alice\", \"owner\": \"alice\", \"email\": \"alice@corp.example\", \"body\": \"alice's private notes\"}",
+        "full_body": "",
         "error": null,
         "matched_markers": [
           "alice@corp.example"
@@ -673,6 +694,7 @@
         }
       },
       "confidence": "confirmed",
+      "leaked_fields": [],
       "group": "read_document::tools/call::privilege-escalation",
       "cwe": "CWE-269",
       "owasp_api": "API5:2023 Broken Function Level Authorization"
@@ -701,6 +723,7 @@
           "content-type": "application/json"
         },
         "body_snippet": "{\"doc_id\": \"d-alice\", \"owner\": \"alice\", \"email\": \"alice@corp.example\", \"body\": \"alice's private notes\"}",
+        "full_body": "",
         "error": null,
         "matched_markers": [
           "alice@corp.example"
@@ -723,6 +746,7 @@
         }
       },
       "confidence": "confirmed",
+      "leaked_fields": [],
       "group": "read_document::tools/call::BOLA",
       "cwe": "CWE-639",
       "owasp_api": "API1:2023 Broken Object Level Authorization"
@@ -751,6 +775,7 @@
           "content-type": "application/json"
         },
         "body_snippet": "{\"tools\": [{\"annotations\": {\"readOnlyHint\": true}, \"description\": \"Read a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"read_document\"}, {\"annotations\": {\"readOnlyHint\": true}, \"description\": \"List all users (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"list_all_users\"}, {\"annotations\": {\"destructiveHint\": true, \"readOnlyHint\": false}, \"description\": \"Reset the tenant (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"reset_tenant\"}, {\"annotations\": {\"readOnlyHint\": false}, \"description\": \"Create a document owned by the caller\", \"inputSchema\": {\"properties\": {\"body\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"create_document\"}, {\"annotations\": {\"destructiveHint\": true}, \"description\": \"Delete a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"delete_document\"}]}",
+        "full_body": "",
         "error": null,
         "matched_markers": [],
         "listed_tools": [
@@ -775,6 +800,7 @@
         }
       },
       "confidence": "confirmed",
+      "leaked_fields": [],
       "group": "mcp:docs::tools/list::tool-enumeration",
       "cwe": "CWE-200",
       "owasp_api": "API5:2023 Broken Function Level Authorization"
@@ -803,6 +829,7 @@
           "content-type": "application/json"
         },
         "body_snippet": "{\"tools\": [{\"annotations\": {\"readOnlyHint\": true}, \"description\": \"Read a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"read_document\"}, {\"annotations\": {\"readOnlyHint\": true}, \"description\": \"List all users (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"list_all_users\"}, {\"annotations\": {\"destructiveHint\": true, \"readOnlyHint\": false}, \"description\": \"Reset the tenant (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"reset_tenant\"}, {\"annotations\": {\"readOnlyHint\": false}, \"description\": \"Create a document owned by the caller\", \"inputSchema\": {\"properties\": {\"body\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"create_document\"}, {\"annotations\": {\"destructiveHint\": true}, \"description\": \"Delete a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"delete_document\"}]}",
+        "full_body": "",
         "error": null,
         "matched_markers": [],
         "listed_tools": [
@@ -827,6 +854,7 @@
         }
       },
       "confidence": "confirmed",
+      "leaked_fields": [],
       "group": "mcp:docs::tools/list::tool-enumeration",
       "cwe": "CWE-200",
       "owasp_api": "API5:2023 Broken Function Level Authorization"
@@ -855,6 +883,7 @@
           "content-type": "application/json"
         },
         "body_snippet": "{\"tools\": [{\"annotations\": {\"readOnlyHint\": true}, \"description\": \"Read a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"read_document\"}, {\"annotations\": {\"readOnlyHint\": true}, \"description\": \"List all users (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"list_all_users\"}, {\"annotations\": {\"destructiveHint\": true, \"readOnlyHint\": false}, \"description\": \"Reset the tenant (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"reset_tenant\"}, {\"annotations\": {\"readOnlyHint\": false}, \"description\": \"Create a document owned by the caller\", \"inputSchema\": {\"properties\": {\"body\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"create_document\"}, {\"annotations\": {\"destructiveHint\": true}, \"description\": \"Delete a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"delete_document\"}]}",
+        "full_body": "",
         "error": null,
         "matched_markers": [],
         "listed_tools": [
@@ -879,6 +908,7 @@
         }
       },
       "confidence": "confirmed",
+      "leaked_fields": [],
       "group": "mcp:docs::tools/list::tool-enumeration",
       "cwe": "CWE-200",
       "owasp_api": "API5:2023 Broken Function Level Authorization"
@@ -907,6 +937,7 @@
           "content-type": "application/json"
         },
         "body_snippet": "{\"tools\": [{\"annotations\": {\"readOnlyHint\": true}, \"description\": \"Read a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"read_document\"}, {\"annotations\": {\"readOnlyHint\": true}, \"description\": \"List all users (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"list_all_users\"}, {\"annotations\": {\"destructiveHint\": true, \"readOnlyHint\": false}, \"description\": \"Reset the tenant (admin only)\", \"inputSchema\": {\"properties\": {}, \"type\": \"object\"}, \"name\": \"reset_tenant\"}, {\"annotations\": {\"readOnlyHint\": false}, \"description\": \"Create a document owned by the caller\", \"inputSchema\": {\"properties\": {\"body\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"create_document\"}, {\"annotations\": {\"destructiveHint\": true}, \"description\": \"Delete a document by id\", \"inputSchema\": {\"properties\": {\"doc_id\": {\"type\": \"string\"}}, \"type\": \"object\"}, \"name\": \"delete_document\"}]}",
+        "full_body": "",
         "error": null,
         "matched_markers": [],
         "listed_tools": [
@@ -931,6 +962,7 @@
         }
       },
       "confidence": "confirmed",
+      "leaked_fields": [],
       "group": "mcp:docs::tools/list::tool-enumeration",
       "cwe": "CWE-200",
       "owasp_api": "API5:2023 Broken Function Level Authorization"

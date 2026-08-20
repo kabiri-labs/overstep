@@ -50,7 +50,17 @@ def _row(f: Finding) -> str:
         "<details><summary>evidence &amp; repro</summary>"
         + (f"<p class='rlabel'>reproduce</p><pre>{html.escape(f.curl)}</pre>" if f.curl else "")
         + f"<p class='rlabel'>response</p><pre>{html.escape(ev.body_snippet[:1200])}</pre>"
-        "</details></td>"
+        # A property-level finding is the one case where the head of the body is
+        # not the proof: the key that leaked can sit anywhere in it. Show the
+        # retained body underneath, so the claim in `detail` is checkable without
+        # re-running the probe.
+        + (
+            f"<p class='rlabel'>full response ({len(ev.full_body)} bytes)</p>"
+            f"<pre>{html.escape(ev.full_body)}</pre>"
+            if ev.full_body and ev.full_body != ev.body_snippet
+            else ""
+        )
+        + "</details></td>"
         "</tr>"
     )
 
