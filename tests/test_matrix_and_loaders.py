@@ -163,7 +163,50 @@ def test_validate_flags_a_condition_that_does_not_parse():
 
 def test_validate_flags_a_condition_naming_something_that_is_not_an_identity():
     problems = _conditioned("request.path == '/x'").validate_refs()
-    assert any("'request'" in p and "use 'subject' or 'target'" in p for p in problems)
+    assert any("unknown name in expression: request" in p for p in problems)
+
+
+def test_validate_refuses_every_condition_the_evaluator_would():
+    """Validation and evaluation have to agree, so they ask the same code.
+
+    A condition can parse cleanly and reference only declared attributes and
+    still be refused at plan time — arithmetic, a root the evaluator cannot
+    bind, a private name. `_expected_effect` reads that refusal as "this rule
+    grants nothing", so restating the rules in the validator let a rule the
+    author meant to grant become a denial with nothing said.
+    """
+    for condition, fragment in [
+        ("subject.department + 1 > 2", "expression node not allowed: BinOp"),
+        ("request == 1", "unknown name in expression: request"),
+        ("subject.__class__ == 1", "private attribute not allowed"),
+        ("[x for x in subject.department]", "ListComp"),
+        ("subject.department if subject.department else 1", "IfExp"),
+    ]:
+        problems = _conditioned(condition).validate_refs()
+        assert any(fragment in p for p in problems), f"not reported: {condition}"
+
+
+def test_validate_reports_a_condition_too_deep_to_parse():
+    """It used to escape as a RecursionError traceback with exit 1.
+
+    Exit 1 is the code that means "vulnerabilities found", so a pipeline could
+    not tell a crashed validate from a matrix with findings.
+    """
+    problems = _conditioned("not " * 3000 + "subject.department == 'eng'").validate_refs()
+    assert any("nested too deeply" in p for p in problems)
+
+
+def test_a_condition_the_evaluator_accepts_is_not_reported():
+    """The other side: nothing legitimate becomes an error."""
+    for condition in (
+        "subject.department == target.department",
+        "'eng' in subject.department",
+        "subject.department != 'x' and subject.department != 'y'",
+        "subject.department or target.department",
+    ):
+        assert not [
+            p for p in _conditioned(condition).validate_refs() if "condition" in p
+        ], f"wrongly reported: {condition}"
 
 
 def test_a_refused_condition_still_grants_nothing():
