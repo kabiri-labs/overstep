@@ -123,3 +123,85 @@ def test_validate_is_quiet_when_objects_differ():
     )
 
     assert not any("different objects" in p for p in matrix.validate_refs())
+
+
+def _conditioned(condition: str) -> Matrix:
+    """One resource guarded by ``condition``, with two real attributes to typo."""
+    return Matrix(
+        modules={"rest": {"base_url": "http://api.test"}},
+        roles=["user", "admin"],
+        subjects=[
+            {"name": "alice", "role": "user", "attributes": {"user_id": "u1", "department": "eng"}},
+            {"name": "root", "role": "admin", "attributes": {"user_id": "u9", "department": "eng"}},
+        ],
+        resources=[{"name": "r", "request": {"method": "GET", "path": "/x"}}],
+        policy={"r": {"allow": [{"role": "admin"}, {"role": "user", "condition": condition}]}},
+    )
+
+
+def test_validate_flags_a_condition_naming_an_attribute_nobody_declares():
+    """The typo that used to grant access, caught before the run.
+
+    `subject.dept` for an attribute really called `department` evaluated to
+    `None == None` and granted, which turned the negative test the resource
+    needed into a positive one and left a real broken endpoint unprobed.
+    """
+    problems = _conditioned("subject.dept == target.dept").validate_refs()
+    assert any("subject.dept" in p and "no subject declares" in p for p in problems)
+    assert any("target.dept" in p for p in problems)
+
+
+def test_validate_accepts_a_condition_only_some_subjects_can_satisfy():
+    """Subjects are allowed to differ; a narrowing rule is not a typo."""
+    m = _conditioned("subject.department == target.department")
+    assert not [p for p in m.validate_refs() if "department" in p]
+
+
+def test_validate_flags_a_condition_that_does_not_parse():
+    assert any("does not parse" in p for p in _conditioned("subject.a ==").validate_refs())
+
+
+def test_validate_flags_a_condition_naming_something_that_is_not_an_identity():
+    problems = _conditioned("request.path == '/x'").validate_refs()
+    assert any("'request'" in p and "use 'subject' or 'target'" in p for p in problems)
+
+
+def test_a_refused_condition_still_grants_nothing():
+    """The negative half: reporting the typo must not start honouring it."""
+    from overstep.models import Effect
+    from overstep.planner import plan
+
+    cases = {c.id: c for c in plan(_conditioned("subject.dept == target.dept"))}
+    assert cases["r::alice::na"].expected == Effect.DENY
+    # The admin rule carries no condition, so it is untouched by any of this.
+    assert cases["r::root::na"].expected == Effect.ALLOW
+
+
+def test_unreadable_status_entries_are_refused_at_load():
+    """A spec the matcher cannot read matches nothing, so every response reads
+    as deny and every negative test passes for the wrong reason."""
+    import pytest
+
+    for bad in (["2OO"], ["20x"], ["banana"], [2000], ["299-200"]):
+        with pytest.raises(Exception, match="not status specifications"):
+            Matrix(
+                modules={"rest": {"base_url": "http://api.test", "access": {"allow_status": bad}}},
+                subjects=[{"name": "a", "role": "user"}],
+                resources=[{"name": "r", "request": {"method": "GET", "path": "/x"}}],
+                policy={"r": {"allow": [{"role": "user"}]}},
+            )
+
+
+def test_readable_status_entries_still_load():
+    m = Matrix(
+        modules={
+            "rest": {
+                "base_url": "http://api.test",
+                "access": {"allow_status": ["2xx", 200, "201-204", "302"]},
+            }
+        },
+        subjects=[{"name": "a", "role": "user"}],
+        resources=[{"name": "r", "request": {"method": "GET", "path": "/x"}}],
+        policy={"r": {"allow": [{"role": "user"}]}},
+    )
+    assert m.access.allow_status == ["2xx", 200, "201-204", "302"]

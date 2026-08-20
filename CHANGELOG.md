@@ -1,5 +1,45 @@
 # Changelog
 
+## [1.2.0] - 2026-08-20
+
+Two ways a matrix could be wrong and be run anyway. Both were silent, and both
+turned into a clean report the author had no reason to doubt.
+
+### Fixed
+
+**A typo in a `condition` granted access.** Attribute access returned `None` for
+a name that was not there, so two typos compared equal: `subject.dept ==
+target.dept`, written for an attribute really called `department`, evaluated
+`None == None` — true. The rule granted, the negative test the resource needed
+became a positive one, and a genuinely broken endpoint was never probed. A
+missing attribute is an error now, and `overstep validate` reports a condition
+naming an attribute no subject declares, so the typo is caught before the run
+rather than turned into a verdict. An attribute whose value really is `None` is
+still a value, and a condition only some subjects can satisfy is still a
+deliberate narrowing rather than a mistake.
+
+**An unreadable `allow_status` / `deny_status` entry was skipped in silence.**
+`"2OO"` with a letter O, `"20x"`, `banana`, a reversed range — each fell through
+every branch of the matcher and was ignored. A spec whose entries are all
+unreadable matches nothing, so every response read as *deny*, every negative
+test passed, and `overstep validate` said `ok — matrix is valid`. Reading and
+validating now go through one parser, so the loader refuses exactly what the
+matcher cannot read.
+
+### Breaking
+
+Both fixes reject input that used to load. This is the intended break: in each
+case the old behaviour was to run the matrix and report a result that did not
+mean what it said.
+
+* A condition reading an attribute no subject declares is now a `validate`
+  error, and raises at plan time instead of evaluating to `None`. A matrix that
+  relied on the old reading — an absent attribute standing in for a falsy value —
+  has to name the attribute and give it one.
+* A status entry that is not an exact code, an inclusive range or a class, or
+  that falls outside 100–599, is now refused when the matrix loads (exit 2)
+  rather than skipped.
+
 ## [1.1.0] - 2026-08-20
 
 Three defects found by running the tool against a live target rather than

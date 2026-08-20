@@ -362,6 +362,56 @@ class Matrix(BaseModel):
                 ))
         return problems
 
+
+    def _condition_problems(self) -> List["Problem"]:
+        """Check every rule ``condition`` against the attributes that exist.
+
+        A condition is evaluated at plan time, and a failure there is read as
+        "this rule grants nothing" — the safe direction, but a silent one. So a
+        typo has to be caught here instead: ``subject.dept == target.dept``,
+        written for an attribute really called ``department``, would otherwise
+        turn a rule the author meant to grant into one that denies, and the
+        positive test it should have produced into a negative one.
+
+        Only an attribute *no* subject declares is reported. Subjects are allowed
+        to differ — a condition reading ``subject.tier`` where half of them have
+        a tier is a deliberate narrowing, not a mistake.
+        """
+        from overstep.expressions import referenced_attributes
+
+        declared = {key for s in self.subjects for key in s.attributes}
+        problems: List[Problem] = []
+        for resource, entry in self.policy.items():
+            for rule in entry.allow:
+                if not rule.condition:
+                    continue
+                try:
+                    refs = referenced_attributes(rule.condition)
+                except SyntaxError as exc:
+                    problems.append(Problem(
+                        f"policy for '{resource}' has a condition that does not "
+                        f"parse ({exc.msg}): {rule.condition!r}",
+                        Severity.ERROR,
+                    ))
+                    continue
+                for root, attribute in sorted(refs):
+                    if root not in ("subject", "target"):
+                        problems.append(Problem(
+                            f"policy for '{resource}' has a condition naming "
+                            f"'{root}', which is not something a condition can "
+                            f"read; use 'subject' or 'target': {rule.condition!r}",
+                            Severity.ERROR,
+                        ))
+                    elif attribute not in declared:
+                        problems.append(Problem(
+                            f"policy for '{resource}' has a condition reading "
+                            f"'{root}.{attribute}', which no subject declares — "
+                            f"the rule would grant nothing and the tests it "
+                            f"shapes would be wrong: {rule.condition!r}",
+                            Severity.ERROR,
+                        ))
+        return problems
+
     def validate_refs(self) -> List[str]:
         """Every problem as a plain string, worst first; empty means the matrix is ok.
 
@@ -400,6 +450,8 @@ class Matrix(BaseModel):
         for name in self.policy:
             if name not in rmap:
                 error(f"policy references unknown resource '{name}'")
+
+        problems.extend(self._condition_problems())
 
         # A resource's module is read off its body, so it can no longer name a
         # transport that does not exist, nor declare one that disagrees with what
