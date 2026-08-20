@@ -18,7 +18,7 @@ from typing import Any, Dict, Iterable, Optional, Set
 from urllib.parse import urlencode, urljoin
 
 from overstep.models import SECRET_HEADERS as _SECRET_HEADERS
-from overstep.models import Subject, TestCase, drop_header
+from overstep.models import Observation, Subject, TestCase, drop_header
 
 _MASK = "***"
 
@@ -103,6 +103,19 @@ def credential_values(
         for key, value in case.headers.items():
             if key.lower() in _SECRET_HEADERS:
                 add(value)
+        # An MCP case carries its credentials on the invocation, not on the case:
+        # the server's own headers, the handshake identity when it differs, and
+        # for stdio the environment the process is launched with.
+        inv = case.mcp
+        if inv is None:
+            continue
+        for headers in (inv.headers, inv.handshake_headers or {}):
+            for key, value in headers.items():
+                if key.lower() in _SECRET_HEADERS:
+                    add(value)
+        for key, value in inv.env.items():
+            if any(word in key.upper() for word in ("TOKEN", "SECRET", "KEY", "PASSWORD")):
+                add(value)
 
     return {v for v in values if len(v) >= _MIN_REDACTABLE}
 
@@ -119,6 +132,41 @@ def redact(text: str, secrets: Iterable[str]) -> str:
         if secret in text:
             text = text.replace(secret, _MASK)
     return text
+
+
+def sanitize_evidence(
+    obs: Observation, secrets: Iterable[str], body_limit: Optional[int] = None
+) -> Observation:
+    """The observation as a report may carry it: no credentials, bounded body.
+
+    Every field a target writes is covered, not just the body. A response header
+    can echo the credential that was sent (``X-Echo-Token``, a ``Set-Cookie``
+    built from the bearer) and an error string can quote the header it failed to
+    parse — and the JSON reporter serializes the whole observation, so redacting
+    the body alone left the same secret two keys away from where it was removed.
+
+    A secret-looking header is *not* masked wholesale, only where its value is a
+    credential this run holds. A ``Set-Cookie`` the target minted itself is
+    evidence — the session-hijack finding is about exactly that — and blanking it
+    would cost the finding its proof to protect something that was never ours.
+
+    Returns the observation unchanged when there was nothing to do, so an
+    already-sanitized one costs a comparison. Applying this twice is the same as
+    applying it once.
+    """
+    secrets = list(secrets)
+    body = redact(obs.full_body, secrets)
+    if body_limit is not None and len(body) > body_limit:
+        body = f"{body[:body_limit]}\n… truncated at {body_limit} bytes"
+    update = {
+        "full_body": body,
+        "body_snippet": redact(obs.body_snippet, secrets),
+        "error": redact(obs.error, secrets) if obs.error else obs.error,
+        "headers": {k: redact(v, secrets) for k, v in obs.headers.items()},
+    }
+    if all(getattr(obs, field) == value for field, value in update.items()):
+        return obs
+    return obs.model_copy(update=update)
 
 
 def _escape_for_double_quotes(text: str) -> str:

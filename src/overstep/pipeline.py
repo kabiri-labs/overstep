@@ -21,8 +21,16 @@ from overstep.transports import dispatch as default_executor
 from overstep.fixtures import run_setup as default_setup_runner
 from overstep.fixtures import run_teardown as default_teardown_runner
 from overstep.matrix import Matrix
-from overstep.models import Observation, RunHealth, RunResult, Subject, TestCase
+from overstep.models import (
+    EVIDENCE_BODY_LIMIT,
+    Observation,
+    RunHealth,
+    RunResult,
+    Subject,
+    TestCase,
+)
 from overstep.planner import plan
+from overstep.repro import credential_values, sanitize_evidence
 from overstep.report import all_reporters
 from overstep.waivers import Waiver, apply_waivers
 
@@ -147,6 +155,18 @@ def run_pipeline(
     findings = classify(matrix, cases, observations, base_url=resolved)
     if baseline is not None:
         findings = findings + diff(baseline, cases, observations)
+
+    # Every finding is scrubbed here, whichever path built it. `classify` does
+    # this for its own — so a caller using it directly is safe too — but drift
+    # findings are appended afterwards and would otherwise carry the response
+    # exactly as the target wrote it, credentials and all. Doing it once over
+    # the whole list means a future third source of findings is covered without
+    # anyone having to remember. Sanitizing twice is the same as once.
+    secrets = credential_values(matrix.subjects, cases)
+    for finding in findings:
+        finding.evidence = sanitize_evidence(
+            finding.evidence, secrets, EVIDENCE_BODY_LIMIT
+        )
 
     waived: List = []
     warnings: List[str] = []
