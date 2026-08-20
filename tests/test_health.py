@@ -22,13 +22,14 @@ def _case(
     expected: Effect,
     mcp: McpInvocation = None,
     resource: str = "r",
+    method: str = "GET",
 ) -> TestCase:
     return TestCase(
         id=case_id,
         resource=resource,
         subject="s",
         role="user",
-        method="GET",
+        method=method,
         path_template="/x/{id}",
         path="/x/1",
         variant=Variant.NA,
@@ -336,8 +337,8 @@ def test_a_blacked_out_resource_condemns_the_run():
     # 2 of 5 is below the target ratio, so the target itself is not condemned.
     assert health.transport_errors == 2
     assert health.inconclusive
-    assert health.untested_resources == ["wedged"]
-    assert any("resource 'wedged'" in r and "not tested" in r for r in health.reasons)
+    assert health.untested_surfaces == ["wedged GET"]
+    assert any("'wedged GET'" in r and "not tested" in r for r in health.reasons)
     # And the healthy resource is not dragged in with it.
     assert not any("healthy" in r for r in health.reasons)
 
@@ -365,7 +366,7 @@ def test_one_flaky_timeout_does_not_condemn_the_run():
 
     assert not health.inconclusive
     assert health.reasons == []
-    assert health.untested_resources == []
+    assert health.untested_surfaces == []
     # Silent is what it must not be: the loss is still counted.
     assert health.transport_errors == 1
     assert health.undelivered_negative == 1
@@ -401,7 +402,7 @@ def test_a_resource_on_an_unreachable_target_is_not_reported_twice():
     health = assess(cases, obs)
 
     assert health.inconclusive
-    assert health.untested_resources == []
+    assert health.untested_surfaces == []
     assert len(health.reasons) == 1
     assert "unreachable" in health.reasons[0]
 
@@ -412,7 +413,7 @@ def test_a_healthy_run_reports_no_delivery_loss():
 
     health = assess(cases, obs)
 
-    assert health.untested_resources == []
+    assert health.untested_surfaces == []
     assert (health.transport_errors, health.undelivered_negative) == (0, 0)
 
 
@@ -426,5 +427,62 @@ def test_a_skipped_resource_is_not_called_untested():
 
     health = assess(cases, obs)
 
-    assert health.untested_resources == []
+    assert health.untested_surfaces == []
     assert health.undelivered_negative == 0
+
+
+def test_a_working_method_does_not_vouch_for_a_dark_one():
+    """`probe_methods` puts several methods on one resource name.
+
+    A GET the matrix declares and the DELETE fired at the same object to see
+    whether method-level authorization exists at all share `case.resource`, so
+    grouping by resource alone would let the working GET cover for a DELETE
+    surface that answered nothing — the same masking this module removes, one
+    level down. The cross-method probes are pure negatives: if they never arrive,
+    nothing at all is said about that verb.
+    """
+    cases = [
+        _case("r::self", Effect.ALLOW, method="GET"),
+        _case("r::self2", Effect.ALLOW, method="GET"),
+        _case("r::other", Effect.DENY, method="GET"),
+        _case("r::other::DELETE", Effect.DENY, method="DELETE"),
+        _case("r::other2::DELETE", Effect.DENY, method="DELETE"),
+    ]
+    obs = [
+        _delivered("r::self", Effect.ALLOW),
+        _delivered("r::self2", Effect.ALLOW),
+        _delivered("r::other", Effect.DENY),
+        _undelivered("r::other::DELETE"),
+        _undelivered("r::other2::DELETE"),
+    ]
+
+    health = assess(cases, obs)
+
+    # 2 of 5 keeps the target itself below the unreachable ratio, which is the
+    # whole point: the target is fine and one verb on it is not.
+    assert not any("unreachable" in r for r in health.reasons)
+    assert health.inconclusive
+    assert health.untested_surfaces == ["r DELETE"]
+    assert any("2 of them negative" in r for r in health.reasons)
+    # The GET surface answered, so it is not dragged in.
+    assert not any("r GET" in r for r in health.reasons)
+
+
+def test_a_method_that_answered_is_not_called_untested():
+    """The other side: one dark probe among several on the same method."""
+    cases = [
+        _case("r::other::DELETE", Effect.DENY, method="DELETE"),
+        _case("r::other2::DELETE", Effect.DENY, method="DELETE"),
+        _case("r::self", Effect.ALLOW, method="GET"),
+    ]
+    obs = [
+        _delivered("r::other::DELETE", Effect.DENY),
+        _undelivered("r::other2::DELETE"),
+        _delivered("r::self", Effect.ALLOW),
+    ]
+
+    health = assess(cases, obs)
+
+    assert not health.inconclusive
+    assert health.untested_surfaces == []
+    assert health.undelivered_negative == 1

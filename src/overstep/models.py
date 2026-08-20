@@ -877,9 +877,11 @@ class RunHealth(BaseModel):
     undelivered_negative: int = 0
     positive_tests: int = 0
     positive_allowed: int = 0
-    # Resources whose every sent request failed at the transport, so the run
-    # says nothing about them however clean it reads.
-    untested_resources: List[str] = Field(default_factory=list)
+    # Surfaces — a resource under one method — whose every sent request failed
+    # at the transport, so the run says nothing about them however clean it
+    # reads. Method is part of the key because `probe_methods` puts several on
+    # one resource, and a working GET must not vouch for a dark DELETE.
+    untested_surfaces: List[str] = Field(default_factory=list)
     # Human-readable explanations; non-empty means the run proved nothing.
     reasons: List[str] = Field(default_factory=list)
 
