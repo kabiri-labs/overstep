@@ -168,10 +168,18 @@ def run_pipeline(
             finding.evidence, secrets, EVIDENCE_BODY_LIMIT
         )
 
+    # Health is decided before the waivers so they can be told whether the run
+    # is worth drawing conclusions from: on an unreachable target no finding
+    # exists for any waiver to match, and "this one may be fixed" would be a
+    # claim about something nobody observed.
+    health = assess_health(cases, observations)
+
     waived: List = []
     warnings: List[str] = []
     if waivers:
-        findings, waived, warnings = apply_waivers(findings, waivers)
+        findings, waived, warnings = apply_waivers(
+            findings, waivers, report_unmatched=not health.inconclusive
+        )
 
     warnings = warnings + teardown_warnings
 
@@ -182,7 +190,7 @@ def run_pipeline(
         findings=findings,
         waived=waived,
         warnings=warnings,
-        health=assess_health(cases, observations),
+        health=health,
         coverage=assess_coverage(matrix, cases),
     )
 

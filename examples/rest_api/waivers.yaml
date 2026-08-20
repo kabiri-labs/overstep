@@ -5,10 +5,14 @@
 # recommended so accepted risk is re-reviewed instead of rotting forever. An
 # expired waiver stops suppressing and prints a warning on the next run.
 #
-# Find a finding's id in findings.json (the `test_id` field), e.g.
-#   get_order::alice::other
+# Find a finding's id in findings.json (the `test_id` field). The one below is
+# a real finding of the bundled demo — alice reading bob's profile — so running
+# `overstep run examples/rest_api/matrix.yaml --waivers examples/rest_api/waivers.yaml`
+# actually shows it being suppressed. A waiver whose id matches nothing is
+# reported as a warning, since it usually means a typo or a fix nobody removed
+# the waiver for.
 waivers:
-  - id: get_order::alice::other
+  - id: get_user::alice::other
     vuln_class: BOLA
     reason: >-
       Known gap tracked in JIRA SEC-1234; fix scheduled for the next release.
