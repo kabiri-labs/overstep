@@ -1,40 +1,53 @@
 # Changelog
 
-## [1.0.1] - 2026-08-20
+## [1.1.0] - 2026-08-20
 
-Three defects found by reviewing the tool against a live target rather than
-through its own suite. All are cases where overstep stayed quiet about something
-it was supposed to catch.
+Three defects found by running the tool against a live target rather than
+through its own suite, and the report change that makes the first of them
+checkable by a reader.
 
 ### Fixed
 
 **BOPLA detection was capped at 2048 bytes.** The check read `body_snippet`,
-which every transport truncates so a report stays readable — so a forbidden
-property was found in a small response and silently missed in a large one, and
-an endpoint that over-shares is exactly the kind that returns a lot. Transports
-now retain the untruncated body for the cases that declare `forbidden_fields`,
-and the check reads that. Nothing else holds a full body, so a run without
-`forbidden_fields` carries no extra memory, and the retained body stays out of
-the reports: `body_snippet` is still the evidence a reader sees.
+which every transport truncates so a report stays readable — so the same
+forbidden property was reported in a small response and silently missed in a
+large one, and an endpoint that over-shares is exactly the kind that returns a
+lot. Transports now retain the untruncated body for the cases that declare
+`forbidden_fields`, and the check reads that. Nothing else retains one, so a run
+without `forbidden_fields` holds no extra memory.
 
-**A condition could reach `__class__` and the module globals behind it.**
-Expression attribute access used a bare `getattr`, so `subject.__class__` —
-and from there `__init__.__globals__` — resolved. Nothing in the allow-list can
+**A condition could reach `__class__`, and `__init__.__globals__` behind it.**
+Expression attribute access used a bare `getattr`. Nothing in the allow-list can
 call, so this was not an escape on its own; it was the gap that becomes one if
-another node type is ever allowed. Private and dunder names are now refused.
+another node type is ever allowed. Private and dunder names are refused now, and
+a rule whose condition is refused still grants nothing.
 
 **`overstep.fixtures` annotations could not be resolved.** `List` was never
-imported. `from __future__ import annotations` hid it at runtime, but the
-package ships `py.typed`, so `typing.get_type_hints(run_teardown)` raised
-`NameError` for anyone reading the annotations the package advertises. The suite
-now resolves the annotations of every public function, which is what makes the
-promise testable rather than assumed.
+imported. `from __future__ import annotations` hid it at runtime, but the package
+ships `py.typed`, so `typing.get_type_hints(run_teardown)` raised `NameError` for
+anyone reading the annotations the package advertises. The suite now resolves the
+annotations of every public function, which is what makes the promise testable
+rather than assumed.
 
-### Unchanged
+### Added — `findings.json` gains two fields
 
-No report document changed shape: the golden files are byte-identical, and the
-matrix format, `test_id` shape, finding classes and exit codes are as 1.0.0
-froze them.
+Both are additive. Nothing that was in the document changed shape or value, and
+`overstep.sarif`, `junit.xml`, `report.html` and `baseline.json` are untouched;
+a consumer reading the old keys keeps working.
+
+* `evidence.full_body` — the response body a property-level finding was decided
+  on, present only for a case whose resource declares `forbidden_fields` and
+  empty everywhere else. `body_snippet` is a fixed head-of-body quotation, and
+  for a BOPLA finding it is the one part of the response that does *not* contain
+  the proof. Capped at 64 KiB on the way into the document: the classifier reads
+  the untruncated value, so the cap bounds the artifact and can never hide a
+  leak.
+* `leaked_fields` — the forbidden keys actually found, named on the finding. The
+  `detail` sentence already said them in prose; this is the same answer for a
+  dashboard, and it survives the evidence cap when the body does not.
+
+The HTML report shows the retained body under a finding's evidence when there is
+one to show.
 
 ## [1.0.0] - 2026-08-19
 

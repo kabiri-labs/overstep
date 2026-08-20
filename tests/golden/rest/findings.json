@@ -90,6 +90,7 @@
           "content-type": "application/json"
         },
         "body_snippet": "{\"users\":[{\"id\":\"u1\",\"name\":\"Alice\",\"email\":\"alice@example.com\"},{\"id\":\"u2\",\"name\":\"Bob\",\"email\":\"bob@example.com\"},{\"id\":\"u9\",\"name\":\"Root\",\"email\":\"root@example.com\"}]}",
+        "full_body": "",
         "error": null,
         "matched_markers": [],
         "listed_tools": [],
@@ -105,6 +106,7 @@
         "body": null
       },
       "confidence": "confirmed",
+      "leaked_fields": [],
       "group": "admin_list_users::GET::privilege-escalation",
       "cwe": "CWE-269",
       "owasp_api": "API5:2023 Broken Function Level Authorization"
@@ -133,6 +135,7 @@
           "content-type": "application/json"
         },
         "body_snippet": "{\"users\":[{\"id\":\"u1\",\"name\":\"Alice\",\"email\":\"alice@example.com\"},{\"id\":\"u2\",\"name\":\"Bob\",\"email\":\"bob@example.com\"},{\"id\":\"u9\",\"name\":\"Root\",\"email\":\"root@example.com\"}]}",
+        "full_body": "",
         "error": null,
         "matched_markers": [],
         "listed_tools": [],
@@ -148,6 +151,7 @@
         "body": null
       },
       "confidence": "confirmed",
+      "leaked_fields": [],
       "group": "admin_list_users::GET::privilege-escalation",
       "cwe": "CWE-269",
       "owasp_api": "API5:2023 Broken Function Level Authorization"
@@ -176,6 +180,7 @@
           "content-type": "application/json"
         },
         "body_snippet": "{\"deleted\":\"u2\"}",
+        "full_body": "",
         "error": null,
         "matched_markers": [],
         "listed_tools": [],
@@ -191,6 +196,7 @@
         "body": null
       },
       "confidence": "confirmed",
+      "leaked_fields": [],
       "group": "delete_user::DELETE::privilege-escalation",
       "cwe": "CWE-269",
       "owasp_api": "API5:2023 Broken Function Level Authorization"
@@ -219,6 +225,7 @@
           "content-type": "application/json"
         },
         "body_snippet": "{\"deleted\":\"u1\"}",
+        "full_body": "",
         "error": null,
         "matched_markers": [],
         "listed_tools": [],
@@ -234,6 +241,7 @@
         "body": null
       },
       "confidence": "confirmed",
+      "leaked_fields": [],
       "group": "delete_user::DELETE::privilege-escalation",
       "cwe": "CWE-269",
       "owasp_api": "API5:2023 Broken Function Level Authorization"
@@ -262,6 +270,7 @@
           "content-type": "application/json"
         },
         "body_snippet": "{\"deleted\":\"u1\"}",
+        "full_body": "",
         "error": null,
         "matched_markers": [],
         "listed_tools": [],
@@ -277,6 +286,7 @@
         "body": null
       },
       "confidence": "confirmed",
+      "leaked_fields": [],
       "group": "delete_user::DELETE::privilege-escalation",
       "cwe": "CWE-269",
       "owasp_api": "API5:2023 Broken Function Level Authorization"
@@ -305,6 +315,7 @@
           "content-type": "application/json"
         },
         "body_snippet": "{\"deleted\":\"u2\"}",
+        "full_body": "",
         "error": null,
         "matched_markers": [],
         "listed_tools": [],
@@ -320,6 +331,7 @@
         "body": null
       },
       "confidence": "confirmed",
+      "leaked_fields": [],
       "group": "delete_user::DELETE::privilege-escalation",
       "cwe": "CWE-269",
       "owasp_api": "API5:2023 Broken Function Level Authorization"
@@ -348,6 +360,7 @@
           "content-type": "application/json"
         },
         "body_snippet": "{\"id\":\"u2\",\"name\":\"Bob\",\"email\":\"bob@example.com\"}",
+        "full_body": "",
         "error": null,
         "matched_markers": [],
         "listed_tools": [],
@@ -363,6 +376,7 @@
         "body": null
       },
       "confidence": "unverified",
+      "leaked_fields": [],
       "group": "get_user::GET::BOLA",
       "cwe": "CWE-639",
       "owasp_api": "API1:2023 Broken Object Level Authorization"
@@ -391,6 +405,7 @@
           "content-type": "application/json"
         },
         "body_snippet": "{\"id\":\"u1\",\"name\":\"Alice\",\"email\":\"alice@example.com\"}",
+        "full_body": "",
         "error": null,
         "matched_markers": [],
         "listed_tools": [],
@@ -406,6 +421,7 @@
         "body": null
       },
       "confidence": "unverified",
+      "leaked_fields": [],
       "group": "get_user::GET::BOLA",
       "cwe": "CWE-639",
       "owasp_api": "API1:2023 Broken Object Level Authorization"

@@ -1,7 +1,14 @@
 """Tests for BOPLA (property-level) checks and cross-method probing."""
 from overstep.classifier import classify
 from overstep.matrix import Matrix
-from overstep.models import Effect, Observation, ResourceType, Variant, VulnClass
+from overstep.models import (
+    EVIDENCE_BODY_LIMIT,
+    Effect,
+    Observation,
+    ResourceType,
+    Variant,
+    VulnClass,
+)
 from overstep.planner import plan
 
 
@@ -180,13 +187,63 @@ def test_full_body_is_only_retained_when_the_case_asks_for_it():
     assert all(c.forbidden_fields == [] for c in without)
 
 
-def test_full_body_stays_out_of_the_serialized_evidence():
-    """The report shows the snippet; the untruncated body is working state only."""
+def test_retained_body_is_reported_as_evidence():
+    """The body behind a property-level finding is quotable, not just internal.
+
+    ``detail`` names the key that leaked; without the body a reader has no way to
+    check that claim short of re-running the probe, and the head-of-body snippet
+    is precisely what does not contain it.
+    """
     obs = Observation(
         test_id="t", status=200, effect=Effect.ALLOW, body_snippet="{}", full_body="{}"
     )
-    assert "full_body" not in obs.model_dump()
-    assert "body_snippet" in obs.model_dump()
+    dumped = obs.model_dump()
+    assert dumped["full_body"] == "{}"
+    assert dumped["body_snippet"] == "{}"
+
+
+def test_report_cap_never_hides_a_leak():
+    """The evidence budget bounds the artifact, never the check.
+
+    A body past EVIDENCE_BODY_LIMIT is clipped on its way into a report, so the
+    finding has to survive that clipping: the leak is still found, and the keys
+    are still named on the finding itself rather than only inside the quotation
+    that got cut.
+    """
+    import json
+
+    padding = {f"note_{i}": "lorem ipsum dolor sit amet" * 8 for i in range(500)}
+    body = json.dumps({**padding, "id": "u1", "password_hash": "$2b$12$abcdef"})
+    assert body.index("password_hash") > EVIDENCE_BODY_LIMIT, "leak must sit past the cap"
+
+    m = _matrix(forbidden_fields=["password_hash"])
+    cases = plan(m)
+    obs = []
+    for c in cases:
+        if c.id == "get_user::alice::self":
+            obs.append(
+                Observation(
+                    test_id=c.id,
+                    status=200,
+                    effect=Effect.ALLOW,
+                    body_snippet=body[:2048],
+                    full_body=body,
+                )
+            )
+        else:
+            eff = Effect.ALLOW if c.expected == Effect.ALLOW else Effect.DENY
+            obs.append(
+                Observation(test_id=c.id, status=200 if eff == Effect.ALLOW else 403, effect=eff)
+            )
+
+    bopla = [f for f in classify(m, cases, obs) if f.vuln_class == VulnClass.BOPLA]
+    assert len(bopla) == 1
+    # Found, despite the reported body being clipped well before the key.
+    assert bopla[0].leaked_fields == ["password_hash"]
+    reported = bopla[0].evidence.full_body
+    assert "password_hash" not in reported
+    assert len(reported) < len(body)
+    assert "truncated" in reported
 
 
 def test_no_bopla_past_the_cap_when_the_field_is_absent():

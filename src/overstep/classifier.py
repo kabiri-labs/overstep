@@ -16,6 +16,7 @@ from typing import Dict, List, Optional, Set
 from overstep.matrix import Matrix
 from overstep.planner import grants_access
 from overstep.models import (
+    EVIDENCE_BODY_LIMIT,
     Effect,
     Finding,
     Observation,
@@ -98,6 +99,19 @@ def _leaked_fields(case: TestCase, obs: Observation) -> Set[str]:
         return set()
     present = _json_keys(obs.full_body or obs.body_snippet)
     return {f for f in case.forbidden_fields if f in present}
+
+
+def _evidence(obs: Observation) -> Observation:
+    """The observation as a report should carry it.
+
+    A retained body is bounded here rather than at capture, so the check above
+    always reads the whole response and only the quotation a reader sees is
+    clipped. The finding names the keys either way.
+    """
+    if len(obs.full_body) <= EVIDENCE_BODY_LIMIT:
+        return obs
+    clipped = f"{obs.full_body[:EVIDENCE_BODY_LIMIT]}\n… truncated at {EVIDENCE_BODY_LIMIT} bytes"
+    return obs.model_copy(update={"full_body": clipped})
 
 
 def _audience_confidence(obs: Observation) -> str:
@@ -274,7 +288,7 @@ def classify(
                             f"rule for it — the privileged half of the surface is "
                             f"advertised to callers who may not use it."
                         ),
-                        evidence=obs,
+                        evidence=_evidence(obs),
                     )
                 )
             continue
@@ -300,7 +314,7 @@ def classify(
                             f"{case.method} {case.path} but was denied "
                             f"(status {obs.status})."
                         ),
-                        evidence=obs,
+                        evidence=_evidence(obs),
                     )
                 )
             elif obs.effect == Effect.ALLOW:
@@ -327,7 +341,8 @@ def classify(
                                 f"{case.method} {case.path} but the response exposed "
                                 f"forbidden field(s): {fields}."
                             ),
-                            evidence=obs,
+                            leaked_fields=sorted(leaked),
+                            evidence=_evidence(obs),
                         )
                     )
             continue
@@ -351,7 +366,7 @@ def classify(
                     status=obs.status,
                     variant=case.variant,
                     detail=_detail(case, obs, vuln, confidence),
-                    evidence=obs,
+                    evidence=_evidence(obs),
                     confidence=confidence,
                 )
             )
