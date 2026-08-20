@@ -870,8 +870,16 @@ class RunHealth(BaseModel):
 
     executed: int = 0
     transport_errors: int = 0
+    # How many of those were negative tests. A negative test that never arrived
+    # is the expensive half of a delivery failure: it is recorded as denied,
+    # which is what the matrix expected, so it produces no finding and reads
+    # exactly like a probe that ran and found nothing.
+    undelivered_negative: int = 0
     positive_tests: int = 0
     positive_allowed: int = 0
+    # Resources whose every sent request failed at the transport, so the run
+    # says nothing about them however clean it reads.
+    untested_resources: List[str] = Field(default_factory=list)
     # Human-readable explanations; non-empty means the run proved nothing.
     reasons: List[str] = Field(default_factory=list)
 

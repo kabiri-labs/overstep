@@ -29,7 +29,7 @@ control to lose.
 """
 from __future__ import annotations
 
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Sequence, Set, Tuple
 
 from overstep.models import Effect, Observation, RunHealth, TestCase
 from overstep.transports.base import DEFAULT_TRANSPORT
@@ -72,17 +72,63 @@ def _target(case: TestCase) -> str:
     return f"the '{transport}' transport"
 
 
+def _pairs(
+    cases: Sequence[TestCase], observations: Sequence[Observation]
+) -> List[Tuple[TestCase, Observation]]:
+    """Every case that produced an observation, paired with it."""
+    seen = {obs.test_id: obs for obs in observations}
+    return [(case, seen[case.id]) for case in cases if case.id in seen]
+
+
 def _group(
     cases: Sequence[TestCase], observations: Sequence[Observation]
 ) -> Dict[str, List[Tuple[TestCase, Observation]]]:
     """Pair every case with its observation, grouped by target."""
-    seen = {obs.test_id: obs for obs in observations}
     grouped: Dict[str, List[Tuple[TestCase, Observation]]] = {}
-    for case in cases:
-        obs = seen.get(case.id)
-        if obs is not None:
-            grouped.setdefault(_target(case), []).append((case, obs))
+    for case, obs in _pairs(cases, observations):
+        grouped.setdefault(_target(case), []).append((case, obs))
     return grouped
+
+
+def _untested_resources(
+    cases: Sequence[TestCase],
+    observations: Sequence[Observation],
+    excluded_targets: Set[str],
+) -> List[Tuple[str, int, int]]:
+    """Resources whose every sent request failed at the transport, worst first.
+
+    A target answering most of its requests can still hold one endpoint that
+    answers none — a wedged route, a dependency that is down, a proxy rule that
+    drops one path. The target-level ratio is deliberately blunt enough to
+    survive a flaky timeout, so such an endpoint sits far below it and vanishes:
+    its negative tests are recorded as denied, which is what the matrix expected,
+    so they produce no finding and read exactly like probes that ran and found
+    nothing.
+
+    The threshold here is *every* request, not any. One probe of three timing out
+    is a flake, and condemning a run for it would teach the reader to pass
+    ``--allow-inconclusive`` permanently, which costs more than it saves. A
+    resource that got nothing through was not tested, and that is a different
+    statement from a resource that was.
+
+    Targets already reported unreachable are excluded: every resource on them
+    failed by definition, and saying so again is the same fact told twice.
+    """
+    grouped: Dict[str, List[Tuple[TestCase, Observation]]] = {}
+    for case, obs in _pairs(cases, observations):
+        if _target(case) in excluded_targets or obs.skipped:
+            continue
+        grouped.setdefault(case.resource, []).append((case, obs))
+
+    out: List[Tuple[str, int, int]] = []
+    for resource, pairs in grouped.items():
+        if not all(_never_delivered(o) for _, o in pairs):
+            continue
+        negatives = sum(1 for c, _ in pairs if c.expected == Effect.DENY)
+        out.append((resource, len(pairs), negatives))
+    # Most negative tests lost first: those are the ones whose silence is a
+    # missing answer about authorization rather than a missing positive control.
+    return sorted(out, key=lambda item: (-item[2], item[0]))
 
 
 def assess(
@@ -99,9 +145,13 @@ def assess(
     controls = {case.id for case in cases if case.is_positive_control}
     positives_all = [o for o in sent_all if o.test_id in controls]
 
+    negatives = {case.id for case in cases if case.expected == Effect.DENY}
     health = RunHealth(
         executed=len(sent_all),
         transport_errors=sum(1 for o in sent_all if _never_delivered(o)),
+        undelivered_negative=sum(
+            1 for o in sent_all if _never_delivered(o) and o.test_id in negatives
+        ),
         positive_tests=len(positives_all),
         positive_allowed=sum(1 for o in positives_all if o.effect == Effect.ALLOW),
     )
@@ -115,6 +165,7 @@ def assess(
     # Name the target only when there is more than one, so the common
     # single-target message stays readable.
     label_targets = len(grouped) > 1
+    unreachable: Set[str] = set()
 
     for target, pairs in grouped.items():
         prefix = f"{target}: " if label_targets else ""
@@ -137,6 +188,7 @@ def assess(
             )
             # Its positive controls failed too, but that is the same fact told
             # twice: an unreachable target denies everything by definition.
+            unreachable.add(target)
             continue
 
         positives = [(c, o) for c, o in sent if c.is_positive_control]
@@ -151,5 +203,20 @@ def assess(
                 f"the credentials or the matrix are wrong, so the negative results cannot "
                 f"be trusted"
             )
+
+    # A healthy target can still hold one endpoint that answered nothing, and
+    # that endpoint's negative tests are the ones whose silence reads as safety.
+    for resource, sent_count, negative_count in _untested_resources(
+        cases, observations, unreachable
+    ):
+        health.untested_resources.append(resource)
+        lost = (
+            f", {negative_count} of them negative" if negative_count else ""
+        )
+        health.reasons.append(
+            f"resource '{resource}': none of its {sent_count} request(s) reached "
+            f"the target{lost} — it was not tested, so a clean result here is the "
+            f"absence of an answer rather than a safe one"
+        )
 
     return health
