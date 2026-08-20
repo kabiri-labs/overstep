@@ -98,3 +98,136 @@ def test_load_waivers_rejects_entry_without_reason(tmp_path):
     p.write_text("waivers:\n  - id: x::y::z\n")
     with pytest.raises(WaiverError):
         load_waivers(str(p))
+
+
+def _finding(test_id: str = "get_user::alice::other") -> Finding:
+    return Finding(
+        test_id=test_id,
+        vuln_class=VulnClass.BOLA,
+        severity="high",
+        resource="get_user",
+        subject="alice",
+        role="user",
+        method="GET",
+        path="/users/u2",
+        expected=Effect.DENY,
+        observed=Effect.ALLOW,
+        status=200,
+        variant=Variant.OTHER,
+        detail="d",
+        evidence=Observation(test_id=test_id, status=200, effect=Effect.ALLOW),
+    )
+
+
+def test_a_waiver_that_matches_nothing_is_reported():
+    """It is safe and silent, and the silence is the defect.
+
+    The finding it was aimed at stays active and still fails the gate — the safe
+    direction — but the two things a non-matching waiver means both need saying.
+    Either the id is a typo and the risk somebody signed off on is not actually
+    waived, or the finding is fixed and an accepted risk with nothing behind it
+    is sitting in version control until someone re-reads it and believes it.
+    """
+    waiver = Waiver(id="get_user::alice::othr", reason="typo in the id")
+    active, waived, warnings = apply_waivers([_finding()], [waiver])
+
+    assert len(active) == 1 and waived == []
+    assert any("matched no finding" in w and "othr" in w for w in warnings)
+
+
+def test_a_waiver_that_matches_is_not_reported():
+    waiver = Waiver(id="get_user::alice::other", reason="accepted")
+    active, waived, warnings = apply_waivers([_finding()], [waiver])
+
+    assert active == [] and len(waived) == 1
+    assert warnings == []
+
+
+def test_an_expired_waiver_is_not_also_called_unmatched():
+    """It found its finding; it just no longer suppresses it.
+
+    Two notes about one entry, one saying it expired and one saying it matched
+    nothing, would contradict each other.
+    """
+    waiver = Waiver(
+        id="get_user::alice::other", reason="lapsed", expires=datetime.date(2020, 1, 1)
+    )
+    active, waived, warnings = apply_waivers([_finding()], [waiver])
+
+    assert len(active) == 1 and waived == []
+    assert any("expired" in w for w in warnings)
+    assert not any("matched no finding" in w for w in warnings)
+
+
+def test_unmatched_waivers_stay_quiet_when_the_run_proved_nothing():
+    """On an unreachable target no finding exists for any waiver to match.
+
+    Saying each one may be fixed would be the tool asserting something it never
+    observed, on top of a verdict that already says the run means nothing.
+    """
+    waiver = Waiver(id="get_user::alice::other", reason="accepted")
+    _, _, warnings = apply_waivers([], [waiver], report_unmatched=False)
+    assert warnings == []
+
+    _, _, loud = apply_waivers([], [waiver], report_unmatched=True)
+    assert any("matched no finding" in w for w in loud)
+
+
+def _pipeline_matrix():
+    from overstep.matrix import Matrix
+
+    return Matrix(
+        modules={"rest": {"base_url": "http://api.test"}},
+        roles=["user"],
+        subjects=[
+            {"name": "alice", "role": "user", "token": "a", "attributes": {"user_id": "u1"}},
+            {"name": "bob", "role": "user", "token": "b", "attributes": {"user_id": "u2"}},
+        ],
+        resources=[{
+            "name": "get_user",
+            "request": {"method": "GET", "path": "/users/{id}"},
+            "type": "object", "owner": "id", "owner_attr": "user_id",
+        }],
+        policy={"get_user": {"allow": [{"role": "user", "scope": "own"}]}},
+    )
+
+
+@pytest.mark.parametrize(
+    "delivered, expect_warning",
+    [(True, True), (False, False)],
+    ids=["a run that happened warns", "a run that proved nothing stays quiet"],
+)
+def test_the_pipeline_decides_whether_an_unmatched_waiver_is_worth_reporting(
+    delivered, expect_warning
+):
+    """The wiring, not just the rule.
+
+    `apply_waivers` takes the decision as an argument, so it can be unit-tested
+    either way and still be wired to a constant. This is the test that fails if
+    the pipeline stops asking the health verdict.
+    """
+    from overstep.pipeline import run_pipeline
+
+    matrix = _pipeline_matrix()
+
+    def executor(base_url, subjects, cases, **kwargs):
+        if delivered:
+            return [
+                Observation(test_id=c.id, status=200, effect=Effect.ALLOW) for c in cases
+            ]
+        # status 0 is what every transport reserves for a delivery failure.
+        return [
+            Observation(test_id=c.id, status=0, effect=Effect.DENY, error="unreachable")
+            for c in cases
+        ]
+
+    result = run_pipeline(
+        matrix,
+        waivers=[Waiver(id="get_user::alice::nope", reason="wrong id")],
+        executor=executor,
+        authenticator=lambda *a, **k: None,
+    )
+
+    assert result.health.inconclusive is not delivered
+    unmatched = [w for w in result.warnings if "matched no finding" in w]
+    assert bool(unmatched) is expect_warning

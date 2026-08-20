@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.5.0] - 2026-08-20
+
+### Added
+
+**A waiver that matches no finding is reported.** It was silent, and a typo'd
+`id` produced output identical to passing no waivers file at all. It is not
+dangerous — the finding stays active and still fails the gate, which is the safe
+direction — but the two things it can mean both need saying: either the id is
+wrong and the risk somebody signed off on is not actually waived, or the finding
+is fixed and an accepted risk with nothing behind it is sitting in version
+control until someone re-reads it and believes it.
+
+An *expired* waiver is not also called unmatched. It found its finding; it just
+no longer suppresses it, and two notes about one entry saying opposite things
+would help nobody.
+
+Nothing is reported when the run itself proved nothing. On an unreachable target
+no finding exists for any waiver to match, and saying each one may be fixed
+would be the tool asserting something it never observed — on top of a verdict
+that already says the run means nothing.
+
+### Changed
+
+`examples/rest_api/waivers.yaml` now waives `get_user::alice::other`, a finding
+the bundled demo actually produces, so running the demo with it shows a
+suppression instead of nothing. It referenced `get_order::alice::other`, and no
+resource by that name exists in the matrix beside it — which is how the missing
+warning was noticed.
+
 ## [1.4.2] - 2026-08-20
 
 ### Fixed

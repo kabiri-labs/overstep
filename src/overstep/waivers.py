@@ -15,7 +15,7 @@ surface) — a waiver is a per-finding, human-authored exception.
 from __future__ import annotations
 
 import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from pydantic import BaseModel, ValidationError, field_validator
 
@@ -83,22 +83,41 @@ def apply_waivers(
     waivers: List[Waiver],
     *,
     today: Optional[datetime.date] = None,
+    report_unmatched: bool = True,
 ) -> Tuple[List[Finding], List[Finding], List[str]]:
     """Split findings into (active, waived) and collect warnings.
 
     A finding is waived only by a *matching, non-expired* waiver. Expired waivers
     leave their finding active and produce a warning so the acceptance is renewed.
+
+    A waiver that matches *nothing* is warned about too. It is not dangerous —
+    the finding it was aimed at stays active and still fails the gate, which is
+    the safe direction — but it is silent, and silence is the wrong answer to
+    either of the two things it means. Either the ``id`` is a typo and the risk
+    somebody accepted is not actually accepted, or the finding was fixed and the
+    waiver is now an accepted risk with nothing behind it, sitting in version
+    control until somebody re-reads it and believes it.
+
+    ``report_unmatched`` exists for the run that proved nothing. When the target
+    was unreachable there are no findings for any waiver to match, and saying
+    each one may be fixed would be the tool asserting something it did not
+    observe — on top of a verdict that already says so plainly.
     """
     active: List[Finding] = []
     waived: List[Finding] = []
     warnings: List[str] = []
     seen_expired: Dict[str, bool] = {}
+    # Recorded on `matches`, not on suppression: an expired waiver found its
+    # finding, and saying it matched nothing on top of saying it expired would
+    # be two contradictory notes about one entry.
+    matched: Set[str] = set()
 
     for finding in findings:
         suppressor: Optional[Waiver] = None
         for waiver in waivers:
             if not waiver.matches(finding):
                 continue
+            matched.add(waiver.id)
             if waiver.is_expired(today):
                 if not seen_expired.get(waiver.id):
                     warnings.append(
@@ -113,5 +132,14 @@ def apply_waivers(
             waived.append(finding)
         else:
             active.append(finding)
+
+    for waiver in waivers if report_unmatched else ():
+        if waiver.id in matched:
+            continue
+        warnings.append(
+            f"waiver for '{waiver.id}' matched no finding — either the id is "
+            f"wrong and the risk is not actually waived, or the finding is fixed "
+            f"and the waiver should be removed."
+        )
 
     return active, waived, warnings
