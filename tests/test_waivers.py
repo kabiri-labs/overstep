@@ -231,3 +231,51 @@ def test_the_pipeline_decides_whether_an_unmatched_waiver_is_worth_reporting(
     assert result.health.inconclusive is not delivered
     unmatched = [w for w in result.warnings if "matched no finding" in w]
     assert bool(unmatched) is expect_warning
+
+
+def test_two_waivers_sharing_an_id_are_tracked_apart():
+    """One test_id really can carry two findings — a vuln and its drift entry —
+    so a file can hold two entries with the same id and different scopes.
+
+    Keying the match on the id alone let the entry that matched vouch for the
+    mistyped one beside it, which is the exact silence this warning exists to
+    remove, one level down.
+    """
+    waivers = [
+        Waiver(id="get_user::alice::other", vuln_class="BOLA", reason="accepted"),
+        Waiver(id="get_user::alice::other", vuln_class="BFLA", reason="obsolete scope"),
+    ]
+    active, waived, warnings = apply_waivers([_finding()], waivers)
+
+    assert active == [] and len(waived) == 1
+    unmatched = [w for w in warnings if "matched no finding" in w]
+    assert len(unmatched) == 1
+    # And the message says which of the two, since the id does not distinguish them.
+    assert "BFLA" in unmatched[0]
+
+
+def test_a_waiver_passed_over_because_another_covered_it_is_not_called_unmatched():
+    """It found its finding; it just was not the one that suppressed it."""
+    waivers = [
+        Waiver(id="get_user::alice::other", reason="first"),
+        Waiver(id="get_user::alice::other", reason="second"),
+    ]
+    active, waived, warnings = apply_waivers([_finding()], waivers)
+
+    assert active == [] and len(waived) == 1
+    assert not [w for w in warnings if "matched no finding" in w]
+
+
+def test_an_expired_waiver_beside_a_live_one_still_suppresses_and_warns():
+    """The expired entry matched, so it is warned about as expired and no more;
+    the live one behind it still does its job."""
+    waivers = [
+        Waiver(id="get_user::alice::other", reason="lapsed",
+               expires=datetime.date(2020, 1, 1)),
+        Waiver(id="get_user::alice::other", reason="current"),
+    ]
+    active, waived, warnings = apply_waivers([_finding()], waivers)
+
+    assert active == [] and len(waived) == 1
+    assert any("expired" in w for w in warnings)
+    assert not [w for w in warnings if "matched no finding" in w]
