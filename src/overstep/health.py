@@ -90,12 +90,25 @@ def _group(
     return grouped
 
 
-def _untested_resources(
+def _surface(case: TestCase) -> str:
+    """The label for the thing a case exercises: a resource, under one method.
+
+    Resource alone is too coarse. ``probe_methods`` puts several methods on one
+    resource — a GET the matrix declares and the DELETE, PUT or PATCH it fires at
+    the same object to see whether method-level authorization exists at all — and
+    every one of those cases carries the same ``case.resource``. Grouping by it
+    would let a working GET vouch for a DELETE surface that answered nothing,
+    which is the same masking this module exists to remove, one level down.
+    """
+    return f"{case.resource} {case.method}"
+
+
+def _untested_surfaces(
     cases: Sequence[TestCase],
     observations: Sequence[Observation],
     excluded_targets: Set[str],
 ) -> List[Tuple[str, int, int]]:
-    """Resources whose every sent request failed at the transport, worst first.
+    """Surfaces whose every sent request failed at the transport, worst first.
 
     A target answering most of its requests can still hold one endpoint that
     answers none — a wedged route, a dependency that is down, a proxy rule that
@@ -108,24 +121,24 @@ def _untested_resources(
     The threshold here is *every* request, not any. One probe of three timing out
     is a flake, and condemning a run for it would teach the reader to pass
     ``--allow-inconclusive`` permanently, which costs more than it saves. A
-    resource that got nothing through was not tested, and that is a different
-    statement from a resource that was.
+    surface that got nothing through was not tested, and that is a different
+    statement from a surface that was.
 
-    Targets already reported unreachable are excluded: every resource on them
+    Targets already reported unreachable are excluded: every surface on them
     failed by definition, and saying so again is the same fact told twice.
     """
     grouped: Dict[str, List[Tuple[TestCase, Observation]]] = {}
     for case, obs in _pairs(cases, observations):
         if _target(case) in excluded_targets or obs.skipped:
             continue
-        grouped.setdefault(case.resource, []).append((case, obs))
+        grouped.setdefault(_surface(case), []).append((case, obs))
 
     out: List[Tuple[str, int, int]] = []
-    for resource, pairs in grouped.items():
+    for surface, pairs in grouped.items():
         if not all(_never_delivered(o) for _, o in pairs):
             continue
         negatives = sum(1 for c, _ in pairs if c.expected == Effect.DENY)
-        out.append((resource, len(pairs), negatives))
+        out.append((surface, len(pairs), negatives))
     # Most negative tests lost first: those are the ones whose silence is a
     # missing answer about authorization rather than a missing positive control.
     return sorted(out, key=lambda item: (-item[2], item[0]))
@@ -206,16 +219,16 @@ def assess(
 
     # A healthy target can still hold one endpoint that answered nothing, and
     # that endpoint's negative tests are the ones whose silence reads as safety.
-    for resource, sent_count, negative_count in _untested_resources(
+    for surface, sent_count, negative_count in _untested_surfaces(
         cases, observations, unreachable
     ):
-        health.untested_resources.append(resource)
+        health.untested_surfaces.append(surface)
         lost = (
             f", {negative_count} of them negative" if negative_count else ""
         )
         health.reasons.append(
-            f"resource '{resource}': none of its {sent_count} request(s) reached "
-            f"the target{lost} — it was not tested, so a clean result here is the "
+            f"'{surface}': none of its {sent_count} request(s) reached the "
+            f"target{lost} — it was not tested, so a clean result here is the "
             f"absence of an answer rather than a safe one"
         )
 

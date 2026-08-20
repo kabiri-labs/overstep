@@ -17,12 +17,21 @@ wedged endpoint behind an otherwise healthy API sits far below that line: its
 probes vanished, and the report read the same as if they had run and found the
 endpoint sound.
 
-Reachability is now judged per resource as well. A resource whose *every* sent
-request failed at the transport was not tested, and the run says so and exits 3.
-The threshold is every request rather than any, on purpose: a resource that got
+Reachability is now judged per *surface* as well — a resource under one method.
+A surface whose *every* sent request failed at the transport was not tested, and
+the run says so and exits 3.
+
+Method is part of the key because `probe_methods` puts several on one resource:
+the GET a matrix declares and the DELETE, PUT or PATCH fired at the same object
+to see whether method-level authorization exists at all. Grouping by resource
+alone would let a working GET vouch for a DELETE surface that answered nothing,
+which is the same masking one level down — and those cross-method probes are
+pure negatives, so their silence says nothing about that verb at all.
+
+The threshold is every request rather than any, on purpose: a surface that got
 something through was tested, and condemning a run for one lost probe would
 teach the reader to pass `--allow-inconclusive` permanently, which costs more
-than the check saves. A resource on a target already reported unreachable is not
+than the check saves. A surface on a target already reported unreachable is not
 named twice.
 
 The counts are reported whether or not the run is condemned, so a partial loss
@@ -38,8 +47,8 @@ All additive. Nothing already in the document changed shape or value, and
 * `undelivered_negative_tests` — how many of those were negative. This is the
   expensive half: a lost positive control shows up as an `unexpected-deny`
   finding, while a lost negative test shows up nowhere at all.
-* `untested_resources` — resources that got nothing through, so this run says
-  nothing about them however clean it reads.
+* `untested_surfaces` — resources, each under one method, that got nothing
+  through, so this run says nothing about them however clean it reads.
 
 No change to the exit codes: an inconclusive run already exits 3, independent of
 `--fail-on`, and `--allow-inconclusive` still downgrades it to a report.

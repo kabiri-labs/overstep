@@ -117,8 +117,9 @@ def summarize(result: RunResult) -> Dict[str, object]:
         # matrix expected, so they leave no trace in the finding count at all.
         "undelivered_tests": result.health.transport_errors,
         "undelivered_negative_tests": result.health.undelivered_negative,
-        # Resources that got nothing through, so this run says nothing about them.
-        "untested_resources": list(result.health.untested_resources),
+        # Surfaces (resource + method) that got nothing through, so this run
+        # says nothing about them.
+        "untested_surfaces": list(result.health.untested_surfaces),
         # "No BOLA findings" is only evidence for the object resources this run
         # could actually probe across owners; the rest were never asked.
         "object_resources": result.coverage.object_resources,
