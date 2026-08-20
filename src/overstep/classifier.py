@@ -26,7 +26,7 @@ from overstep.models import (
     Variant,
     VulnClass,
 )
-from overstep.repro import credential_values, redact, request_record, to_curl
+from overstep.repro import credential_values, request_record, sanitize_evidence, to_curl
 
 
 def _min_required_rank(matrix: Matrix, case: TestCase) -> int:
@@ -99,32 +99,6 @@ def _leaked_fields(case: TestCase, obs: Observation) -> Set[str]:
         return set()
     present = _json_keys(obs.full_body or obs.body_snippet)
     return {f for f in case.forbidden_fields if f in present}
-
-
-def _evidence(obs: Observation, secrets: Set[str]) -> Observation:
-    """The observation as a report should carry it.
-
-    Two things happen here and nowhere earlier, so that classification always
-    reads what the target actually sent and only the copy written out is
-    changed.
-
-    The retained body is bounded, so the check above sees the whole response and
-    only the quotation a reader sees is clipped.
-
-    Credentials are removed. A request's are masked where it is built, but a
-    *response* is written by the target, and some endpoints reflect what they
-    were given — a debug route, a session endpoint, an error echoing the header
-    it could not parse. The evidence is that response verbatim, so a reflected
-    token used to travel into ``findings.json`` and ``report.html`` beside a
-    ``curl`` line that had carefully replaced the same value with a variable.
-    """
-    body = redact(obs.full_body, secrets)
-    if len(body) > EVIDENCE_BODY_LIMIT:
-        body = f"{body[:EVIDENCE_BODY_LIMIT]}\n… truncated at {EVIDENCE_BODY_LIMIT} bytes"
-    snippet = redact(obs.body_snippet, secrets)
-    if body == obs.full_body and snippet == obs.body_snippet:
-        return obs
-    return obs.model_copy(update={"full_body": body, "body_snippet": snippet})
 
 
 def _audience_confidence(obs: Observation) -> str:
@@ -303,7 +277,7 @@ def classify(
                             f"rule for it — the privileged half of the surface is "
                             f"advertised to callers who may not use it."
                         ),
-                        evidence=_evidence(obs, secrets),
+                        evidence=sanitize_evidence(obs, secrets, EVIDENCE_BODY_LIMIT),
                     )
                 )
             continue
@@ -329,7 +303,7 @@ def classify(
                             f"{case.method} {case.path} but was denied "
                             f"(status {obs.status})."
                         ),
-                        evidence=_evidence(obs, secrets),
+                        evidence=sanitize_evidence(obs, secrets, EVIDENCE_BODY_LIMIT),
                     )
                 )
             elif obs.effect == Effect.ALLOW:
@@ -357,7 +331,7 @@ def classify(
                                 f"forbidden field(s): {fields}."
                             ),
                             leaked_fields=sorted(leaked),
-                            evidence=_evidence(obs, secrets),
+                            evidence=sanitize_evidence(obs, secrets, EVIDENCE_BODY_LIMIT),
                         )
                     )
             continue
@@ -381,7 +355,7 @@ def classify(
                     status=obs.status,
                     variant=case.variant,
                     detail=_detail(case, obs, vuln, confidence),
-                    evidence=_evidence(obs, secrets),
+                    evidence=sanitize_evidence(obs, secrets, EVIDENCE_BODY_LIMIT),
                     confidence=confidence,
                 )
             )

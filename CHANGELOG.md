@@ -14,9 +14,21 @@ and `report.html` beside a `curl` line that had carefully replaced the same
 value.
 
 Every credential the run holds — each subject's token, each secret header on a
-subject or a resource, and the scheme-stripped tail of each, since a body may
-echo `Bearer abc` or just `abc` — is now removed from the evidence a finding
-carries. `overstep.sarif` and `junit.xml` were already clean and stay so.
+subject or a resource, the headers and handshake identity an MCP invocation
+carries, the secret-named values in a stdio server's environment, and the
+scheme-stripped tail of each, since a body may echo `Bearer abc` or just `abc` —
+is now removed from every field a target writes: the body, the response headers
+and the error string. `overstep.sarif` and `junit.xml` were already clean and
+stay so.
+
+It happens over the whole finding list, so a *drift* finding — built by
+`drift.diff()` and appended after classification — is covered too, and so is any
+future third source of findings.
+
+A secret-looking response header is not blanked wholesale, only where its value
+is a credential this run holds. A `Set-Cookie` the target minted itself is
+evidence — the session-hijack finding is about exactly that — and blanking it
+would cost the finding its proof to protect something that was never ours.
 
 The removal happens where evidence enters a report, not where it is captured,
 so classification still reads exactly what the target sent: a `forbidden_fields`

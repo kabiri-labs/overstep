@@ -246,3 +246,120 @@ def test_redaction_does_not_disturb_classification():
     bopla = [f for f in classify(matrix, cases, obs) if f.vuln_class == VulnClass.BOPLA]
     assert len(bopla) == 1
     assert bopla[0].leaked_fields == ["alice-supersecret"]
+
+
+def test_credential_values_reads_an_mcp_invocation():
+    """An MCP case carries its credentials on the invocation, not on the case.
+
+    The server's own headers, the handshake identity when it differs, and for
+    stdio the environment the process is launched with — none of them are
+    `case.headers`, so a loop over that alone collected nothing for MCP.
+    """
+    from overstep.models import McpInvocation, ResourceType, TestCase, Variant
+
+    case = TestCase(
+        id="c", resource="r", subject="s", role="user", transport="mcp",
+        method="tools/call", path_template="t", path="t",
+        variant=Variant.NA, expected=Effect.DENY, resource_type=ResourceType.FUNCTION,
+        mcp=McpInvocation(
+            kind="http", url="http://s/mcp", tool="t",
+            headers={"X-API-Key": "server-key-secret", "Content-Type": "application/json"},
+            handshake_headers={"Authorization": "Bearer handshake-secret"},
+            env={"MCP_TOKEN": "stdio-env-secret", "HOME": "/root"},
+        ),
+    )
+    values = credential_values([Subject(name="s", role="user")], [case])
+    assert {"server-key-secret", "handshake-secret", "stdio-env-secret"} <= values
+    # And nothing that merely sits beside them.
+    assert "application/json" not in values and "/root" not in values
+
+
+def test_sanitize_evidence_covers_every_field_a_target_writes():
+    """The body was not the only place a reflected credential landed.
+
+    A response header can echo what was sent, an error can quote the header it
+    failed to parse, and the JSON reporter serializes the whole observation — so
+    redacting the body alone left the same secret two keys away from where it
+    had just been removed.
+    """
+    from overstep.repro import sanitize_evidence
+
+    obs = Observation(
+        test_id="t", status=200, effect=Effect.ALLOW,
+        body_snippet='{"a":"S3CRET-VALUE"}', full_body='{"a":"S3CRET-VALUE"}',
+        error="could not parse: Bearer S3CRET-VALUE",
+        headers={
+            "x-echo": "S3CRET-VALUE",
+            "set-cookie": "sid=S3CRET-VALUE",
+            "content-type": "application/json",
+        },
+    )
+    clean = sanitize_evidence(obs, {"S3CRET-VALUE"})
+
+    assert "S3CRET-VALUE" not in clean.model_dump_json()
+    # What was not a credential is untouched, so the evidence still reads.
+    assert clean.headers["content-type"] == "application/json"
+    assert clean.headers["set-cookie"] == "sid=***"
+    # Applying it twice changes nothing more.
+    assert sanitize_evidence(clean, {"S3CRET-VALUE"}) == clean
+
+
+def test_a_secret_looking_header_is_not_blanked_wholesale():
+    """A cookie the target minted itself is evidence, not our credential.
+
+    The session-hijack finding is about exactly that value, so masking every
+    Set-Cookie would cost the finding its proof to protect something that was
+    never ours.
+    """
+    from overstep.repro import sanitize_evidence
+
+    obs = Observation(
+        test_id="t", status=200, effect=Effect.ALLOW,
+        headers={"set-cookie": "sid=server-minted-value"},
+    )
+    assert sanitize_evidence(obs, {"our-token"}).headers["set-cookie"] == "sid=server-minted-value"
+
+
+def test_a_drift_finding_carries_sanitized_evidence():
+    """Drift findings are appended after `classify`, so they missed its scrubbing.
+
+    Sanitizing over the whole list instead means a third source of findings is
+    covered without anyone having to remember.
+    """
+    from overstep.drift import build_snapshot
+    from overstep.pipeline import run_pipeline
+
+    matrix = Matrix(
+        modules={"rest": {"base_url": "http://api.test"}},
+        roles=["user"],
+        subjects=[{"name": "alice", "role": "user", "token": "alice-supersecret",
+                   "attributes": {"user_id": "u1"}},
+                  {"name": "bob", "role": "user", "token": "bob-supersecret",
+                   "attributes": {"user_id": "u2"}}],
+        resources=[{"name": "get_user",
+                    "request": {"method": "GET", "path": "/users/{id}"},
+                    "type": "object", "owner": "id", "owner_attr": "user_id"}],
+        policy={"get_user": {"allow": [{"role": "user", "scope": "own"}]}},
+    )
+    cases = plan(matrix)
+    body = '{"echoed":"alice-supersecret"}'
+
+    def executor(base_url, subjects, cases_, **kwargs):
+        return [
+            Observation(test_id=c.id, status=200, effect=Effect.ALLOW,
+                        body_snippet=body, full_body=body,
+                        headers={"x-echo": "alice-supersecret"})
+            for c in cases_
+        ]
+
+    # A baseline saying everything was denied, so every case drifts.
+    denied = [Observation(test_id=c.id, status=403, effect=Effect.DENY) for c in cases]
+    baseline = build_snapshot(cases, denied)
+
+    result = run_pipeline(
+        matrix, baseline=baseline, executor=executor, authenticator=lambda *a, **k: None
+    )
+    drift = [f for f in result.findings if f.vuln_class == VulnClass.AUTHORIZATION_DRIFT]
+    assert drift, "the fixture must produce drift findings to inspect"
+    for finding in result.findings:
+        assert "supersecret" not in finding.model_dump_json()
