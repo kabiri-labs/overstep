@@ -136,8 +136,6 @@ class ResponseMatcher(BaseModel):
     or a class (``"2xx"``).
     """
 
-    model_config = ConfigDict(extra="forbid")
-
     # A key this matcher does not know is a mistake worth an error rather than a
     # silent default: an MCP matcher written on a REST resource (or the reverse)
     # would otherwise have every key dropped, and the resource would quietly be
@@ -155,6 +153,37 @@ class ResponseMatcher(BaseModel):
     @classmethod
     def _check_allow_status(cls, v: List[Union[int, str]]) -> List[Union[int, str]]:
         return _reject_unreadable_statuses("allow_status", v)
+
+    @model_validator(mode="after")
+    def _reject_a_matcher_that_can_never_allow(self) -> "ResponseMatcher":
+        """Refuse a matcher with no route to ``allow`` at all.
+
+        Read the evaluation order above from the bottom: a response is allowed by
+        ``allow_body_regex``, by being a 3xx under ``treat_redirect_as: allow``,
+        or by its status matching ``allow_status``. Take away all three and no
+        response can ever be granted, whatever the target does.
+
+        That is the same failure the unreadable-entry check refuses, reached by a
+        different door. ``allow_status: []`` is not garbage the parser skips, it
+        is a list the parser reads correctly and that matches nothing — so every
+        response reads as *deny*, every negative test passes for the wrong
+        reason, and the run reports a clean authorization surface it never
+        tested. It is caught downstream when the matrix has positive controls,
+        since they fail too; an all-negative matrix has none to lose, and
+        ``health`` deliberately does not condemn one for that.
+
+        The condition is exact rather than heuristic: it is false whenever any
+        route to allow survives, so nothing legitimate is refused.
+        """
+        if self.allow_status or self.allow_body_regex or self.treat_redirect_as == "allow":
+            return self
+        raise ValueError(
+            "this matcher can never allow a response: allow_status is empty, "
+            "allow_body_regex is unset, and treat_redirect_as is "
+            f"'{self.treat_redirect_as}'. Every response would read as denied and "
+            "every negative test would pass without testing anything. Give it a "
+            "status to allow, an allow_body_regex, or treat_redirect_as: allow."
+        )
 
 
 class SubjectAuth(BaseModel):

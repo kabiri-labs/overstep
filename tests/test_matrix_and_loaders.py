@@ -205,3 +205,56 @@ def test_readable_status_entries_still_load():
         policy={"r": {"allow": [{"role": "user"}]}},
     )
     assert m.access.allow_status == ["2xx", 200, "201-204", "302"]
+
+
+def _matrix_with_access(access: dict) -> dict:
+    return {
+        "modules": {"rest": {"base_url": "http://api.test", "access": access}},
+        "subjects": [{"name": "a", "role": "user"}],
+        "resources": [{"name": "r", "request": {"method": "GET", "path": "/x"}}],
+        "policy": {"r": {"allow": [{"role": "user"}]}},
+    }
+
+
+def test_a_matcher_with_no_route_to_allow_is_refused():
+    """`allow_status: []` is read correctly and matches nothing.
+
+    Not garbage the parser skips — a list it reads and that no status satisfies.
+    Every response then reads as denied, every negative test passes for the wrong
+    reason, and an all-negative matrix has no positive control whose failure
+    would give it away.
+    """
+    import pytest
+
+    with pytest.raises(Exception, match="can never allow"):
+        Matrix(**_matrix_with_access({"allow_status": []}))
+    # treat_redirect_as: status falls through to the empty list, so it is no
+    # rescue either.
+    with pytest.raises(Exception, match="can never allow"):
+        Matrix(**_matrix_with_access({"allow_status": [], "treat_redirect_as": "status"}))
+    # A deny signal is not a route to allow.
+    with pytest.raises(Exception, match="can never allow"):
+        Matrix(**_matrix_with_access({"allow_status": [], "deny_body_regex": "denied"}))
+
+
+def test_any_surviving_route_to_allow_is_accepted():
+    """The condition is exact, so nothing legitimate is refused."""
+    m = Matrix(**_matrix_with_access({"allow_status": [], "allow_body_regex": "\"ok\":true"}))
+    assert m.access.allow_status == []
+    assert Matrix(**_matrix_with_access(
+        {"allow_status": [], "treat_redirect_as": "allow"}
+    )).access.treat_redirect_as == "allow"
+    assert Matrix(**_matrix_with_access({"allow_status": ["2xx"]})).access.allow_status == ["2xx"]
+    # And the default matcher, which is what almost every matrix uses.
+    assert Matrix(**_matrix_with_access({})).access.allow_status
+
+
+def test_the_mcp_matcher_is_not_subject_to_this():
+    """MCP falls through to allow, so an empty deny_status is not a dead matcher.
+
+    `deny_status: []` is documented as the setting for a server that reports
+    denials in-band under a non-2xx status of its own.
+    """
+    from overstep.models import McpMatcher
+
+    assert McpMatcher(deny_status=[]).deny_status == []
