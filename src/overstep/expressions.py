@@ -10,7 +10,7 @@ mutation.
 from __future__ import annotations
 
 import ast
-from typing import Any, Dict
+from typing import Any, Dict, Set, Tuple
 
 _ALLOWED_NODES = {
     ast.Expression, ast.BoolOp, ast.UnaryOp, ast.Compare, ast.Name, ast.Load,
@@ -29,12 +29,25 @@ def _member(obj: Any, name: str) -> Any:
     is callable here, so this is not an escape today; it is the gap that would
     become one the moment another node type is allowed, and closing it costs a
     condition nobody would write on purpose.
+
+    An attribute that is not there is an error, not ``None``. Returning ``None``
+    read a typo as a value, and two of them compared equal: ``subject.dept ==
+    target.dept``, written for an attribute really called ``department``, is
+    ``None == None`` — true, so the rule granted access, the negative test it
+    should have produced became a positive one, and a real broken endpoint was
+    never probed. Failing instead lets the caller decide, and every caller here
+    decides *deny*.
     """
     if name.startswith("_"):
         raise ValueError(f"private attribute not allowed in expression: {name}")
     if isinstance(obj, dict):
-        return obj.get(name)
-    return getattr(obj, name, None)
+        if name not in obj:
+            raise ValueError(f"unknown attribute in expression: {name}")
+        return obj[name]
+    try:
+        return getattr(obj, name)
+    except AttributeError:
+        raise ValueError(f"unknown attribute in expression: {name}") from None
 
 
 def _eval(node: ast.AST, names: Dict[str, Any]) -> Any:
@@ -97,6 +110,23 @@ def _compare(op: ast.cmpop, left: Any, right: Any) -> bool:
     if isinstance(op, ast.NotIn):
         return left not in right
     raise ValueError(f"comparison not allowed: {type(op).__name__}")
+
+
+def referenced_attributes(expr: str) -> Set[Tuple[str, str]]:
+    """Every ``(root, attribute)`` pair the expression reads.
+
+    ``subject.tenant == target.tenant`` yields ``{("subject", "tenant"),
+    ("target", "tenant")}``. This is what lets a matrix be checked before it is
+    run: a condition naming an attribute no subject declares is a typo, and the
+    only alternative to reporting it is discovering it as a wrong verdict.
+
+    Raises ``SyntaxError`` if the expression does not parse.
+    """
+    found: Set[Tuple[str, str]] = set()
+    for node in ast.walk(ast.parse(expr, mode="eval")):
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            found.add((node.value.id, node.attr))
+    return found
 
 
 def safe_eval(expr: str, names: Dict[str, Any]) -> Any:
