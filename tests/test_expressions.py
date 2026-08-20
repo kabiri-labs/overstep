@@ -158,3 +158,35 @@ def test_referenced_attributes_sees_past_a_short_circuit():
         ("subject", "a"),
         ("subject", "b"),
     }
+
+
+def test_a_skipped_branch_is_still_checked():
+    """Legality is a property of the expression, not of the path taken.
+
+    While every operand was evaluated the distinction did not exist. Once `and`
+    and `or` stop early it does, and checking each node as it is reached would
+    leave an unreached branch unchecked — so `True or __import__('os')` would
+    answer True, and in the planner a condition that used to raise and deny
+    would grant. The whole tree is checked before any of it runs.
+    """
+    with pytest.raises(ValueError, match="not allowed"):
+        safe_eval("True or __import__('os')", {})
+    with pytest.raises(ValueError, match="not allowed"):
+        safe_eval("False and __import__('os')", {})
+
+
+def test_a_skipped_branch_cannot_smuggle_a_private_attribute():
+    ctx = {"subject": {"role": "user"}}
+    with pytest.raises(ValueError, match="private attribute"):
+        safe_eval("True or subject.__class__", ctx)
+
+
+def test_a_skipped_branch_cannot_smuggle_an_unknown_name():
+    with pytest.raises(ValueError, match="unknown name"):
+        safe_eval("True or secret", {})
+
+
+def test_slices_are_still_refused():
+    ctx = {"subject": {"tags": [1, 2, 3]}}
+    with pytest.raises(ValueError):
+        safe_eval("subject.tags[0:2] == [1, 2]", ctx)
