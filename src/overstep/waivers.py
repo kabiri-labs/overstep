@@ -15,7 +15,7 @@ surface) — a waiver is a per-finding, human-authored exception.
 from __future__ import annotations
 
 import datetime
-from typing import Dict, List, Optional, Set, Tuple
+from typing import List, Optional, Set, Tuple
 
 from pydantic import BaseModel, ValidationError, field_validator
 
@@ -106,40 +106,51 @@ def apply_waivers(
     active: List[Finding] = []
     waived: List[Finding] = []
     warnings: List[str] = []
-    seen_expired: Dict[str, bool] = {}
-    # Recorded on `matches`, not on suppression: an expired waiver found its
-    # finding, and saying it matched nothing on top of saying it expired would
-    # be two contradictory notes about one entry.
-    matched: Set[str] = set()
+    # Deduplicated on the message, since that is what a reader would see twice.
+    seen_expired: Set[str] = set()
+    # Positions, not ids. Two entries can share an `id` and differ by
+    # `vuln_class` — one test_id really can carry two findings, a BOLA and the
+    # authorization-drift on the same case — so keying by id would let a
+    # matching entry vouch for a mistyped one beside it, which is the exact
+    # silence this function was extended to remove.
+    matched: Set[int] = set()
 
     for finding in findings:
         suppressor: Optional[Waiver] = None
-        for waiver in waivers:
+        for index, waiver in enumerate(waivers):
             if not waiver.matches(finding):
                 continue
-            matched.add(waiver.id)
+            # Recorded for every match, not just the one that suppresses: an
+            # entry that matched and was passed over — because it expired, or
+            # because an earlier one already covered the finding — did find its
+            # finding, and calling it unmatched would be false.
+            matched.add(index)
             if waiver.is_expired(today):
-                if not seen_expired.get(waiver.id):
-                    warnings.append(
-                        f"waiver for '{waiver.id}' expired on {waiver.expires}; "
-                        f"the finding is active again — review and renew it."
-                    )
-                    seen_expired[waiver.id] = True
+                message = (
+                    f"waiver for '{waiver.id}' expired on {waiver.expires}; "
+                    f"the finding is active again — review and renew it."
+                )
+                if message not in seen_expired:
+                    warnings.append(message)
+                    seen_expired.add(message)
                 continue
-            suppressor = waiver
-            break
+            if suppressor is None:
+                suppressor = waiver
         if suppressor is not None:
             waived.append(finding)
         else:
             active.append(finding)
 
-    for waiver in waivers if report_unmatched else ():
-        if waiver.id in matched:
+    for index, waiver in enumerate(waivers if report_unmatched else ()):
+        if index in matched:
             continue
+        # Name the scope when there is one: two entries can share an id, and a
+        # message identifying only the id would not say which is wrong.
+        scope = f" (vuln_class: {waiver.vuln_class})" if waiver.vuln_class else ""
         warnings.append(
-            f"waiver for '{waiver.id}' matched no finding — either the id is "
-            f"wrong and the risk is not actually waived, or the finding is fixed "
-            f"and the waiver should be removed."
+            f"waiver for '{waiver.id}'{scope} matched no finding — either the id "
+            f"is wrong and the risk is not actually waived, or the finding is "
+            f"fixed and the waiver should be removed."
         )
 
     return active, waived, warnings

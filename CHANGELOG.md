@@ -12,9 +12,16 @@ wrong and the risk somebody signed off on is not actually waived, or the finding
 is fixed and an accepted risk with nothing behind it is sitting in version
 control until someone re-reads it and believes it.
 
-An *expired* waiver is not also called unmatched. It found its finding; it just
-no longer suppresses it, and two notes about one entry saying opposite things
-would help nobody.
+An *expired* waiver is not also called unmatched, and neither is one that
+matched a finding another entry had already suppressed. Both found their
+finding; two notes about one entry saying opposite things would help nobody.
+
+Entries are tracked individually rather than by `id`. A file can hold two
+waivers with the same id and different `vuln_class` scopes — one test_id really
+can carry two findings, a vulnerability and the authorization-drift on the same
+case — and keying on the id let the entry that matched vouch for a mistyped one
+beside it. The warning names the scope when there is one, since the id alone
+would not say which entry is wrong.
 
 Nothing is reported when the run itself proved nothing. On an unreachable target
 no finding exists for any waiver to match, and saying each one may be fixed
