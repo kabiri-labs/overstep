@@ -395,7 +395,21 @@ Reports land in `out/`:
 | `junit.xml` | CI test reporters |
 
 `overstep run` exits non-zero on findings, so it fails a pipeline out of the box.
-A stdio variant of the same demo lives at `examples/mcp_api/matrix_stdio.yaml`.
+A stdio variant of the same demo lives at `examples/mcp_api/matrix_stdio.yaml`,
+and the server that *enforces* this matrix at
+[`examples/secure_mcp/`](examples/secure_mcp/):
+
+```bash
+python -m uvicorn examples.secure_mcp.server:app --port 9010
+overstep run examples/secure_mcp/matrix.yaml --out out
+```
+
+The same twenty-seven tests, zero vulnerabilities, exit 0 — with both object
+doors probed across owners, all eight expected-allow tests allowed, and the
+session and enumeration probes *run and passed* rather than skipped. On this
+surface especially, a clean result needs that second half: there is no status
+code to lean on, so a server that answered nothing looks much like one that
+refused correctly.
 
 ### Pointing it at your own target
 

@@ -217,7 +217,8 @@ def test_validate_passes_every_bundled_matrix():
     """The examples are the documentation; a broken one teaches a broken matrix."""
     for rel in ("examples/rest_api/matrix.yaml", "examples/mcp_api/matrix.yaml",
                 "examples/mcp_api/matrix_stdio.yaml", "examples/mcp_api/matrix_setup.yaml",
-                "examples/injections/matrix.yaml", "examples/crapi/matrix.yaml"):
+                "examples/injections/matrix.yaml", "examples/crapi/matrix.yaml",
+                "examples/secure_api/matrix.yaml", "examples/secure_mcp/matrix.yaml"):
         result = CliRunner().invoke(app, ["validate", os.path.join(ROOT, rel)])
         assert result.exit_code == 0, f"{rel}: {result.output}"
 

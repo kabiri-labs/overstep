@@ -235,6 +235,8 @@ def test_an_mcp_matcher_on_a_rest_resource_is_refused():
     "examples/mcp_api/matrix_setup.yaml",
     "examples/injections/matrix.yaml",
     "examples/crapi/matrix.yaml",
+    "examples/secure_api/matrix.yaml",
+    "examples/secure_mcp/matrix.yaml",
 ])
 def test_every_bundled_matrix_uses_the_module_layout(path):
     """A shipped example on the old layout would not load at all."""

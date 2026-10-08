@@ -53,6 +53,21 @@ other command already had it, and a matrix that keeps credentials out of the fil
 refers to them as `${VAR}`, so the one command whose purpose is to be read before
 anything is sent was the only one a real matrix could not be read by.
 
+**A correctly-authorizing MCP demo**, at `examples/secure_mcp/`. The sibling of
+the REST one added in 1.6.0, and the surface that needs it more: MCP has no
+status code to lean on, so a server that answered nothing reads much like one
+that refused correctly. It fixes every defect the vulnerable demo ships —
+ownership on the tool *and* on the resource URI, role checks at call time, a
+catalogue filtered by role, and an `Mcp-Session-Id` that is issued but never
+authenticates. Its test asserts the session and enumeration probes were
+**exercised and passed** rather than skipped, which is also the regression test
+for the control above: a control too eager would skip here, and a skipped probe
+over a sound server is a question nobody asked.
+
+Both secure matrices now appear in the bundled-matrix contracts that assert every
+shipped example loads and lints clean; the REST one was added in 1.6.0 without
+being registered there.
+
 **`examples/crapi/`** is rewritten around what a live run actually needs: the
 signup and vehicle-claim flow that gives two identities genuinely different
 objects, tokens via `--env-file`, object ids in `objects:` rather than

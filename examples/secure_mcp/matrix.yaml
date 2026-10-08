@@ -1,0 +1,71 @@
+# The same matrix as examples/mcp_api, pointed at the server that enforces it.
+#
+#   python -m uvicorn examples.secure_mcp.server:app --port 9010
+#   overstep run examples/secure_mcp/matrix.yaml --out out
+#
+# Expect: 0 vulnerabilities, exit 0, and — the part that matters — a conclusive
+# run with every expected-allow test allowed. A clean MCP result is also what an
+# unreachable server and a rejected credential produce.
+roles: [anonymous, user, admin]
+
+modules:
+  mcp:
+    servers:
+      - name: docs
+        url: http://127.0.0.1:9010/mcp
+
+    access:
+      is_error_is_deny: true
+      jsonrpc_error_is_deny: true
+      # The half that is easy to miss, and the one this server needs: it refuses
+      # an unauthenticated request on the HTTP leg, with a body that is a
+      # JSON-RPC error but a status that is the real signal. Without reading the
+      # status, a server that rejects *before* dispatching is exactly the one a
+      # run would report wide open.
+      deny_status: ["4xx", "5xx"]
+
+    probes:
+      # Asked for deliberately: this server filters its catalogue by role, and
+      # the probe passing is the evidence for that. Left off, a filtered
+      # catalogue and an unfiltered one look identical in the report.
+      tool_enumeration: true
+
+subjects:
+  - { name: alice, role: user,  token: alice-token, marker: "alice@corp.example", attributes: { doc_id: d-alice } }
+  - { name: bob,   role: user,  token: bob-token,   marker: "bob@corp.example",   attributes: { doc_id: d-bob } }
+  - { name: root,  role: admin, token: admin-token }
+  - { name: anon,  role: anonymous, token: null }
+
+resources:
+  - name: read_document
+    call: { server: docs, tool: read_document }
+    type: object
+    owner: doc_id
+    owner_attr: doc_id
+  - name: read_doc_resource
+    read: { server: docs, uri: "doc://acme/{doc_id}" }
+    type: object
+    owner: doc_id
+    owner_attr: doc_id
+  - name: list_all_users
+    call: { server: docs, tool: list_all_users }
+    type: function
+  - name: reset_tenant
+    call: { server: docs, tool: reset_tenant, mutating: true }
+    type: function
+
+policy:
+  read_document:
+    allow:
+      - { role: user, scope: own }
+      - { role: admin, scope: any }
+  read_doc_resource:
+    allow:
+      - { role: user, scope: own }
+      - { role: admin, scope: any }
+  list_all_users:
+    allow:
+      - { role: admin }
+  reset_tenant:
+    allow:
+      - { role: admin }
