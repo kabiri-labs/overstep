@@ -10,7 +10,7 @@ live target.
 from __future__ import annotations
 
 import os
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 from overstep.auth import authenticate as default_authenticator
 from overstep.classifier import classify
@@ -121,6 +121,7 @@ def run_pipeline(
     *,
     baseline: Optional[dict] = None,
     waivers: Optional[List["Waiver"]] = None,
+    matrix_errors: Optional[Sequence[str]] = None,
     concurrency: int = 10,
     verify_tls: bool = True,
     read_only: bool = False,
@@ -136,6 +137,12 @@ def run_pipeline(
     Shares :func:`_execute_stages` with ``snapshot`` so both commands authenticate,
     set up, plan, dispatch and tear down identically. The auth, setup and teardown
     stages are no-ops unless the matrix declares them, so simple runs pay nothing.
+
+    ``matrix_errors`` are the caller's error-level diagnostics for the matrix
+    file, which only the caller can produce — the placeholder scan reads the
+    document, and this function is handed the parsed model. They reach the health
+    verdict, so a matrix that cannot describe a usable test is reported as an
+    inconclusive run rather than a clean one; see :mod:`overstep.health`.
     """
     resolved = resolve_base_url(matrix, base_url)
     cases, observations, teardown_warnings = _execute_stages(
@@ -172,7 +179,7 @@ def run_pipeline(
     # is worth drawing conclusions from: on an unreachable target no finding
     # exists for any waiver to match, and "this one may be fixed" would be a
     # claim about something nobody observed.
-    health = assess_health(cases, observations)
+    health = assess_health(cases, observations, blocking_problems=matrix_errors or ())
 
     waived: List = []
     warnings: List[str] = []
@@ -192,6 +199,7 @@ def run_pipeline(
         warnings=warnings,
         health=health,
         coverage=assess_coverage(matrix, cases),
+        read_only=read_only,
     )
 
 
@@ -199,6 +207,7 @@ def snapshot_pipeline(
     matrix: Matrix,
     base_url: Optional[str] = None,
     *,
+    matrix_errors: Optional[Sequence[str]] = None,
     concurrency: int = 10,
     verify_tls: bool = True,
     read_only: bool = False,
@@ -223,6 +232,11 @@ def snapshot_pipeline(
     was never authenticated: such a baseline records "everything is denied" and
     would report the next healthy run as wholesale authorization drift. Pass
     ``allow_inconclusive=True`` to write it anyway.
+
+    ``matrix_errors`` reaches the same verdict here as in :func:`run_pipeline`,
+    and matters more: a baseline is the thing every later run is measured
+    against, so one recorded from a matrix with an unfilled placeholder does not
+    merely mislead once.
     """
     resolved = resolve_base_url(matrix, base_url)
     cases, observations, teardown_warnings = _execute_stages(
@@ -238,10 +252,47 @@ def snapshot_pipeline(
         setup_runner=setup_runner,
         teardown_runner=teardown_runner,
     )
-    health = assess_health(cases, observations)
+    health = assess_health(cases, observations, blocking_problems=matrix_errors or ())
     if health.inconclusive and not allow_inconclusive:
         raise InconclusiveRunError(health)
     return build_snapshot(cases, observations), teardown_warnings
+
+
+def clear_reports(outdir: str) -> List[str]:
+    """Delete the documents a previous run left in ``outdir``; return the paths.
+
+    ``run`` writes its reports last, so a run that dies before that — a matrix
+    that will not parse, a setup step that fails, a dispatch that is interrupted
+    — leaves the previous run's documents exactly where they were, with nothing
+    in them that says they are a week old. The next reader cannot tell them from
+    the run they just watched fail. That is the fail-open shape in document form,
+    and the clean report is the dangerous half of it: stale findings at least
+    look like work to do, while a stale ``Vulnerabilities 0`` reads as a pass.
+
+    Only the filenames the registered reporters own are removed, so a directory
+    the user keeps other files in survives. A missing directory is not an error;
+    nothing is stale in a directory that does not exist yet.
+
+    A file that cannot be removed raises :class:`PipelineError` rather than being
+    passed over. Carrying on would leave exactly the document this function
+    exists to remove, and the common cause — a ``report.html`` still open in a
+    browser — is one sentence away from fixed.
+    """
+    removed: List[str] = []
+    for spec in all_reporters():
+        path = os.path.join(outdir, spec.filename)
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise PipelineError(
+                f"could not remove the previous run's '{path}' ({exc}) — it would "
+                f"be left behind and read as this run's result. Close whatever "
+                f"holds the file open, or choose another --out directory."
+            ) from exc
+        removed.append(path)
+    return removed
 
 
 def write_reports(result: RunResult, outdir: str) -> List[str]:

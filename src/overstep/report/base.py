@@ -120,6 +120,13 @@ def summarize(result: RunResult) -> Dict[str, object]:
         # Surfaces (resource + method) that got nothing through, so this run
         # says nothing about them.
         "untested_surfaces": list(result.health.untested_surfaces),
+        # Whether mutating operations were skipped, and which surfaces that cost
+        # the run. Without these a --read-only run and a full one produce the
+        # same document, so "no findings" cannot be read for how much of the
+        # surface it covers.
+        "read_only": result.read_only,
+        "skipped_tests": result.health.skipped,
+        "skipped_surfaces": list(result.health.skipped_surfaces),
         # "No BOLA findings" is only evidence for the object resources this run
         # could actually probe across owners; the rest were never asked.
         "object_resources": result.coverage.object_resources,

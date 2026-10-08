@@ -38,6 +38,7 @@ from overstep.preflight import check as preflight_check
 from overstep.pipeline import (
     InconclusiveRunError,
     PipelineError,
+    clear_reports,
     resolve_base_url,
     run_pipeline,
     snapshot_pipeline,
@@ -122,6 +123,24 @@ def _diagnose(matrix_path: str, spec: Matrix) -> list[Problem]:
     return scan_placeholders(matrix_path) + spec.diagnose()
 
 
+def _report_problems(problems: list[Problem]) -> list[str]:
+    """Print every diagnostic and return the error-level ones as strings.
+
+    The return value is what reaches the health verdict, so the split matters.
+    A warning describes a matrix that runs and tests less than it looks like — a
+    legitimate file with a gap worth knowing about — while an error describes
+    one that cannot answer the question it was written to ask. Only the second
+    voids the run, and the strings are what :mod:`overstep.health` quotes back.
+    """
+    errors: list[str] = []
+    for problem in problems:
+        level = "bold red" if problem.severity is Severity.ERROR else "yellow"
+        console.print(f"[{level}]{problem.severity.value}:[/] {problem}")
+        if problem.severity is Severity.ERROR:
+            errors.append(str(problem))
+    return errors
+
+
 def _preflight(spec: Matrix, base: Optional[str], *, verify_tls: bool) -> list[Problem]:
     """Ask the target the two questions the file cannot answer.
 
@@ -169,15 +188,25 @@ def run(
     """Run the matrix against a live target and write reports."""
     _validate_fail_on(fail_on)
     spec = _load(matrix, env_file)
-    # Said before the first request goes out: an unfilled placeholder makes the
-    # whole run inconclusive, and the file is the only place that says which
-    # line to edit. The run still proceeds — the exit code stays the business of
-    # --fail-on and the health verdict.
-    for problem in _diagnose(matrix, spec):
-        level = "bold red" if problem.severity is Severity.ERROR else "yellow"
-        console.print(f"[{level}]{problem.severity.value}:[/] {problem}")
+    # Said before the first request goes out: the file is the only place that
+    # says which line to edit. The errors also travel into the health verdict,
+    # so a matrix that cannot describe a usable test is reported as an
+    # inconclusive run rather than a clean one — a placeholder token is refused
+    # by every request it sends, which otherwise reads as eleven passed negative
+    # tests. The run still proceeds and still writes its reports: the reader
+    # needs to see what such a matrix actually produced.
+    matrix_errors = _report_problems(_diagnose(matrix, spec))
 
     base_url = _resolve(spec, base)
+
+    # Before the first request, not after the last: a run that dies in setup or
+    # is interrupted never reaches write_reports, and the previous run's
+    # documents would be left sitting in --out looking exactly like this run's.
+    try:
+        clear_reports(out)
+    except PipelineError as exc:
+        console.print(f"[bold red]error:[/] {exc}")
+        raise typer.Exit(code=2)
     try:
         snapshot_data = load_snapshot(baseline) if baseline else None
         waiver_list = load_waivers(waivers) if waivers else None
@@ -191,6 +220,7 @@ def run(
             base_url,
             baseline=snapshot_data,
             waivers=waiver_list,
+            matrix_errors=matrix_errors,
             concurrency=concurrency,
             verify_tls=not insecure,
             read_only=read_only,
@@ -246,11 +276,17 @@ def snapshot(
     HTTP, MCP and mixed matrices all snapshot correctly.
     """
     spec = _load(matrix, env_file)
+    # A baseline is what every later run is measured against, so a matrix with
+    # an unfilled placeholder does not merely mislead once: it records
+    # "everything is denied" and reports the first healthy run as wholesale
+    # drift. Diagnosed here for the same reason as in `run`, and refused.
+    matrix_errors = _report_problems(_diagnose(matrix, spec))
     base_url = _resolve(spec, base)
     try:
         snap, warnings = snapshot_pipeline(
             spec,
             base_url,
+            matrix_errors=matrix_errors,
             concurrency=concurrency,
             verify_tls=not insecure,
             read_only=read_only,
@@ -274,9 +310,18 @@ def snapshot(
 def plan_cmd(
     matrix: str = typer.Argument(..., help="Path to the authorization matrix YAML."),
     negative_only: bool = typer.Option(False, help="Show only negative (expected-deny) tests."),
+    env_file: Optional[str] = typer.Option(None, help="dotenv file with ${VAR} values."),
 ):
-    """Print the generated test cases without sending any requests."""
-    spec = _load(matrix)
+    """Print the generated test cases without sending any requests.
+
+    Takes ``--env-file`` for the same reason every other command does, even
+    though it sends nothing: a matrix that keeps its credentials out of the file
+    refers to them as ``${VAR}``, and loading it fails on a missing variable
+    whether or not the values are about to be used. Without the flag, the one
+    command whose whole purpose is to be read *before* anything is sent was the
+    only one a real matrix could not be read by.
+    """
+    spec = _load(matrix, env_file)
     cases = plan(spec)
     table = Table(title="overstep test plan")
     for col in ("Expected", "Class", "Request", "Subject", "Variant"):
@@ -739,8 +784,10 @@ def _print_summary(result: RunResult) -> None:
         table.add_row(f"  {cls}", str(count))
     _add_coverage_row(table, result.coverage)
     _add_delivery_row(table, result.health)
+    _add_skipped_row(table, result)
     console.print(table)
     _print_unprobed(result.coverage)
+    _print_skipped(result)
 
 
 def _add_delivery_row(table: Table, health: RunHealth) -> None:
@@ -757,6 +804,40 @@ def _add_delivery_row(table: Table, health: RunHealth) -> None:
     if health.undelivered_negative:
         cell += f" ({health.undelivered_negative} negative)"
     table.add_row("[yellow]Never delivered[/]", cell)
+
+
+def _add_skipped_row(table: Table, result: RunResult) -> None:
+    """State how many requests were deliberately not sent.
+
+    A skipped probe produces no finding, which in every count on this table is
+    indistinguishable from a probe that ran and found the endpoint sound — so
+    without this row a `--read-only` run and a full one print the same summary.
+    On the REST demo that is the difference between eight findings and four.
+    Omitted when nothing was skipped: a row that is always there stops being
+    read.
+    """
+    if not result.health.skipped:
+        return
+    label = "Skipped (--read-only)" if result.read_only else "Skipped"
+    table.add_row(f"[yellow]{label}[/]", str(result.health.skipped))
+
+
+def _print_skipped(result: RunResult) -> None:
+    """Name the surfaces nothing was sent to, so a clean result is not read for them."""
+    if not result.health.skipped_surfaces:
+        return
+    console.print(
+        f"[yellow]note:[/] no request was sent to "
+        f"{len(result.health.skipped_surfaces)} surface(s), so this run says "
+        f"nothing about authorization on them:"
+    )
+    for surface in result.health.skipped_surfaces:
+        console.print(f"  [yellow]•[/] {surface}")
+    if result.read_only:
+        console.print(
+            "  [dim]--read-only skips mutating operations; it does not skip "
+            "setup/teardown steps, which still run and still change state[/]"
+        )
 
 
 def _add_coverage_row(table: Table, coverage: ProbeCoverage) -> None:
