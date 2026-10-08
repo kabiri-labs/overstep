@@ -1,5 +1,64 @@
 # Changelog
 
+## [1.7.0] - 2026-10-09
+
+Both changes come from pointing overstep at a live third-party MCP server — the
+one OWASP crAPI ships — rather than at the demo in this repository. Each made the
+tool wrong against the default Python MCP framework, and neither was reachable
+from a hand-written fixture.
+
+### Fixed
+
+**The session-binding probe no longer reports a hijack when riding the subject's
+session gains nothing.** Its control was "the same anonymous request without the
+session id". A stateful server requires a session id on *every* request and
+refuses one that carries none with `Bad Request: Missing session ID` — a protocol
+refusal, not an authorization one — so on such a server the control could never
+clear the probe and **every credentialed subject produced a confirmed,
+high-severity `session-hijack` finding for free**. That is the default behaviour
+of FastMCP, so most third-party Streamable HTTP servers were affected; on the
+crAPI run it was 3 of 14 findings and 3 of 6 defects.
+
+A second control decides it now: the same request carrying a session the
+anonymous caller opened *itself*. A hijack means the victim's session conveyed
+authority the caller could not obtain alone, and if the caller can open its own
+session and be served, it could not have — the endpoint needs no credential at
+all, which the function-level and enumeration probes already report. When that
+is the case the probe is recorded as **skipped, with the reason**, the same shape
+as a server that issues no session id: the question was not answered, and
+reporting it as passed would credit a control the server does not have.
+
+Servers where the anonymous caller cannot obtain a session are unaffected, and
+the bundled MCP demo still reports its three session findings — they were always
+real.
+
+**A same-origin redirect on the MCP HTTP leg is followed.** A Streamable HTTP
+endpoint mounted at `/mcp/` commonly answers `/mcp` with a `307`; FastMCP does it
+by default. Neither the executor nor the scaffolder followed it, so a matrix one
+character short reached nothing and reported `tools/list returned no JSON-RPC
+result` — true, about the body, and nowhere near the cause. Every leg of the
+exchange hops now, the handshake included, because a session belongs to the
+endpoint that issued it: hopping only on the call captured no session id, and the
+call was then refused for having none, which was recorded as a denial and so read
+as a passing negative test.
+
+The hop is once, and only to the same scheme, host and port the matrix declared
+— a credential must not be replayed at a host nobody named. A cross-origin
+redirect is still refused, and now says that is what happened.
+
+### Changed
+
+**`overstep plan` takes `--env-file`.** Carried over from the same session: every
+other command already had it, and a matrix that keeps credentials out of the file
+refers to them as `${VAR}`, so the one command whose purpose is to be read before
+anything is sent was the only one a real matrix could not be read by.
+
+**`examples/crapi/`** is rewritten around what a live run actually needs: the
+signup and vehicle-claim flow that gives two identities genuinely different
+objects, tokens via `--env-file`, object ids in `objects:` rather than
+`owner_attr` (a vehicle is keyed by uuid, not by its owner's numeric id), a
+positive control, and the MCP half of the same instance.
+
 ## [1.6.0] - 2026-10-08
 
 ### Changed

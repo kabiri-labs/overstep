@@ -1,52 +1,85 @@
 # Authorization matrix for OWASP crAPI.
 #
-# crAPI is intentionally vulnerable, so overstep should light up with BOLA/BFLA
-# findings once you fill in real tokens. Paths below are examples — adjust them
-# to the endpoints you actually see in your HAR / the crAPI version you run.
+# crAPI is intentionally vulnerable, so overstep should light up once this file
+# names two identities holding genuinely different objects. See README.md in this
+# directory for the signup / vehicle-claim flow that produces them.
+#
+#   overstep validate examples/crapi/matrix.yaml --env-file crapi.env --live
+#   overstep run      examples/crapi/matrix.yaml --env-file crapi.env --out out
+#
+# Paths are for a recent crAPI; adjust them to the version you run.
+
+roles: [anonymous, user, mechanic, admin]
 
 modules:
   rest:
     base_url: http://localhost:8888
 
-roles: [anonymous, user, mechanic, admin]
-
 subjects:
+  # Tokens stay out of this file. Put the JWTs in a dotenv file and pass
+  # --env-file; the `${VAR:-fallback}` form means this example still loads
+  # without one, with a placeholder that cannot be mistaken for a credential.
+  #
+  # `marker` is a string that appears only in *this* subject's data. It is what
+  # turns a cross-owner 200 into a `confirmed` finding instead of a `suspected`
+  # one: without it, an empty list and a leaked record look the same.
   - name: alice
     role: user
-    token: PASTE_ALICE_JWT_HERE
-    attributes: { user_id: "1" }      # numeric id crAPI assigns; read it from the JWT
+    token: "${CRAPI_ALICE_TOKEN:-PASTE_ALICE_JWT_HERE}"
+    marker: "alice@example.test"
   - name: bob
     role: user
-    token: PASTE_BOB_JWT_HERE
-    attributes: { user_id: "2" }
+    token: "${CRAPI_BOB_TOKEN:-PASTE_BOB_JWT_HERE}"
+    marker: "bob@example.test"
+  - name: root
+    role: admin
+    token: "${CRAPI_ADMIN_TOKEN:-PASTE_ADMIN_JWT_HERE}"
+    marker: "admin@example.com"
   - name: anon
     role: anonymous
     token: null
 
 resources:
-  - name: get_vehicle_location
+  # The positive control. Every authenticated identity may read its own
+  # dashboard, so an allowed answer here is what proves the credential still
+  # works — and without at least one such case per target, an expired JWT turns
+  # every negative test into a pass for the wrong reason.
+  - name: user_dashboard
+    request: { method: GET, path: "/identity/api/v2/user/dashboard" }
+    type: function
+
+  # Object-level: a vehicle's live location. The id is the vehicle **uuid** from
+  # `GET /identity/api/v2/vehicle/vehicles`, not the owner's numeric user id —
+  # `objects:` is how each subject gets the one it really owns. Give two subjects
+  # the same value and the cross-owner probe disappears, which `validate` warns
+  # about.
+  - name: vehicle_location
     request: { method: GET, path: "/identity/api/v2/vehicle/{vehicleId}/location" }
     type: object
     owner: vehicleId
-    owner_attr: user_id                # map to the attribute that owns the object
-  - name: get_user_orders
-    request: { method: GET, path: "/workshop/api/shop/orders/{orderId}" }
-    type: object
-    owner: orderId
-    owner_attr: user_id
-  - name: list_all_users
-    request: { method: GET, path: "/identity/api/v2/admin/users" }
+    # Example uuids, and they are only examples: a run against them probes
+    # objects nobody owns. Replace all three with the real values from
+    # `GET /identity/api/v2/vehicle/vehicles` before you believe a result.
+    objects:
+      alice: "00000000-0000-4000-8000-0000000a11ce"
+      bob: "00000000-0000-4000-8000-00000000b0b1"
+      root: "00000000-0000-4000-8000-0000000c0de5"
+
+  # Function-level: the whole shop's order history rather than the caller's own.
+  - name: all_shop_orders
+    request: { method: GET, path: "/workshop/api/shop/orders/all" }
     type: function
 
 policy:
-  get_vehicle_location:
+  user_dashboard:
+    allow:
+      - { role: user }
+      - { role: mechanic }
+      - { role: admin }
+  vehicle_location:
     allow:
       - { role: user, scope: own }    # a driver sees only their own vehicle
       - { role: admin, scope: any }
-  get_user_orders:
+  all_shop_orders:
     allow:
-      - { role: user, scope: own }
-      - { role: admin, scope: any }
-  list_all_users:
-    allow:
-      - { role: admin }
+      - { role: admin }               # admin-only

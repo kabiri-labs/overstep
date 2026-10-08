@@ -2,7 +2,7 @@
 
 **Authorization testing for REST APIs and MCP servers — one problem class, two surfaces.**
 
-![Version](https://img.shields.io/badge/version-1.6.0-blue)
+![Version](https://img.shields.io/badge/version-1.7.0-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -640,11 +640,27 @@ valid at several of your declared servers.
 
 **Session binding.** Streamable HTTP hands out an `Mcp-Session-Id` at `initialize`,
 and the spec is explicit that it must not authenticate. The probe opens a session
-as the subject, then sends the same **anonymous** request twice — once carrying the
-session id, once without. The second request is the control: a server whose listing
-is simply public answers both, and calling that a hijack would be a finding about
-nothing. Only the difference counts. A server that issues no session id has
-nothing to hijack, and the probe is recorded as skipped rather than passed.
+as the subject, then sends an **anonymous** request carrying that session id. Two
+controls decide whether the answer means anything, and both have to agree before
+it is a finding:
+
+- **the same request without the session id.** A server whose listing is simply
+  public answers that too, and calling it a hijack would be a finding about
+  nothing.
+- **the same request with a session the anonymous caller opened itself.** The
+  first control is not enough on a stateful server: such a server requires a
+  session id on *every* request and refuses one that carries none with a
+  protocol error — `Bad Request: Missing session ID` — which says nothing about
+  authority. On its own, that control can never clear the probe, so every
+  subject would yield a confirmed hijack for free. What makes a hijack real is
+  that the victim's session carried authority the caller could not obtain alone;
+  if the caller can open its own session and be served, it could not have. Such
+  a server needs no credential at all, which the function-level and enumeration
+  probes report instead.
+
+A server that issues no session id has nothing to hijack, and the probe is
+recorded as skipped rather than passed — as it is when the second control shows
+there was nothing to gain.
 
 **Tool enumeration.** Opt-in via `modules.mcp.probes.tool_enumeration: true`, because listing
 everything and enforcing at call time is a common and defensible design. It calls
@@ -675,6 +691,12 @@ modules:
         url: https://mcp.example.com/mcp
         protocol_version: "2026-07-28"     # default: 2025-06-18
 ```
+
+**The endpoint's spelling.** A Streamable HTTP server mounted at `/mcp/` commonly
+answers `/mcp` with a `307`, so overstep follows a redirect once — and only while
+it stays on the scheme, host and port the matrix declared, because a credential
+must not be replayed at a host you did not name. A cross-origin redirect is
+refused and says so, rather than being reported as an unreadable response.
 
 You do not have to know which one to write — `scaffold` asks the server
 (`server/discover` first, then a negotiated `initialize`) and records the answer.
