@@ -22,6 +22,9 @@
     "undelivered_tests": 0,
     "undelivered_negative_tests": 0,
     "untested_surfaces": [],
+    "read_only": false,
+    "skipped_tests": 0,
+    "skipped_surfaces": [],
     "object_resources": 2,
     "object_resources_probed": 2,
     "object_resources_unprobed": []

@@ -1,0 +1,49 @@
+# The same matrix as examples/rest_api, pointed at the target that enforces it.
+#
+#   python -m uvicorn examples.secure_api.server:app --port 8010
+#   overstep run examples/secure_api/matrix.yaml --out out
+#
+# Expect: 0 vulnerabilities, exit 0, and — the part that matters — a conclusive
+# run with every expected-allow test allowed. A clean result is only worth
+# something if the run could have seen a finding.
+roles: [anonymous, user, admin]
+
+modules:
+  rest:
+    base_url: http://127.0.0.1:8010
+
+subjects:
+  # Markers let the object-level probes be graded: if a cross-owner read ever
+  # did get through, the victim's marker in the body is what makes the finding
+  # `confirmed` rather than `suspected`.
+  - { name: alice, role: user,      token: alice-token, marker: "alice@example.com", attributes: { user_id: u1 } }
+  - { name: bob,   role: user,      token: bob-token,   marker: "bob@example.com",   attributes: { user_id: u2 } }
+  - { name: root,  role: admin,     token: admin-token, marker: "root@example.com",  attributes: { user_id: u9 } }
+  - { name: anon,  role: anonymous, token: null }
+
+resources:
+  - name: get_user
+    request: { method: GET, path: "/users/{id}" }
+    type: object
+    owner: id
+    owner_attr: user_id
+  - name: delete_user
+    request: { method: DELETE, path: "/users/{id}" }
+    type: object
+    owner: id
+    owner_attr: user_id
+  - name: admin_list_users
+    request: { method: GET, path: "/admin/users" }
+    type: function
+
+policy:
+  get_user:
+    allow:
+      - { role: user, scope: own }
+      - { role: admin, scope: any }
+  delete_user:
+    allow:
+      - { role: admin, scope: any }
+  admin_list_users:
+    allow:
+      - { role: admin }

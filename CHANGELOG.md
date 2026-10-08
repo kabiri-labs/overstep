@@ -1,5 +1,65 @@
 # Changelog
 
+## [1.6.0] - 2026-10-08
+
+### Changed
+
+**A run over a matrix with an error-level problem is now inconclusive (exit 3),
+where it used to exit 0 reporting no vulnerabilities.** This is a change to an
+exit code, so it is called out here rather than buried: a pipeline that fed
+`overstep run` a matrix with an unfilled `PASTE_..._TOKEN` or a policy naming a
+resource that does not exist got a green build. The errors were printed and the
+run carried on, which looked like tolerance and was fail-open — a placeholder
+token is refused by every request it sends, so each negative test passed because
+nothing was ever authorized, and with no positive control to notice, the health
+verdict had nothing to object to.
+
+The matrix's own diagnostics now reach that verdict, so the file joins the
+target as something that can void a result. `--allow-inconclusive` reports
+anyway and keeps the old exit code, exactly as it does for an unreachable
+target. Only *errors* count; warnings describe a matrix that tests less than it
+looks like, which is a legitimate file with a gap worth naming.
+
+`overstep snapshot` gets the same check, and it matters more there: a baseline
+is what every later run is measured against, so one recorded from a placeholder
+matrix says "everything is denied" and reports the first healthy run as
+wholesale authorization drift. It previously ran no diagnostics at all.
+
+**`overstep run` clears the previous run's reports from `--out` before sending
+anything.** Reports were written last, so a run that died in setup, failed to
+parse its baseline or was interrupted left the earlier run's documents sitting
+there with nothing in them to say they were a week old — indistinguishable from
+the run the reader had just watched fail. The clean ones are the dangerous half:
+stale findings at least look like work to do, while a stale `Vulnerabilities 0`
+reads as a pass. Only the filenames the registered reporters own are removed, so
+a directory you keep your own files in survives, and a file that cannot be
+removed stops the run rather than being left behind.
+
+### Added
+
+**`findings.json` says whether mutating operations were skipped.** `summary`
+gains `read_only`, `skipped_tests` and `skipped_surfaces`; the CLI summary gains
+a row, and names the surfaces nothing was sent to. A `--read-only` run and a
+full one previously produced byte-identical summaries — on the bundled REST demo
+that is the difference between eight findings and four — so "no findings" could
+not be read for how much of the surface it covered. The three keys are additive:
+nothing else in any document moved, so a committed baseline, a waivers file
+keyed on `test_id`, a dashboard reading `findings.json` and a SARIF suppression
+are all unaffected.
+
+**`overstep plan` takes `--env-file`.** Every other command already did. A
+matrix that keeps its credentials out of the file refers to them as `${VAR}`,
+and loading fails on a missing variable whether or not the values are about to
+be used — so the one command whose whole purpose is to be read *before* anything
+is sent was the only one a real matrix could not be read by.
+
+**A correctly-authorizing demo target**, at `examples/secure_api/`. The broken
+demo shows overstep finding holes; this one shows it staying quiet for the right
+reason, which is the harder claim and the one a gate rests on. Its test asserts
+the run was conclusive, every positive control was allowed and the cross-owner
+probes were generated — because an unreachable target reports zero
+vulnerabilities too.
+
 ## [1.5.1] - 2026-10-08
 
 ### Fixed

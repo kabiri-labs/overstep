@@ -2,7 +2,7 @@
 
 **Authorization testing for REST APIs and MCP servers — one problem class, two surfaces.**
 
-![Version](https://img.shields.io/badge/version-1.5.1-blue)
+![Version](https://img.shields.io/badge/version-1.6.0-blue)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -308,6 +308,20 @@ overstep run examples/rest_api/matrix.yaml --out out
 
 Eight probes got through, tracing back to **three** distinct defects — one row per
 thing to fix, with the subjects that reached it as evidence of blast radius.
+
+The same matrix against a target that *does* enforce it ships alongside, at
+[`examples/secure_api/`](examples/secure_api/):
+
+```bash
+python -m uvicorn examples.secure_api.server:app --port 8010
+overstep run examples/secure_api/matrix.yaml --out out
+```
+
+Zero vulnerabilities and exit 0 — and, the part worth checking, a conclusive run
+with all seven expected-allow tests allowed and both object resources probed
+across owners. An unreachable target reports zero too, so the second half is
+what makes the first mean anything; see
+[what a clean result is allowed to mean](#what-a-clean-result-is-allowed-to-mean).
 
 ### Worked example: the MCP module
 
@@ -770,7 +784,12 @@ Keep `matrix.yaml`, `baseline.json` and `waivers.yaml` in version control and
 authorization gets reviewed like any other code.
 
 **Safety and pipeline flags.** `--read-only` skips every mutating operation
-(POST/PUT/PATCH/DELETE over HTTP, any tool marked `mutating` over MCP).
+(POST/PUT/PATCH/DELETE over HTTP, any tool marked `mutating` over MCP), and the
+run says so: the summary carries a skipped count and names the surfaces nothing
+was sent to, and `findings.json` records `read_only`, `skipped_tests` and
+`skipped_surfaces`. It does **not** skip `setup:` and `teardown:` steps, which
+still run and still change state, and a mutating operation the matrix declares as
+non-mutating is still sent — the flag reads the declaration, not the target.
 `--max-retries N` (default 2) retries `429`/`503`, honouring `Retry-After`.
 `--concurrency N` bounds in-flight requests. Ready-made artifacts:
 [`examples/ci/github-actions.yml`](examples/ci/github-actions.yml),
@@ -792,6 +811,22 @@ per target, so a busy healthy one cannot outvote a small one that answered nothi
 Exit code 3 is distinct from 1 (findings) and 2 (bad input), so CI can tell "your
 server has a hole" from "the scan never ran", and `snapshot` refuses to write a
 baseline against a dead target. `--allow-inconclusive` reports anyway.
+
+**The file can void a run too.** An error-level problem in the matrix — a
+`PASTE_..._TOKEN` nobody filled in, a policy naming a resource that does not
+exist — makes the run inconclusive for the same reason an unreachable target
+does: a placeholder credential is refused everywhere, so every negative test
+passes because nothing was authorized, and with no working positive control
+there is nothing to notice. Warnings do not count; they describe a matrix that
+runs and tests less than it looks like, which is a legitimate file with a gap
+worth naming. `validate` is still where these are cheapest to see, and `--strict`
+is what fails on the warnings too.
+
+**Reports are cleared before the run, not written after it.** `run` removes the
+documents a previous run left in `--out` before it sends anything, because a run
+that dies in setup or is interrupted never reaches the writing step and would
+otherwise leave last week's reports looking exactly like this run's. Only the
+filenames overstep's own reporters own are touched.
 
 **The credential half of that check needs expected-allow tests to work, on the
 target you want it to speak for.** An allowed request is the only thing that
@@ -833,7 +868,7 @@ run reports a resource nobody probed instead of counting it as clean.
 |---|---|
 | `overstep scaffold SPEC` | draft a matrix from a live MCP server, `tools.json`, OpenAPI or HAR |
 | `overstep validate MATRIX` | lint for structural problems and unfilled placeholders (`--live` probes the target; `--strict` fails on warnings) |
-| `overstep plan MATRIX` | print the generated test cases (no network) |
+| `overstep plan MATRIX` | print the generated test cases (no network; `--env-file` for a matrix whose credentials are `${VAR}`) |
 | `overstep coverage MATRIX` | report what the matrix covers, vs. `--spec` and vs. its own object surface (no network) |
 | `overstep run MATRIX` | generate, execute and report; non-zero exit on findings |
 | `overstep snapshot MATRIX` | record current decisions as a drift baseline |
@@ -854,7 +889,8 @@ run reports a resource nobody probed instead of counting it as clean.
 | `--insecure` | ✅ | ✅ | disable TLS verification |
 
 Exit codes: **0** clean · **1** findings (per `--fail-on`) · **2** bad input or
-setup failure · **3** inconclusive run.
+setup failure · **3** inconclusive run — including a matrix whose own errors mean
+nothing it reports can be trusted.
 
 `run` and `snapshot` share one pipeline — authenticate → setup → plan → dispatch →
 teardown — so every transport behaves identically and setup fixtures are cleaned up

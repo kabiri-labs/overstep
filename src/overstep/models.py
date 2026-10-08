@@ -945,6 +945,16 @@ class RunHealth(BaseModel):
     # reads. Method is part of the key because `probe_methods` puts several on
     # one resource, and a working GET must not vouch for a dark DELETE.
     untested_surfaces: List[str] = Field(default_factory=list)
+    # Requests the run deliberately did not send — a mutating verb or tool under
+    # --read-only. Not a delivery failure and not a reason to distrust the run,
+    # but the one thing a clean result must not be read as covering: a skipped
+    # probe leaves no finding, which in every count is indistinguishable from a
+    # probe that ran and found the endpoint sound.
+    skipped: int = 0
+    # Those requests' surfaces, in the same `resource METHOD` shape as
+    # `untested_surfaces`, listing only surfaces where *every* case was skipped
+    # — a surface with one verb sent and one skipped was still exercised.
+    skipped_surfaces: List[str] = Field(default_factory=list)
     # Human-readable explanations; non-empty means the run proved nothing.
     reasons: List[str] = Field(default_factory=list)
 
@@ -1020,6 +1030,12 @@ class RunResult(BaseModel):
     # How much of the declared BOLA surface the run was able to probe. "No
     # findings" over an unprobed resource is not evidence of anything.
     coverage: ProbeCoverage = Field(default_factory=ProbeCoverage)
+    # Whether this run was asked to skip mutating operations. A fact about how
+    # the run was invoked rather than about what happened, but it belongs on the
+    # result: without it, a --read-only run and a full one are identical in
+    # every document they write, so a reader cannot tell a clean report that
+    # covered the write surface from one that never touched it.
+    read_only: bool = False
 
     @property
     def vulnerabilities(self) -> List[Finding]:

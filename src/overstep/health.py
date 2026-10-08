@@ -19,6 +19,13 @@ A run is inconclusive when, **for any one target**, either
 * **unverified** — nothing proves the credentials work: either every planned
   expected-*allow* test was skipped, or none of the ones that ran was allowed.
 
+It is also inconclusive, whatever the targets did, when the matrix itself has an
+error-level problem — a scaffold placeholder nobody filled in, a policy naming a
+resource that does not exist. Those arrive as ``blocking_problems`` rather than
+as observations, because the file is wrong rather than the target, but they void
+the result just as completely: a placeholder token is refused everywhere, so
+every negative test passes for the wrong reason.
+
 The judgement is per target rather than over the whole run because a matrix may
 span several: a busy, healthy HTTP API would otherwise mask an MCP server that
 answered nothing, and the MCP half of the run would report clean while never
@@ -144,13 +151,45 @@ def _untested_surfaces(
     return sorted(out, key=lambda item: (-item[2], item[0]))
 
 
+def _skipped_surfaces(
+    cases: Sequence[TestCase], observations: Sequence[Observation]
+) -> List[str]:
+    """Surfaces whose every planned request was deliberately not sent.
+
+    The threshold is *every*, for the same reason it is every in
+    :func:`_untested_surfaces`: a resource whose GET went out and whose DELETE
+    was skipped was still exercised, and naming it would bury the surface that
+    got nothing at all. A surface where nothing was sent is one the run has no
+    opinion about, and `--read-only` produces exactly that for every mutating
+    operation the matrix declares.
+    """
+    grouped: Dict[str, List[Observation]] = {}
+    for case, obs in _pairs(cases, observations):
+        grouped.setdefault(_surface(case), []).append(obs)
+    return sorted(
+        surface for surface, obs in grouped.items() if all(o.skipped for o in obs)
+    )
+
+
 def assess(
     cases: Sequence[TestCase],
     observations: Sequence[Observation],
     *,
     unreachable_ratio: float = UNREACHABLE_RATIO,
+    blocking_problems: Sequence[str] = (),
 ) -> RunHealth:
-    """Judge whether a run's observations are worth drawing conclusions from."""
+    """Judge whether a run's observations are worth drawing conclusions from.
+
+    ``blocking_problems`` carries the matrix's own error-level diagnostics —
+    an unfilled scaffold placeholder, a policy naming a resource that does not
+    exist. They are not observations and nothing about the target produced them,
+    but they decide the same question this module exists for. A matrix whose
+    token is still ``PASTE_..._TOKEN`` is refused by every request it sends, so
+    each negative test passes because nothing was authorized, no positive
+    control exists to notice, and the run reports ``Vulnerabilities 0`` with a
+    zero exit code. That is the fail-open this module was written to remove,
+    arriving through the file instead of the network.
+    """
     grouped = _group(cases, observations)
     sent_all = [o for o in observations if not o.skipped]
     # Only a case whose allowed result would prove the credential works counts;
@@ -167,7 +206,18 @@ def assess(
         ),
         positive_tests=len(positives_all),
         positive_allowed=sum(1 for o in positives_all if o.effect == Effect.ALLOW),
+        skipped=sum(1 for o in observations if o.skipped),
+        skipped_surfaces=_skipped_surfaces(cases, observations),
     )
+
+    # Recorded before anything about delivery, so a matrix that cannot describe
+    # a usable test is named even when every request it generated was skipped or
+    # the run never got as far as sending one.
+    for problem in blocking_problems:
+        # No trailing "so nothing here means anything": the caller's header
+        # already says that once, and repeating it per problem buries the
+        # problems, which are the only part the reader can act on.
+        health.reasons.append(f"the matrix does not describe a usable test — {problem}")
 
     if not sent_all:
         health.reasons.append(
