@@ -25,6 +25,7 @@ is this module's success and :mod:`overstep.matrix`'s problem.
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
 
 import yaml
@@ -46,10 +47,16 @@ def _describe_os_error(exc: OSError, path: str, what: str) -> str:
     The three cases split out here are the ones with an obvious fix — the path
     is wrong, it points at a directory, or it cannot be read — and naming the
     fix is worth more than the errno that implies it.
+
+    Which errno a directory arrives as is a platform detail, so the path itself
+    decides rather than the exception type: POSIX refuses the open with
+    ``IsADirectoryError`` (EISDIR), Windows with ``PermissionError`` (EACCES).
+    Taken at face value the Windows form reads as a locked-down file and sends
+    the user to check permissions on something that was never a file.
     """
     if isinstance(exc, FileNotFoundError):
         return f"{what} '{path}' does not exist"
-    if isinstance(exc, IsADirectoryError):
+    if isinstance(exc, IsADirectoryError) or os.path.isdir(path):
         return f"{what} '{path}' is a directory, not a file"
     if isinstance(exc, PermissionError):
         return f"{what} '{path}' is not readable (permission denied)"
