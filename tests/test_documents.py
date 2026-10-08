@@ -7,11 +7,13 @@ the two halves of the fix: the loaders raise a domain error carrying the file
 name and the parser's position, and every command that reads a file exits 2
 with that message instead of unwinding.
 """
+import errno
 import json
 
 import pytest
 from typer.testing import CliRunner
 
+from overstep import documents
 from overstep.cli import app
 from overstep.documents import DocumentError, read_json, read_yaml
 from overstep.drift import load_snapshot
@@ -72,6 +74,46 @@ def test_directory_is_reported_as_a_directory(tmp_path):
     with pytest.raises(DocumentError) as exc:
         read_yaml(str(tmp_path), "matrix")
     assert "is a directory" in str(exc.value)
+
+
+def _refuse_with(monkeypatch, exc: OSError) -> None:
+    """Make the next open() fail the way some other platform would fail it."""
+    def refuse(*args, **kwargs):
+        raise exc
+
+    monkeypatch.setattr(documents, "open", refuse, raising=False)
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        IsADirectoryError(errno.EISDIR, "Is a directory"),
+        PermissionError(errno.EACCES, "Permission denied"),
+    ],
+    ids=["eisdir", "eacces"],
+)
+def test_directory_is_reported_as_a_directory_on_either_errno(tmp_path, monkeypatch, exc):
+    """A directory reads as one whichever errno the platform picked for it.
+
+    POSIX refuses the open with EISDIR and Windows with EACCES, so whichever
+    machine runs the suite only ever exercises one of the two. The other is
+    injected rather than skipped — the message must not depend on the platform.
+    """
+    _refuse_with(monkeypatch, exc)
+    with pytest.raises(DocumentError) as raised:
+        read_yaml(str(tmp_path), "matrix")
+    assert "is a directory" in str(raised.value)
+
+
+def test_an_unreadable_file_is_still_a_permission_error(tmp_path, monkeypatch):
+    """The directory check reclassifies directories only, not every EACCES."""
+    path = tmp_path / "matrix.yaml"
+    path.write_text("a: 1\n", encoding="utf-8")
+    _refuse_with(monkeypatch, PermissionError(errno.EACCES, "Permission denied"))
+    with pytest.raises(DocumentError) as raised:
+        read_yaml(str(path), "matrix")
+    assert "permission denied" in str(raised.value)
+    assert "is a directory" not in str(raised.value)
 
 
 def test_malformed_yaml_reports_line_and_column(tmp_path):

@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.5.1] - 2026-10-08
+
+### Fixed
+
+**A directory given where a file was expected read as a permission problem on
+Windows.** Pointing any command at a directory — `overstep run ./configs`
+instead of `./configs/matrix.yaml`, or a shell completing a path one component
+short — is a one-keystroke mistake with a one-word explanation, and the message
+said the wrong word. POSIX refuses to open a directory with `IsADirectoryError`
+(EISDIR) and the error named it; Windows refuses the same open with
+`PermissionError` (EACCES), which fell through to the next branch and reported
+`matrix '<path>' is not readable (permission denied)`. That sends someone to
+check an ACL on something that was never a file.
+
+Which errno a directory arrives as is a platform detail, so the path itself now
+decides: a path that is a directory is reported as one whatever the open
+failed with. A genuinely unreadable *file* still reports permission denied —
+the check reclassifies directories, not every EACCES.
+
 ## [1.5.0] - 2026-08-20
 
 ### Added
