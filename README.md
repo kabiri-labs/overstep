@@ -318,8 +318,8 @@ overstep run examples/secure_api/matrix.yaml --out out
 ```
 
 Zero vulnerabilities and exit 0 — and, the part worth checking, a conclusive run
-with all seven expected-allow tests allowed and both object resources probed
-across owners. An unreachable target reports zero too, so the second half is
+with all 7 expected-allow tests allowed and both object resources probed across
+owners. An unreachable target reports zero too, so the second half is
 what makes the first mean anything; see
 [what a clean result is allowed to mean](#what-a-clean-result-is-allowed-to-mean).
 
@@ -404,9 +404,9 @@ python -m uvicorn examples.secure_mcp.server:app --port 9010
 overstep run examples/secure_mcp/matrix.yaml --out out
 ```
 
-The same twenty-seven tests, zero vulnerabilities, exit 0 — with both object
-doors probed across owners, all eight expected-allow tests allowed, and the
-session and enumeration probes *run and passed* rather than skipped. On this
+The same 27 tests, zero vulnerabilities, exit 0 — with both object doors probed
+across owners, all 8 expected-allow tests allowed, and the session and
+enumeration probes *run and passed* rather than skipped. On this
 surface especially, a clean result needs that second half: there is no status
 code to lean on, so a server that answered nothing looks much like one that
 refused correctly.
@@ -419,6 +419,18 @@ overstep scaffold http://127.0.0.1:9000/mcp --fmt mcp --server-name docs \
 overstep scaffold openapi.yaml --with-policy > matrix.yaml   # REST: a full matrix
 overstep scaffold traffic.har --fmt har > resources.yaml     # REST: resources only
 ```
+
+**The endpoint's spelling.** A Streamable HTTP server mounted at `/mcp/` commonly
+answers `/mcp` with a `307`, so overstep follows a redirect once — and only a
+`307` or `308`, and only while it stays on the scheme, host and port the matrix
+declared. The status matters: `303` means "GET the other URI" and `301`/`302` are
+rewritten to GET by convention, so replaying a JSON-RPC POST to any of them is
+not what the server asked for, and would run a mutating `tools/call` twice if the
+first endpoint had already dispatched it. The origin matters because a credential
+must not be replayed at a host you did not name. A cross-origin redirect is
+refused and recorded as a request that never arrived — so the run is
+inconclusive and the message names both ends, rather than the body-less `3xx`
+being scored as the server's answer.
 
 For MCP, overstep reads **both** `tools/list` and `resources/templates/list`, so
 the second door is in the draft from the start, and it records which
@@ -445,6 +457,15 @@ overstep run matrix.yaml --out out --read-only
 expired token turns every negative test into a pass for the wrong reason. It is
 side-effect free: probes go out read-only and non-mutating operations are
 preferred.
+
+**A worked example against a target nobody here wrote.**
+[`examples/crapi/`](examples/crapi/) runs both surfaces against a live
+[OWASP crAPI](https://github.com/OWASP/crAPI) — the REST gateway and the MCP
+server the same instance exposes — with real accounts, real tokens and real
+object ids obtained through crAPI's own signup flow. Its README has the steps,
+including the two that are easy to get wrong: giving two identities genuinely
+different objects, and keying a vehicle by its uuid rather than by its owner's
+numeric id.
 
 ### Reading allow and deny
 
@@ -604,7 +625,8 @@ identities and secrets never touch the file.
 `objects:` maps each subject to the id it owns; `setup:` steps run once before the
 suite as a chosen subject and `extract` values into a capture context that fills
 `{{name}}` placeholders, including in `objects:`; `teardown:` steps clean the
-fixtures up best-effort afterwards.
+fixtures up best-effort afterwards. A runnable version of exactly this lives at
+[`examples/mcp_api/matrix_setup.yaml`](examples/mcp_api/matrix_setup.yaml).
 
 ```yaml
 setup:
@@ -719,18 +741,6 @@ modules:
         url: https://mcp.example.com/mcp
         protocol_version: "2026-07-28"     # default: 2025-06-18
 ```
-
-**The endpoint's spelling.** A Streamable HTTP server mounted at `/mcp/` commonly
-answers `/mcp` with a `307`, so overstep follows a redirect once — and only a
-`307` or `308`, and only while it stays on the scheme, host and port the matrix
-declared. The status matters: `303` means "GET the other URI" and `301`/`302` are
-rewritten to GET by convention, so replaying a JSON-RPC POST to any of them is
-not what the server asked for, and would run a mutating `tools/call` twice if the
-first endpoint had already dispatched it. The origin matters because a credential
-must not be replayed at a host you did not name. A cross-origin redirect is
-refused and recorded as a request that never arrived — so the run is
-inconclusive and the message names both ends, rather than the body-less `3xx`
-being scored as the server's answer.
 
 You do not have to know which one to write — `scaffold` asks the server
 (`server/discover` first, then a negotiated `initialize`) and records the answer.
@@ -852,10 +862,21 @@ non-mutating is still sent — the flag reads the declaration, not the target.
 [`examples/ci/gitlab-ci.yml`](examples/ci/gitlab-ci.yml), the
 `ghcr.io/kabiri-labs/overstep` image, and an `overstep-validate` pre-commit hook.
 
+**Reports are cleared before the run, not written after it.** `run` removes the
+documents a previous run left in `--out` before it reads anything, because a run
+that will not parse, finds no base URL, dies in setup or is interrupted never
+reaches the writing step and would otherwise leave last week's reports looking
+exactly like this run's — and a stale `Vulnerabilities 0` reads as a pass. Only
+the filenames overstep's own reporters own are touched, and a file the run was
+told to read, such as the matrix or a baseline, that sits on one of those names
+is refused rather than deleted: the report of that name would overwrite it at the
+end regardless.
+
 ### What a clean result is allowed to mean
 
 An absence of findings is worth something only if the run could have seen them.
-Two checks enforce that.
+Two checks enforce that: a verdict on whether the run proved anything at all, and
+a measure of how much of the surface it could reach.
 
 **Inconclusive runs.** If the requests never arrived or the credentials were never
 accepted, every negative test "passes" for the wrong reason and a naive summary
@@ -867,25 +888,6 @@ per target, so a busy healthy one cannot outvote a small one that answered nothi
 Exit code 3 is distinct from 1 (findings) and 2 (bad input), so CI can tell "your
 server has a hole" from "the scan never ran", and `snapshot` refuses to write a
 baseline against a dead target. `--allow-inconclusive` reports anyway.
-
-**The file can void a run too.** An error-level problem in the matrix — a
-`PASTE_..._TOKEN` nobody filled in, a policy naming a resource that does not
-exist — makes the run inconclusive for the same reason an unreachable target
-does: a placeholder credential is refused everywhere, so every negative test
-passes because nothing was authorized, and with no working positive control
-there is nothing to notice. Warnings do not count; they describe a matrix that
-runs and tests less than it looks like, which is a legitimate file with a gap
-worth naming. `validate` is still where these are cheapest to see, and `--strict`
-is what fails on the warnings too.
-
-**Reports are cleared before the run, not written after it.** `run` removes the
-documents a previous run left in `--out` before it reads anything, because a run
-that will not parse, finds no base URL, dies in setup or is interrupted never
-reaches the writing step and would otherwise leave last week's reports looking
-exactly like this run's. Only the filenames overstep's own reporters own are
-touched, and a file the run was told to read — the matrix, a baseline, a waivers
-file — that sits on one of those names is refused rather than deleted, since the
-report of that name would overwrite it at the end regardless.
 
 **The credential half of that check needs expected-allow tests to work, on the
 target you want it to speak for.** An allowed request is the only thing that
@@ -904,6 +906,16 @@ stops a busy target outvoting a small one also stops it covering for one.
 **Give every target at least one expected-allow case if you want expired
 credentials to fail the build.** Unreachability is still caught either way; it is
 only the credential check that has nothing to stand on.
+
+**The file can void a run too.** An error-level problem in the matrix — a
+`PASTE_..._TOKEN` nobody filled in, a policy naming a resource that does not
+exist — makes the run inconclusive for the same reason an unreachable target
+does: a placeholder credential is refused everywhere, so every negative test
+passes because nothing was authorized, and with no working positive control
+there is nothing to notice. Warnings do not count; they describe a matrix that
+runs and tests less than it looks like, which is a legitimate file with a gap
+worth naming. `validate` is still where these are cheapest to see, and `--strict`
+is what fails on the warnings too.
 
 **Coverage.** `overstep coverage` measures two gaps and sends nothing:
 
