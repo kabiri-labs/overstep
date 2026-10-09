@@ -115,15 +115,24 @@ is what every later run is measured against, so one recorded from a placeholder
 matrix says "everything is denied" and reports the first healthy run as
 wholesale authorization drift. It previously ran no diagnostics at all.
 
-**`overstep run` clears the previous run's reports from `--out` before sending
+**`overstep run` clears the previous run's reports from `--out` before it reads
 anything.** Reports were written last, so a run that died in setup, failed to
-parse its baseline or was interrupted left the earlier run's documents sitting
-there with nothing in them to say they were a week old — indistinguishable from
-the run the reader had just watched fail. The clean ones are the dangerous half:
-stale findings at least look like work to do, while a stale `Vulnerabilities 0`
-reads as a pass. Only the filenames the registered reporters own are removed, so
-a directory you keep your own files in survives, and a file that cannot be
-removed stops the run rather than being left behind.
+parse its matrix or baseline, found no base URL or was interrupted left the
+earlier run's documents sitting there with nothing in them to say they were a
+week old — indistinguishable from the run the reader had just watched fail. Exit
+2 is loud, but the documents are not: a pipeline that uploads `--out` as an
+artifact, or a dashboard reading `findings.json`, shows the earlier results as
+the current ones. The clean ones are the dangerous half, since stale findings at
+least look like work to do while a stale `Vulnerabilities 0` reads as a pass.
+
+Only the filenames the registered reporters own are removed, so a directory you
+keep your own files in survives, and a file that cannot be removed stops the run
+rather than being left behind. A path the run was told to *read* — the matrix, a
+baseline, a waivers file, a dotenv — that lands on one of those names is refused
+outright, because the collision has no safe resolution: removing it loses what
+the run was told to read, and sparing it only defers the loss to the end, where
+the report of that name is written. A matrix kept at `out/findings.json` was
+destroyed either way, and silently in the second case.
 
 ### Added
 
