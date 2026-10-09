@@ -1,8 +1,11 @@
 # overstep × OWASP crAPI
 
 This example runs overstep against **OWASP crAPI**, an intentionally-vulnerable
-API, so you can see real BOLA / BFLA findings end to end — on both surfaces,
-because a current crAPI also ships an MCP server in front of the same data.
+API, so you can see real BOLA / BFLA findings end to end. The matrix here covers
+the REST gateway. A current crAPI also exposes an MCP server in front of the same
+data, and [step 5](#5-the-mcp-surface-same-instance) drafts a matrix for that
+surface instead of shipping one, because its tool list and object ids belong to
+your instance.
 
 > We do not redistribute crAPI here — use the official images.
 

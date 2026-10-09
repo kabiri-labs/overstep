@@ -459,13 +459,15 @@ side-effect free: probes go out read-only and non-mutating operations are
 preferred.
 
 **A worked example against a target nobody here wrote.**
-[`examples/crapi/`](examples/crapi/) runs both surfaces against a live
-[OWASP crAPI](https://github.com/OWASP/crAPI) — the REST gateway and the MCP
-server the same instance exposes — with real accounts, real tokens and real
-object ids obtained through crAPI's own signup flow. Its README has the steps,
-including the two that are easy to get wrong: giving two identities genuinely
-different objects, and keying a vehicle by its uuid rather than by its owner's
-numeric id.
+[`examples/crapi/`](examples/crapi/) points overstep at a live
+[OWASP crAPI](https://github.com/OWASP/crAPI), with real accounts, real tokens
+and real object ids obtained through crAPI's own signup flow. It ships a finished
+matrix for the REST gateway; the same instance also exposes an MCP server, and
+for that surface the directory gives the steps to draft a matrix with `scaffold`
+rather than a second finished file — its tool list and object ids are particular
+to your instance. Its README has both, including the two things that are easy to
+get wrong: giving two identities genuinely different objects, and keying a
+vehicle by its uuid rather than by its owner's numeric id.
 
 ### Reading allow and deny
 
