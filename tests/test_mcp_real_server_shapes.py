@@ -159,13 +159,13 @@ def test_a_skipped_session_probe_does_not_make_the_run_inconclusive():
 # --------------------------------------------------------------------------
 
 
-def _redirecting(*, location: str, real_path: str = "/mcp/"):
+def _redirecting(*, location: str, real_path: str = "/mcp/", status: int = 307):
     seen = []
 
     def handle(request: httpx.Request) -> httpx.Response:
         seen.append(str(request.url))
         if request.url.path != real_path:
-            return httpx.Response(307, headers={"location": location})
+            return httpx.Response(status, headers={"location": location})
         msg = json.loads(request.content)
         method, req_id = msg.get("method"), msg.get("id")
         if method == "initialize":
@@ -222,6 +222,181 @@ def test_a_cross_origin_redirect_is_not_followed():
 
 
 # --------------------------------------------------------------------------
+# A server that lets anyone open a session but filters what it lists
+# --------------------------------------------------------------------------
+
+
+ADMIN_ONLY_TOOL = "list_all_users"
+
+
+def _filtered_catalogue():
+    """Anyone may open a session; the listing depends on who opened it.
+
+    The case that reduces to ALLOW on both sides while the victim's session is
+    worth strictly more: the anonymous caller gets the public catalogue, the
+    stolen session gets alice's. Comparing effects alone calls that "nothing
+    gained" and drops a real hijack.
+    """
+    owner = {SUBJECT_SESSION: "alice", ANON_SESSION: None}
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        msg = json.loads(request.content)
+        method, req_id = msg.get("method"), msg.get("id")
+        auth = request.headers.get("authorization", "")
+        token = auth[7:] if auth.lower().startswith("bearer ") else ""
+        session = request.headers.get("mcp-session-id", "")
+
+        if method == "initialize":
+            issued = SUBJECT_SESSION if token else ANON_SESSION
+            return httpx.Response(
+                200,
+                json={"jsonrpc": "2.0", "id": req_id, "result": {}},
+                headers={"Mcp-Session-Id": issued},
+            )
+
+        if not session:
+            return httpx.Response(
+                400,
+                json={"jsonrpc": "2.0", "id": "server-error",
+                      "error": {"code": -32600, "message": "Bad Request: Missing session ID"}},
+            )
+
+        if method == "tools/list":
+            tools = [{"name": "read_document"}]
+            if owner.get(session):
+                tools.append({"name": ADMIN_ONLY_TOOL})
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": req_id,
+                                             "result": {"tools": tools}})
+        return httpx.Response(200, json={
+            "jsonrpc": "2.0", "id": req_id,
+            "result": {"content": [{"type": "text", "text": "{}"}], "isError": False},
+        })
+    return handle
+
+
+def test_a_hijack_is_reported_when_the_session_returns_more_than_the_caller_could_reach():
+    """Both requests are allowed, and the session is still worth stealing.
+
+    The anonymous caller can open a session, so the effects match; what differs
+    is the catalogue. Those extra tool names are privilege the caller had no way
+    to learn alone, which is exactly the defect.
+    """
+    result = _run(_matrix(), _filtered_catalogue())
+
+    hijacks = [f for f in result.findings if f.vuln_class == VulnClass.SESSION_HIJACK]
+    assert hijacks, "a session that discloses more of the catalogue was waved through"
+    assert {f.subject for f in hijacks} == {"alice"}
+    assert any(ADMIN_ONLY_TOOL in (o.listed_tools or []) for o in _session_observations(result))
+
+
+def test_no_hijack_when_the_two_sessions_see_the_same_catalogue():
+    """The negative control for the comparison: equal access is still no finding."""
+    result = _run(_matrix(), _fastmcp_shaped(anonymous_may_initialize=True))
+
+    assert [f for f in result.findings if f.vuln_class == VulnClass.SESSION_HIJACK] == []
+
+
+# --------------------------------------------------------------------------
+# The second control has to actually answer
+# --------------------------------------------------------------------------
+
+
+def _anonymous_handshake_answers(status: int):
+    """A server whose anonymous `initialize` answers with `status`.
+
+    A 401 is a real answer -- the caller may not open a session, so the stolen
+    one carried authority and the hijack stands. A 503 is not an answer at all.
+    """
+    def handle(request: httpx.Request) -> httpx.Response:
+        msg = json.loads(request.content)
+        method, req_id = msg.get("method"), msg.get("id")
+        auth = request.headers.get("authorization", "")
+        token = auth[7:] if auth.lower().startswith("bearer ") else ""
+        session = request.headers.get("mcp-session-id", "")
+
+        if method == "initialize":
+            if not token:
+                return httpx.Response(status, json={"detail": "no"})
+            return httpx.Response(
+                200,
+                json={"jsonrpc": "2.0", "id": req_id, "result": {}},
+                headers={"Mcp-Session-Id": SUBJECT_SESSION},
+            )
+
+        if not session:
+            return httpx.Response(
+                400,
+                json={"jsonrpc": "2.0", "id": "server-error",
+                      "error": {"code": -32600, "message": "Bad Request: Missing session ID"}},
+            )
+        if method == "tools/list":
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": req_id,
+                                             "result": {"tools": [{"name": "read_document"}]}})
+        return httpx.Response(200, json={
+            "jsonrpc": "2.0", "id": req_id,
+            "result": {"content": [{"type": "text", "text": "{}"}], "isError": False},
+        })
+    return handle
+
+
+def test_a_transient_failure_on_the_control_does_not_become_a_finding():
+    """A dropped control must not be read as a refusal.
+
+    Without this, a 503 on one handshake emits a confirmed, high-severity
+    session-hijack finding for every credentialed subject.
+    """
+    result = _run(_matrix(), _anonymous_handshake_answers(503))
+
+    assert [f for f in result.findings if f.vuln_class == VulnClass.SESSION_HIJACK] == []
+    observations = _session_observations(result)
+    assert observations
+    for obs in observations:
+        assert obs.skipped
+        assert "could not tell" in (obs.error or "")
+
+
+def test_a_refused_control_still_confirms_the_hijack():
+    """401 is an answer: the caller may not open a session of its own."""
+    result = _run(_matrix(), _anonymous_handshake_answers(401))
+
+    hijacks = [f for f in result.findings if f.vuln_class == VulnClass.SESSION_HIJACK]
+    assert hijacks, "an explicit refusal was mistaken for an unanswered control"
+    assert {f.subject for f in hijacks} == {"alice"}
+
+
+# --------------------------------------------------------------------------
+# Only method-preserving redirects are replayed
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("status", [301, 302, 303])
+def test_a_redirect_that_does_not_preserve_the_method_is_not_replayed(status):
+    """303 means "GET the other URI"; 301 and 302 are rewritten to GET by convention.
+
+    Replaying a JSON-RPC POST to any of them is not what the server asked for,
+    and if the first endpoint already dispatched a mutating `tools/call` before
+    answering, it would run the operation twice.
+    """
+    handler = _redirecting(location="http://docs.test/mcp/", status=status)
+
+    _run(_matrix("http://docs.test/mcp"), handler)
+
+    assert not any(url.endswith("/mcp/") for url in handler.seen), (
+        f"a POST was replayed after a {status}"
+    )
+
+
+@pytest.mark.parametrize("status", [307, 308])
+def test_a_method_preserving_redirect_is_replayed(status):
+    handler = _redirecting(location="http://docs.test/mcp/", status=status)
+
+    result = _run(_matrix("http://docs.test/mcp"), handler)
+
+    assert any(url.endswith("/mcp/") for url in handler.seen)
+    assert result.health.transport_errors == 0
+
+
+# --------------------------------------------------------------------------
 # The helpers themselves
 # --------------------------------------------------------------------------
 
@@ -252,6 +427,16 @@ def test_redirect_target_declines_a_cross_origin_hop():
     assert redirect_target(cross, url) is None
     assert redirect_target(same, url) == "http://docs.test/mcp/"
     assert redirect_target(not_a_redirect, url) is None
+
+
+@pytest.mark.parametrize("status,followed", [
+    (307, True), (308, True),
+    (301, False), (302, False), (303, False),
+])
+def test_only_method_preserving_statuses_are_targets(status, followed):
+    resp = httpx.Response(status, headers={"location": "/mcp/"})
+    target = redirect_target(resp, "http://docs.test/mcp")
+    assert (target is not None) is followed
 
 
 def test_redirect_target_declines_a_redirect_with_no_location():

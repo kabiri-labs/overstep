@@ -83,6 +83,13 @@ class _Handshake(NamedTuple):
 
     session: Optional[str] = None
     refusal: Optional[str] = None
+    # The HTTP status the handshake answered with, or None when nothing
+    # answered at all. A caller that has to tell a *denial* from a *failure to
+    # find out* cannot do it from `session` alone: a 401 and a 503 and a dropped
+    # connection all yield no session, and they do not mean the same thing. Only
+    # the session probe's second control needs this; everything else reads
+    # `session` and `refusal` as before.
+    status: Optional[int] = None
 
 
 def mcp_headers(inv: McpInvocation, subject: Subject) -> Dict[str, str]:
@@ -355,7 +362,8 @@ async def _initialize(
     except httpx.HTTPError:
         # The connection itself failed. The request that follows fails the same
         # way and reports it with the error string the caller needs, so there is
-        # nothing to add here.
+        # nothing to add here — except the absence of a status, which is how a
+        # caller tells "nothing answered" from "the answer was no".
         return _Handshake()
     session = resp.headers.get("mcp-session-id")
     if resp.status_code >= 400:
@@ -364,15 +372,15 @@ async def _initialize(
         # calling, which is the question the run exists to ask — only anything
         # else is evidence that the protocol, not the credential, is the problem.
         if resp.status_code in _AUTH_STATUSES:
-            return _Handshake(session)
+            return _Handshake(session, None, resp.status_code)
         return _Handshake(session, (
             f"the server refused 'initialize' with HTTP {resp.status_code} — overstep is "
             f"configured for MCP {protocol_version}, whose handshake this server does not answer"
-        ))
+        ), resp.status_code)
 
     refusal = _unusable_protocol(_parse_message(resp), protocol_version)
     if refusal:
-        return _Handshake(session, refusal)
+        return _Handshake(session, refusal, resp.status_code)
 
     notified = dict(headers)
     if session:
@@ -383,7 +391,7 @@ async def _initialize(
         )
     except httpx.HTTPError:
         pass
-    return _Handshake(session)
+    return _Handshake(session, None, resp.status_code)
 
 
 async def _handshake(
@@ -407,12 +415,21 @@ async def _handshake(
     return await _initialize(client, inv.url, headers, inv.protocol_version)
 
 
-# Statuses that mean "the same resource, spelled differently". A Streamable
-# HTTP endpoint mounted at `/mcp` commonly answers `/mcp` with one of these and
-# serves the real endpoint at `/mcp/` — FastMCP, the most widely used Python MCP
-# framework, does it by default — so a matrix is one missing character away from
-# a run that reaches nothing and reports it as an unreadable response.
-REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+# Statuses that mean "the same resource, spelled differently" *and* say to ask
+# again the same way. A Streamable HTTP endpoint mounted at `/mcp/` commonly
+# answers `/mcp` with a 307 — FastMCP, the most widely used Python MCP
+# framework, and Starlette's own slash redirect both do — so a matrix is one
+# missing character away from a run that reaches nothing and reports it as an
+# unreadable response.
+#
+# Only the method-preserving pair. 303 explicitly means "GET the other URI", and
+# 301 and 302 are rewritten to GET by long convention, so replaying a JSON-RPC
+# POST to any of them is not what the server asked for: against a GET-only
+# target it simply fails, and if the first endpoint already dispatched a
+# mutating `tools/call` before answering, it would run the operation twice.
+# Sending a state-changing request nobody asked for is the one thing this
+# transport must not do on its own.
+REDIRECT_STATUSES = frozenset({307, 308})
 
 
 async def _hop(
@@ -629,9 +646,21 @@ async def _session_probe(
       than an authorization refusal — so it can never clear the probe there, and
       every subject yields a confirmed hijack for free. A real hijack means the
       victim's session carried authority the caller could not obtain alone. If
-      the caller can open its own session and be served, it could not have: the
-      server needs no credential at all, which is a finding the function-level
-      and enumeration probes make, not this one.
+      the caller can open its own session and be served *the same access*, it
+      could not have: the server needs no credential at all, which is a finding
+      the function-level and enumeration probes make, not this one.
+
+      The comparison is of the access, not of the two effects. A server may let
+      anyone open a session and still filter the listing by the identity bound
+      to it, which allows both requests while the victim's session returns more
+      of the catalogue than the caller could reach alone — the defect, hidden if
+      both are read as merely "allowed".
+
+      And the control has to actually answer. An anonymous handshake that is
+      *refused* says the caller cannot open a session, which confirms the
+      hijack; one that times out or answers 503 says nothing, and the probe is
+      skipped rather than resting a high-severity finding on a dropped
+      connection.
 
     Only the difference is evidence, and both controls have to agree.
 
@@ -682,6 +711,8 @@ async def _session_probe(
         ridden = _read(inv, with_session)
         rode_session, text, listed, error = ridden.effect, ridden.text, ridden.listed, ridden.error
         own_session = None
+        own_listed: List[str] = []
+        undetermined: Optional[str] = None
         if rode_session == Effect.ALLOW:
             control = _read(
                 inv,
@@ -707,14 +738,28 @@ async def _session_probe(
                     client, inv.url, headers, inv.protocol_version
                 )
                 if opened_alone.session:
-                    own_session = _read(
+                    alone = _read(
                         inv,
                         await _post(
                             client, inv,
                             {**headers, "Mcp-Session-Id": opened_alone.session},
                             max_retries=max_retries, backoff_base=backoff_base,
                         ),
-                    ).effect
+                    )
+                    own_session, own_listed = alone.effect, alone.listed
+                elif opened_alone.status is None or opened_alone.status in _RETRY_STATUSES:
+                    # Nothing answered, or the server was briefly unable to. The
+                    # control asked its question and got no reply, which is not
+                    # the same as a refusal -- and a refusal is what the verdict
+                    # below would read it as, emitting a confirmed high-severity
+                    # finding off the back of a dropped connection. An explicit
+                    # 401 or 403 is a real answer and falls through: an anonymous
+                    # caller genuinely may not open a session here.
+                    undetermined = opened_alone.refusal or (
+                        "HTTP %d" % opened_alone.status
+                        if opened_alone.status
+                        else "no response"
+                    )
         else:
             # Nothing got through even with the session, so the control cannot
             # change the verdict and is not worth a request.
@@ -725,18 +770,44 @@ async def _session_probe(
             latency_ms=elapsed(), error=str(exc),
         )
 
-    if own_session == Effect.ALLOW:
-        # Not a finding and not a pass: the question could not be answered here,
-        # the same shape as a server that issues no session at all. Reporting it
-        # as secure would credit a control this server does not have.
+    if undetermined:
+        # The control could not be run, so neither answer is available. Skipped
+        # rather than reported either way: a finding here would rest on a dropped
+        # connection, and a pass would credit a control nobody checked.
+        return Observation(
+            test_id=case.id, status=with_session.status_code, effect=Effect.DENY,
+            skipped=True, latency_ms=elapsed(),
+            error=(
+                f"could not tell whether an anonymous caller may open a session of "
+                f"its own ({undetermined}), so whether riding the subject's session "
+                f"gained anything is unknown"
+            ),
+        )
+
+    if own_session == Effect.ALLOW and set(own_listed) >= set(listed):
+        # Nothing was gained: the anonymous caller reached the same access on a
+        # session it opened itself. Not a finding and not a pass -- the same shape
+        # as a server that issues no session at all. Reporting it as secure would
+        # credit a control this server does not have.
+        #
+        # The *listings* are compared, not just the two effects. A server can let
+        # anyone open a session and still filter `tools/list` by the identity
+        # bound to it, in which case both requests are allowed while the victim's
+        # session returns strictly more of the catalogue -- tool names the caller
+        # had no way to learn alone. That is the defect, and reducing both
+        # responses to ALLOW would hide it. Equality is not required: the
+        # anonymous listing has to *contain* the victim's, so anything the session
+        # added still counts, and a difference nobody can account for is reported
+        # rather than waved through.
         return Observation(
             test_id=case.id, status=with_session.status_code, effect=Effect.DENY,
             skipped=True, latency_ms=elapsed(),
             error=(
                 "an anonymous caller opened its own session and was served the "
-                "same request, so riding the subject's session gained nothing — "
-                "this endpoint needs no credential at all, which the "
-                "function-level and enumeration probes report instead"
+                "same request with the same result, so riding the subject's "
+                "session gained nothing -- this endpoint needs no credential at "
+                "all, which the function-level and enumeration probes report "
+                "instead"
             ),
         )
 

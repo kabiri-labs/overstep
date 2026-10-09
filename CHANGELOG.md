@@ -22,8 +22,19 @@ crAPI run it was 3 of 14 findings and 3 of 6 defects.
 A second control decides it now: the same request carrying a session the
 anonymous caller opened *itself*. A hijack means the victim's session conveyed
 authority the caller could not obtain alone, and if the caller can open its own
-session and be served, it could not have — the endpoint needs no credential at
-all, which the function-level and enumeration probes already report. When that
+session and be served the same access, it could not have — the endpoint needs no
+credential at all, which the function-level and enumeration probes already
+report.
+
+What is compared is the access rather than the two outcomes. A server may let
+anyone open a session and still filter `tools/list` by the identity bound to it,
+which allows both requests while the victim's session returns strictly more of
+the catalogue — tool names the caller had no way to learn alone, and a defect
+that reducing both responses to "allowed" would hide. The control also has to
+answer: an anonymous handshake *refused* with 401 or 403 confirms the hijack,
+while one that times out or answers 503 establishes nothing, and the probe is
+then skipped rather than resting a confirmed high-severity finding on a dropped
+connection. When that
 is the case the probe is recorded as **skipped, with the reason**, the same shape
 as a server that issues no session id: the question was not answered, and
 reporting it as passed would credit a control the server does not have.
@@ -42,9 +53,14 @@ endpoint that issued it: hopping only on the call captured no session id, and th
 call was then refused for having none, which was recorded as a denial and so read
 as a passing negative test.
 
-The hop is once, and only to the same scheme, host and port the matrix declared
-— a credential must not be replayed at a host nobody named. A cross-origin
-redirect is still refused, and now says that is what happened.
+The hop is once, only on a `307` or `308`, and only to the same scheme, host and
+port the matrix declared. The status is part of it: `303` means "GET the other
+URI" and `301`/`302` are rewritten to GET by long convention, so replaying a
+JSON-RPC POST to any of the three is not what the server asked for — it fails
+against a GET-only target, and duplicates the operation if the first endpoint had
+already dispatched a mutating `tools/call` before answering. The origin is the
+other half: a credential must not be replayed at a host nobody named. A
+cross-origin redirect is still refused, and now says that is what happened.
 
 ### Changed
 

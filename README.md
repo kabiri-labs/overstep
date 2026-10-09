@@ -668,9 +668,18 @@ it is a finding:
   authority. On its own, that control can never clear the probe, so every
   subject would yield a confirmed hijack for free. What makes a hijack real is
   that the victim's session carried authority the caller could not obtain alone;
-  if the caller can open its own session and be served, it could not have. Such
-  a server needs no credential at all, which the function-level and enumeration
-  probes report instead.
+  if the caller can open its own session and be served **the same access**, it
+  could not have. Such a server needs no credential at all, which the
+  function-level and enumeration probes report instead.
+
+  What is compared is the access, not the two outcomes. A server may let anyone
+  open a session and still filter the listing by the identity bound to it, which
+  allows both requests while the victim's session returns more of the catalogue
+  than the caller could reach alone — the defect, and invisible if both are read
+  as merely "allowed". The control also has to answer: a *refused* anonymous
+  handshake confirms the hijack, while one that times out or answers `503` says
+  nothing, and the probe is skipped rather than resting a high-severity finding
+  on a dropped connection.
 
 A server that issues no session id has nothing to hijack, and the probe is
 recorded as skipped rather than passed — as it is when the second control shows
@@ -707,8 +716,12 @@ modules:
 ```
 
 **The endpoint's spelling.** A Streamable HTTP server mounted at `/mcp/` commonly
-answers `/mcp` with a `307`, so overstep follows a redirect once — and only while
-it stays on the scheme, host and port the matrix declared, because a credential
+answers `/mcp` with a `307`, so overstep follows a redirect once — and only a
+`307` or `308`, and only while it stays on the scheme, host and port the matrix
+declared. The status matters: `303` means "GET the other URI" and `301`/`302` are
+rewritten to GET by convention, so replaying a JSON-RPC POST to any of them is
+not what the server asked for, and would run a mutating `tools/call` twice if the
+first endpoint had already dispatched it. The origin matters because a credential
 must not be replayed at a host you did not name. A cross-origin redirect is
 refused and says so, rather than being reported as an unreadable response.
 
