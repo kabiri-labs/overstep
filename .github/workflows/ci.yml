@@ -6,6 +6,18 @@ on:
   pull_request:
     branches: [ main, master ]
 
+# `upload-sarif` writes to the code-scanning API, and the repository's default
+# token is read-only, so every push to main failed on that step while the pull
+# request that preceded it passed. The scan itself was fine: the job's only real
+# output is the upload, which means authz-scan was a no-op on main and nothing
+# ever reached the Security tab.
+#
+# Declared here rather than by widening the repository default, which would hand
+# write access to every workflow and every scope for the sake of one step.
+permissions:
+  contents: read
+  security-events: write
+
 jobs:
   build-test:
     runs-on: ubuntu-latest
