@@ -103,9 +103,12 @@ signup and vehicle-claim flow that gives two identities genuinely different
 objects, tokens via `--env-file`, object ids in `objects:` rather than
 `owner_attr` (a vehicle is keyed by uuid, not by its owner's numeric id), and a
 positive control. It now carries a matrix per surface — `matrix.yaml` for the
-REST gateway, `matrix_mcp.yaml` for the MCP server the same instance exposes —
-both keyed to the same vehicles, so the same missing check can be seen through
-two different doors. Each loads and lints clean with no environment set.
+REST gateway, `matrix_mcp.yaml` for the MCP server the same instance exposes.
+The two are deliberately identical where it counts: the same resource names, the
+same crAPI routes behind them, the same vehicle uuids. They therefore produce the
+same `test_id`s, and every finding the REST run reports comes back through the
+MCP door under the same id — which is what makes the two reports comparable
+rather than merely adjacent. Each loads and lints clean with no environment set.
 
 ## [1.6.0] - 2026-10-08
 

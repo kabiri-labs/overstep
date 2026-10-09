@@ -1,13 +1,19 @@
 # Authorization matrix for the MCP server a live OWASP crAPI exposes.
 #
 # The same three questions as matrix.yaml in this directory, asked through the
-# other door. crAPI's chatbot service fronts the same API over Streamable HTTP,
-# so a finding here and a finding there are the same defect reached two ways —
-# and the object ids are deliberately the same vehicle uuids, so the comparison
-# is exact.
+# other door: crAPI's chatbot service fronts the same API over Streamable HTTP.
+#
+# Each resource here is named after its twin there and reaches the same crAPI
+# route, and the object ids are the same vehicle uuids — so the two runs produce
+# the same `test_id`s, and a difference between their reports is a difference in
+# enforcement rather than in what was asked.
 #
 #   overstep validate examples/crapi/matrix_mcp.yaml --env-file crapi.env --live
-#   overstep run      examples/crapi/matrix_mcp.yaml --env-file crapi.env --out out
+#   overstep run      examples/crapi/matrix_mcp.yaml --env-file crapi.env --out out-mcp
+#
+# Use a different `--out` than the REST run: reports are cleared from it before
+# anything is sent, so pointing both runs at one directory leaves you with only
+# the second, and the comparison is the point.
 #
 # See README.md in this directory for the accounts and the vehicle-claim flow
 # these ids come from. Two things worth knowing before you read a result:
@@ -67,7 +73,7 @@ subjects:
 resources:
   # The positive control. Without at least one allowed case per target, an
   # expired JWT turns every negative test into a pass for the wrong reason.
-  - name: get_dashboard
+  - name: user_dashboard
     call: { server: crapi, tool: get_dashboard }
     type: function
 
@@ -75,7 +81,7 @@ resources:
   # Example uuids, and only examples: a run against them probes objects nobody
   # owns. Replace all three with the real values from
   # `GET /identity/api/v2/vehicle/vehicles` — the same ones matrix.yaml uses.
-  - name: get_location
+  - name: vehicle_location
     call: { server: crapi, tool: get_location }
     type: object
     owner: vehicleId
@@ -84,21 +90,31 @@ resources:
       bob: "00000000-0000-4000-8000-00000000b0b1"
       root: "00000000-0000-4000-8000-0000000c0de5"
 
-  # Function-level: every workshop user, not the caller's own record.
-  - name: get_workshop_users_all
-    call: { server: crapi, tool: get_workshop_users_all }
+  # Function-level: every order in the shop, not the caller's own. This is the
+  # tool that fronts `GET /workshop/api/shop/orders/all`, which is the resource
+  # matrix.yaml declares -- the pairing is the point, so the tool is chosen by
+  # the route it reaches rather than by the name that reads closest.
+  #
+  # `limit` and `offset` are required by that operation, so they are declared
+  # here: a call missing them is refused as a bad request, and a bad request
+  # recorded as a denial is a negative test passing for the wrong reason.
+  - name: all_shop_orders
+    call:
+      server: crapi
+      tool: get_orders
+      arguments: { limit: 10, offset: 0 }
     type: function
 
 policy:
-  get_dashboard:
+  user_dashboard:
     allow:
       - { role: user }
       - { role: mechanic }
       - { role: admin }
-  get_location:
+  vehicle_location:
     allow:
       - { role: user, scope: own }    # a driver sees only their own vehicle
       - { role: admin, scope: any }
-  get_workshop_users_all:
+  all_shop_orders:
     allow:
       - { role: admin }               # admin-only
