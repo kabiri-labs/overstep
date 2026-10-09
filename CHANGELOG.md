@@ -1,5 +1,109 @@
 # Changelog
 
+## [1.7.0] - 2026-10-09
+
+Both changes come from pointing overstep at a live third-party MCP server — the
+one OWASP crAPI ships — rather than at the demo in this repository. Each made the
+tool wrong against the default Python MCP framework, and neither was reachable
+from a hand-written fixture.
+
+### Fixed
+
+**The session-binding probe no longer reports a hijack when riding the subject's
+session gains nothing.** Its control was "the same anonymous request without the
+session id". A stateful server requires a session id on *every* request and
+refuses one that carries none with `Bad Request: Missing session ID` — a protocol
+refusal, not an authorization one — so on such a server the control could never
+clear the probe and **every credentialed subject produced a confirmed,
+high-severity `session-hijack` finding for free**. That is the default behaviour
+of FastMCP, so most third-party Streamable HTTP servers were affected; on the
+crAPI run it was 3 of 14 findings and 3 of 6 defects.
+
+A second control decides it now: the same request carrying a session the
+anonymous caller opened *itself*. A hijack means the victim's session conveyed
+authority the caller could not obtain alone, and if the caller can open its own
+session and be served the same access, it could not have — the endpoint needs no
+credential at all, which the function-level and enumeration probes already
+report.
+
+What is compared is the access rather than the two outcomes, and both
+catalogues are read to the last page. A server may let anyone open a session and
+still filter `tools/list` by the identity bound to it, which allows both requests
+while the victim's session returns strictly more of the catalogue — tool names
+the caller had no way to learn alone, and a defect that reducing both responses
+to "allowed", or reading only the first page, would hide.
+
+The control also has to produce an answer, and two shapes count as one. A server
+may **refuse** the anonymous handshake with 401 or 403, or **accept** it and
+issue no `Mcp-Session-Id` at all — a 200 whose whole message is the absent
+header, which is what any server that hands sessions only to identified callers
+does. Both say this caller holds no session of its own, and both confirm the
+hijack. Anything else says nothing: no response, a 404, a 500, a 429 that
+outlived its retries, a protocol refusal, or a control request that fails after
+its handshake succeeded. Those skip the probe with the reason rather than resting
+a confirmed high-severity finding on a dropped connection. When that
+is the case the probe is recorded as **skipped, with the reason**, the same shape
+as a server that issues no session id: the question was not answered, and
+reporting it as passed would credit a control the server does not have.
+
+Servers where the anonymous caller cannot obtain a session are unaffected, and
+the bundled MCP demo still reports its three session findings — they were always
+real.
+
+**A same-origin redirect on the MCP HTTP leg is followed.** A Streamable HTTP
+endpoint mounted at `/mcp/` commonly answers `/mcp` with a `307`; FastMCP does it
+by default. Neither the executor nor the scaffolder followed it, so a matrix one
+character short reached nothing and reported `tools/list returned no JSON-RPC
+result` — true, about the body, and nowhere near the cause. Every leg of the
+exchange hops now, the handshake included, because a session belongs to the
+endpoint that issued it: hopping only on the call captured no session id, and the
+call was then refused for having none, which was recorded as a denial and so read
+as a passing negative test.
+
+The hop is once, only on a `307` or `308`, and only to the same scheme, host and
+port the matrix declared. The status is part of it: `303` means "GET the other
+URI" and `301`/`302` are rewritten to GET by long convention, so replaying a
+JSON-RPC POST to any of the three is not what the server asked for — it fails
+against a GET-only target, and duplicates the operation if the first endpoint had
+already dispatched a mutating `tools/call` before answering. The origin is the
+other half: a credential must not be replayed at a host nobody named.
+
+A cross-origin redirect is still refused, and it is now recorded as a request
+that **never arrived**. Returning the 3xx to be scored was the worse half of the
+bug: a body-less redirect carries no in-band deny signal and no deny status, so
+the matcher read it as *allowed*, every negative case against such an endpoint
+became a finding, and the run called itself conclusive while nothing had been
+delivered. It travels as a transport error now, so the run is inconclusive and
+the message names both ends.
+
+### Changed
+
+**`overstep plan` takes `--env-file`.** Carried over from the same session: every
+other command already had it, and a matrix that keeps credentials out of the file
+refers to them as `${VAR}`, so the one command whose purpose is to be read before
+anything is sent was the only one a real matrix could not be read by.
+
+**A correctly-authorizing MCP demo**, at `examples/secure_mcp/`. The sibling of
+the REST one added in 1.6.0, and the surface that needs it more: MCP has no
+status code to lean on, so a server that answered nothing reads much like one
+that refused correctly. It fixes every defect the vulnerable demo ships —
+ownership on the tool *and* on the resource URI, role checks at call time, a
+catalogue filtered by role, and an `Mcp-Session-Id` that is issued but never
+authenticates. Its test asserts the session and enumeration probes were
+**exercised and passed** rather than skipped, which is also the regression test
+for the control above: a control too eager would skip here, and a skipped probe
+over a sound server is a question nobody asked.
+
+Both secure matrices now appear in the bundled-matrix contracts that assert every
+shipped example loads and lints clean; the REST one was added in 1.6.0 without
+being registered there.
+
+**`examples/crapi/`** is rewritten around what a live run actually needs: the
+signup and vehicle-claim flow that gives two identities genuinely different
+objects, tokens via `--env-file`, object ids in `objects:` rather than
+`owner_attr` (a vehicle is keyed by uuid, not by its owner's numeric id), a
+positive control, and the MCP half of the same instance.
+
 ## [1.6.0] - 2026-10-08
 
 ### Changed

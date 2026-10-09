@@ -41,7 +41,11 @@ from overstep.modules.mcp.protocol import (
     request_meta,
     routing_headers,
 )
-from overstep.modules.mcp.transport import _parse_message
+from overstep.modules.mcp.transport import (
+    _parse_message,
+    redirect_refusal,
+    redirect_target,
+)
 
 # Argument names that identify an owned object.
 _OWNER_HINTS = {
@@ -226,6 +230,22 @@ class McpListingError(RuntimeError):
 _METHOD_NOT_FOUND = -32601
 
 
+def _post(client, url: str, *, json: dict, headers: Dict[str, str]):
+    """POST once, following a same-origin redirect once.
+
+    The scaffolder sends the user's token too, so it needs the same rule the
+    executor follows: an endpoint mounted at ``/mcp`` that serves ``/mcp/`` is
+    reached, and a redirect to another host is not. Without it, ``scaffold`` and
+    ``coverage`` fail against a default FastMCP server with an error about the
+    body, which is the one place the cause is not.
+    """
+    resp = client.post(url, json=json, headers=headers)
+    target = redirect_target(resp, url)
+    if target:
+        resp = client.post(target, json=json, headers=headers)
+    return resp
+
+
 def _refusal(method: str, resp, message) -> None:
     """Raise unless an unreadable listing genuinely means "none".
 
@@ -252,6 +272,9 @@ def _refusal(method: str, resp, message) -> None:
             f"(code {code})"
         )
     if not isinstance(message, dict) or "result" not in message:
+        refused = redirect_refusal(resp, str(resp.request.url))
+        if refused:
+            raise McpListingError(f"{method} was not sent: {refused}")
         raise McpListingError(f"{method} returned no JSON-RPC result")
 
 
@@ -317,7 +340,8 @@ def detect_protocol_version(
         hdrs[PROTOCOL_VERSION_HEADER] = probe
         hdrs.update(routing_headers("server/discover"))
         try:
-            resp = client.post(
+            resp = _post(
+                client,
                 url,
                 json={"jsonrpc": "2.0", "id": 1, "method": "server/discover",
                       "params": {"_meta": request_meta(probe)}},
@@ -339,7 +363,8 @@ def detect_protocol_version(
         hdrs = dict(base)
         hdrs[PROTOCOL_VERSION_HEADER] = DEFAULT_PROTOCOL_VERSION
         try:
-            resp = client.post(
+            resp = _post(
+                client,
                 url,
                 json={"jsonrpc": "2.0", "id": 1, "method": "initialize",
                       "params": {"protocolVersion": DEFAULT_PROTOCOL_VERSION,
@@ -391,13 +416,14 @@ def _fetch_list(
                            "clientInfo": dict(CLIENT_INFO)},
             }
             try:
-                resp = client.post(url, json=init, headers=hdrs)
+                resp = _post(client, url, json=init, headers=hdrs)
                 session = resp.headers.get("mcp-session-id")
                 if session:
                     hdrs["Mcp-Session-Id"] = session
                 # Complete the lifecycle before asking anything, so a server that
                 # enforces it answers the listing instead of refusing it.
-                client.post(
+                _post(
+                    client,
                     url,
                     json={"jsonrpc": "2.0", "method": "notifications/initialized"},
                     headers=hdrs,
@@ -418,7 +444,8 @@ def _fetch_list(
             params: Dict[str, Any] = {"cursor": cursor} if cursor else {}
             if stateless:
                 params["_meta"] = request_meta(protocol_version)
-            resp = client.post(
+            resp = _post(
+                client,
                 url,
                 json={"jsonrpc": "2.0", "id": 2, "method": method, "params": params},
                 headers=hdrs,

@@ -22,7 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from typing import Any, Dict, List, NamedTuple, Optional
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 import httpx
 
@@ -61,6 +61,37 @@ _MAX_LIST_PAGES = 20
 # the run's subject matter — it has to stay on the normal allow/deny path.
 _AUTH_STATUSES = frozenset({401, 403})
 
+
+def _unanswered(status: int) -> bool:
+    """Did this status fail to say anything about authorization?
+
+    A server that is briefly unable to answer, or broken, has not refused
+    anything. The distinction matters wherever a refusal is the evidence *for* a
+    finding: there, reading "could not tell" as "denied" invents the finding.
+    """
+    return status in _RETRY_STATUSES or status >= 500
+
+
+def _answered_without_a_session(handshake: "_Handshake") -> bool:
+    """Did the server say, clearly, that this caller gets no session of its own?
+
+    Two spellings, and both are answers. A server may **refuse** the anonymous
+    handshake outright — 401 or 403 — or it may **accept** it and simply issue no
+    ``Mcp-Session-Id``, which is what the bundled demo does and what any server
+    that hands sessions only to identified callers does. The second is the one
+    worth spelling out, because it arrives as a 200: reading only the status, it
+    looks like success, and the absence of the header is the whole message.
+
+    Anything else is not an answer. A 404 says the endpoint moved, a 500 says the
+    server broke, a 429 that outlived its retries says to come back later — and
+    none of them says whether an anonymous caller may hold a session. They are
+    excluded here rather than enumerated as failures, so a shape nobody
+    anticipated lands on "unknown" instead of on "confirmed".
+    """
+    if handshake.session or handshake.status is None or handshake.refusal:
+        return False
+    return handshake.status < 300 or handshake.status in _AUTH_STATUSES
+
 # JSON-RPC's pre-defined codes for a request the server could not accept *as a
 # request*. A server denying authorization does not answer with these: it sets
 # ``isError`` on a result, or uses a code of its own — JSON-RPC reserves
@@ -83,6 +114,13 @@ class _Handshake(NamedTuple):
 
     session: Optional[str] = None
     refusal: Optional[str] = None
+    # The HTTP status the handshake answered with, or None when nothing
+    # answered at all. A caller that has to tell a *denial* from a *failure to
+    # find out* cannot do it from `session` alone: a 401 and a 503 and a dropped
+    # connection all yield no session, and they do not mean the same thing. Only
+    # the session probe's second control needs this; everything else reads
+    # `session` and `refusal` as before.
+    status: Optional[int] = None
 
 
 def mcp_headers(inv: McpInvocation, subject: Subject) -> Dict[str, str]:
@@ -351,11 +389,12 @@ async def _initialize(
         },
     }
     try:
-        resp = await client.post(url, json=payload, headers=headers)
+        resp, url = await _hop(client, url, payload, headers)
     except httpx.HTTPError:
         # The connection itself failed. The request that follows fails the same
         # way and reports it with the error string the caller needs, so there is
-        # nothing to add here.
+        # nothing to add here — except the absence of a status, which is how a
+        # caller tells "nothing answered" from "the answer was no".
         return _Handshake()
     session = resp.headers.get("mcp-session-id")
     if resp.status_code >= 400:
@@ -364,26 +403,26 @@ async def _initialize(
         # calling, which is the question the run exists to ask — only anything
         # else is evidence that the protocol, not the credential, is the problem.
         if resp.status_code in _AUTH_STATUSES:
-            return _Handshake(session)
+            return _Handshake(session, None, resp.status_code)
         return _Handshake(session, (
             f"the server refused 'initialize' with HTTP {resp.status_code} — overstep is "
             f"configured for MCP {protocol_version}, whose handshake this server does not answer"
-        ))
+        ), resp.status_code)
 
     refusal = _unusable_protocol(_parse_message(resp), protocol_version)
     if refusal:
-        return _Handshake(session, refusal)
+        return _Handshake(session, refusal, resp.status_code)
 
     notified = dict(headers)
     if session:
         notified["Mcp-Session-Id"] = session
     try:
-        await client.post(
-            url, json={"jsonrpc": "2.0", "method": "notifications/initialized"}, headers=notified
+        await _hop(
+            client, url, {"jsonrpc": "2.0", "method": "notifications/initialized"}, notified
         )
     except httpx.HTTPError:
         pass
-    return _Handshake(session)
+    return _Handshake(session, None, resp.status_code)
 
 
 async def _handshake(
@@ -407,6 +446,94 @@ async def _handshake(
     return await _initialize(client, inv.url, headers, inv.protocol_version)
 
 
+# Statuses that mean "the same resource, spelled differently" *and* say to ask
+# again the same way. A Streamable HTTP endpoint mounted at `/mcp/` commonly
+# answers `/mcp` with a 307 — FastMCP, the most widely used Python MCP
+# framework, and Starlette's own slash redirect both do — so a matrix is one
+# missing character away from a run that reaches nothing and reports it as an
+# unreadable response.
+#
+# Only the method-preserving pair. 303 explicitly means "GET the other URI", and
+# 301 and 302 are rewritten to GET by long convention, so replaying a JSON-RPC
+# POST to any of them is not what the server asked for: against a GET-only
+# target it simply fails, and if the first endpoint already dispatched a
+# mutating `tools/call` before answering, it would run the operation twice.
+# Sending a state-changing request nobody asked for is the one thing this
+# transport must not do on its own.
+REDIRECT_STATUSES = frozenset({307, 308})
+
+
+async def _hop(
+    client: httpx.AsyncClient, url: str, payload: dict, headers: Dict[str, str]
+) -> Tuple[httpx.Response, str]:
+    """POST once, following a same-origin redirect once. Returns the response
+    and the URL that answered it.
+
+    Every leg of an MCP exchange goes through here, because a session belongs to
+    the endpoint that issued it: a handshake that stopped at the redirect would
+    capture no session id, and the call that followed would then be refused for
+    having none — a protocol failure recorded as a denial, which is the shape of
+    a passing negative test.
+    """
+    resp = await client.post(url, json=payload, headers=headers)
+    target = redirect_target(resp, url)
+    if target:
+        resp, url = await client.post(target, json=payload, headers=headers), target
+    refused = redirect_refusal(resp, url)
+    if refused:
+        # Not followed, and not readable either: raised so it is recorded as a
+        # request that never arrived rather than scored as the server's answer.
+        raise UnfollowedRedirect(refused)
+    return resp, url
+
+
+class UnfollowedRedirect(httpx.HTTPError):
+    """A redirect this transport will not replay, raised where it happens.
+
+    Subclasses ``httpx.HTTPError`` on purpose: every leg of an MCP exchange
+    already turns one of those into an observation with ``status == 0``, which
+    is what a request that never arrived has to look like. Returning the 3xx
+    instead was the bug this replaces — a body-less redirect carries no in-band
+    deny signal and no deny status, so the matcher read it as *allowed*, every
+    negative case against such an endpoint became a finding, and the run
+    reported itself conclusive while nothing had been delivered.
+    """
+
+
+def same_origin(a: str, b: str) -> bool:
+    """Do two URLs share a scheme, host and port?
+
+    Spelling is seen through — the host compared case-insensitively, a default
+    port equivalent to none — because a server that redirects is free to
+    normalise its own URL, and calling that a cross-origin hop would refuse the
+    very case this exists to allow.
+    """
+    first, second = httpx.URL(a), httpx.URL(b)
+    return (
+        first.scheme == second.scheme
+        and first.host.lower() == second.host.lower()
+        and first.port == second.port
+    )
+
+
+def redirect_target(resp: httpx.Response, url: str) -> Optional[str]:
+    """Where a redirect points, when it is one this may be followed to.
+
+    ``None`` covers both "not a redirect" and "a redirect somewhere else". The
+    second is deliberately not followed: a credential must not be replayed at a
+    host the matrix never named, and letting the HTTP client chase a chain would
+    send one there before anything could check. The hop is therefore done by the
+    caller, once, against a target this function has already vouched for.
+    """
+    if resp.status_code not in REDIRECT_STATUSES:
+        return None
+    location = resp.headers.get("location")
+    if not location:
+        return None
+    target = str(httpx.URL(url).join(location))
+    return target if same_origin(url, target) else None
+
+
 async def _post(
     client: httpx.AsyncClient,
     inv: McpInvocation,
@@ -416,15 +543,40 @@ async def _post(
     backoff_base: float,
     cursor: Optional[str] = None,
 ) -> httpx.Response:
-    """Send one JSON-RPC request, retrying the statuses worth retrying."""
+    """Send one JSON-RPC request, retrying the statuses worth retrying.
+
+    A same-origin redirect is followed exactly once; see :func:`redirect_target`
+    for why it is not left to the client. A cross-origin one is returned as it
+    arrived, so the caller reads the 3xx itself rather than a response from
+    somewhere else.
+    """
     payload = jsonrpc_request(inv, cursor=cursor)
+    url = inv.url
     for attempt in range(max_retries + 1):
-        resp = await client.post(inv.url, json=payload, headers=headers)
+        resp, url = await _hop(client, url, payload, headers)
         if resp.status_code in _RETRY_STATUSES and attempt < max_retries:
             await asyncio.sleep(backoff_base * (2 ** attempt))
             continue
         return resp
     return resp
+
+
+def redirect_refusal(resp: httpx.Response, url: str) -> Optional[str]:
+    """Why a redirect was not followed, when one was not.
+
+    Only a cross-origin hop reaches here: the same-origin case is already
+    followed. The message names both ends, because the alternative is the error
+    it replaces — a bare "returned no JSON-RPC result", which is true, points at
+    the body, and says nothing about the response having been a redirect at all.
+    """
+    if resp.status_code not in REDIRECT_STATUSES:
+        return None
+    location = resp.headers.get("location") or "(no Location header)"
+    return (
+        f"{url} answered {resp.status_code} redirecting to '{location}', which is "
+        f"a different origin — overstep does not replay a credential at a host "
+        f"the matrix did not name. Point the server's url at the real endpoint."
+    )
 
 
 class Reading(NamedTuple):
@@ -530,13 +682,36 @@ async def _session_probe(
     logs, referrers — and anyone holding one would become the identity that
     opened it.
 
-    Three exchanges answer that. Open a session as the subject, then send the
-    same anonymous request twice: once carrying the session id, once without it.
-    The second is the control, and it is what keeps this honest — a server whose
-    ``tools/list`` is simply public answers the first request too, and calling
-    that session hijacking would be a finding about nothing. Only the difference
-    between the two is evidence, so the probe is *allowed* only when the session
-    was what made it work.
+    Open a session as the subject, then send the same anonymous request carrying
+    the session id. Two controls decide whether the answer means anything, and
+    the probe is *allowed* only when both say the session was the reason:
+
+    * **without the session id.** A server whose ``tools/list`` is simply public
+      answers that too, and calling it session hijacking would be a finding
+      about nothing.
+    * **with a session the anonymous caller opened itself.** The first control is
+      not enough on a stateful server, which requires a session id on every
+      request and refuses one that carries none with a protocol error rather
+      than an authorization refusal — so it can never clear the probe there, and
+      every subject yields a confirmed hijack for free. A real hijack means the
+      victim's session carried authority the caller could not obtain alone. If
+      the caller can open its own session and be served *the same access*, it
+      could not have: the server needs no credential at all, which is a finding
+      the function-level and enumeration probes make, not this one.
+
+      The comparison is of the access, not of the two effects. A server may let
+      anyone open a session and still filter the listing by the identity bound
+      to it, which allows both requests while the victim's session returns more
+      of the catalogue than the caller could reach alone — the defect, hidden if
+      both are read as merely "allowed".
+
+      And the control has to actually answer. An anonymous handshake that is
+      *refused* says the caller cannot open a session, which confirms the
+      hijack; one that times out or answers 503 says nothing, and the probe is
+      skipped rather than resting a high-severity finding on a dropped
+      connection.
+
+    Only the difference is evidence, and both controls have to agree.
 
     A server that issues no session id is stateless and has nothing to hijack;
     the probe is skipped rather than answered, since it never ran.
@@ -583,7 +758,18 @@ async def _session_probe(
             max_retries=max_retries, backoff_base=backoff_base,
         )
         ridden = _read(inv, with_session)
-        rode_session, text, listed, error = ridden.effect, ridden.text, ridden.listed, ridden.error
+        rode_session, text, error = ridden.effect, ridden.text, ridden.error
+        # Every page, because the comparison below is what decides whether the
+        # session was worth stealing: a catalogue whose privileged half sits
+        # after the first page would otherwise match the anonymous one exactly
+        # and the hijack would be waved through.
+        listed = await _read_all_pages(
+            client, inv, {**headers, "Mcp-Session-Id": session}, ridden,
+            max_retries=max_retries, backoff_base=backoff_base,
+        ) if rode_session == Effect.ALLOW else list(ridden.listed)
+        own_session = None
+        own_listed: List[str] = []
+        undetermined: Optional[str] = None
         if rode_session == Effect.ALLOW:
             control = _read(
                 inv,
@@ -592,6 +778,60 @@ async def _session_probe(
                     max_retries=max_retries, backoff_base=backoff_base,
                 ),
             ).effect
+            if control != Effect.ALLOW:
+                # The second control, and the one that decides whether anything
+                # was actually gained. A stateful server requires a session id on
+                # every request and refuses one that carries none — "Bad Request:
+                # Missing session ID" — which is a *protocol* refusal, not an
+                # authorization one. On such a server the first control can never
+                # clear the probe, so every subject yields a confirmed hijack for
+                # free. What distinguishes a real one is whether the victim's
+                # session conferred authority the caller could not get alone: if
+                # an anonymous caller can open its own session and be served the
+                # same request, the session was never the reason, and the server
+                # is simply open — which the function-level and enumeration
+                # probes already report.
+                opened_alone = await _initialize(
+                    client, inv.url, headers, inv.protocol_version
+                )
+                if opened_alone.session:
+                    alone_resp = await _post(
+                        client, inv,
+                        {**headers, "Mcp-Session-Id": opened_alone.session},
+                        max_retries=max_retries, backoff_base=backoff_base,
+                    )
+                    alone = _read(inv, alone_resp)
+                    if _unanswered(alone_resp.status_code):
+                        # The handshake worked and the request did not. Its
+                        # refusal would read as "the anonymous session is denied
+                        # this", which is the evidence that confirms a hijack —
+                        # so a 503 after exhausted retries would manufacture one.
+                        undetermined = f"HTTP {alone_resp.status_code} on the control request"
+                    else:
+                        own_session = alone.effect
+                        own_listed = await _read_all_pages(
+                            client, inv,
+                            {**headers, "Mcp-Session-Id": opened_alone.session},
+                            alone,
+                            max_retries=max_retries, backoff_base=backoff_base,
+                        )
+                elif _answered_without_a_session(opened_alone):
+                    # The answer that confirms: an anonymous caller may not open
+                    # a session here, so the subject's session carried authority
+                    # this caller could not obtain alone. Falls through to the
+                    # verdict below.
+                    pass
+                else:
+                    # Nothing answered, a 500, a 502, a 504, a 429 after its
+                    # retries, a protocol refusal — a control that asked its
+                    # question and got no reply. That is not a refusal, and
+                    # reading it as one emits a confirmed high-severity finding
+                    # off the back of a dropped connection.
+                    undetermined = opened_alone.refusal or (
+                        f"HTTP {opened_alone.status}"
+                        if opened_alone.status
+                        else "no response"
+                    )
         else:
             # Nothing got through even with the session, so the control cannot
             # change the verdict and is not worth a request.
@@ -600,6 +840,47 @@ async def _session_probe(
         return Observation(
             test_id=case.id, status=0, effect=Effect.DENY,
             latency_ms=elapsed(), error=str(exc),
+        )
+
+    if undetermined:
+        # The control could not be run, so neither answer is available. Skipped
+        # rather than reported either way: a finding here would rest on a dropped
+        # connection, and a pass would credit a control nobody checked.
+        return Observation(
+            test_id=case.id, status=with_session.status_code, effect=Effect.DENY,
+            skipped=True, latency_ms=elapsed(),
+            error=(
+                f"could not tell whether an anonymous caller may open a session of "
+                f"its own ({undetermined}), so whether riding the subject's session "
+                f"gained anything is unknown"
+            ),
+        )
+
+    if own_session == Effect.ALLOW and set(own_listed) >= set(listed):
+        # Nothing was gained: the anonymous caller reached the same access on a
+        # session it opened itself. Not a finding and not a pass -- the same shape
+        # as a server that issues no session at all. Reporting it as secure would
+        # credit a control this server does not have.
+        #
+        # The *listings* are compared, not just the two effects. A server can let
+        # anyone open a session and still filter `tools/list` by the identity
+        # bound to it, in which case both requests are allowed while the victim's
+        # session returns strictly more of the catalogue -- tool names the caller
+        # had no way to learn alone. That is the defect, and reducing both
+        # responses to ALLOW would hide it. Equality is not required: the
+        # anonymous listing has to *contain* the victim's, so anything the session
+        # added still counts, and a difference nobody can account for is reported
+        # rather than waved through.
+        return Observation(
+            test_id=case.id, status=with_session.status_code, effect=Effect.DENY,
+            skipped=True, latency_ms=elapsed(),
+            error=(
+                "an anonymous caller opened its own session and was served the "
+                "same request with the same result, so riding the subject's "
+                "session gained nothing -- this endpoint needs no credential at "
+                "all, which the function-level and enumeration probes report "
+                "instead"
+            ),
         )
 
     granted = rode_session == Effect.ALLOW and control == Effect.DENY

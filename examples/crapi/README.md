@@ -1,41 +1,115 @@
 # overstep × OWASP crAPI
 
 This example runs overstep against **OWASP crAPI**, an intentionally-vulnerable
-API, so you can see real BOLA / BFLA findings end to end.
+API, so you can see real BOLA / BFLA findings end to end — on both surfaces,
+because a current crAPI also ships an MCP server in front of the same data.
 
 > We do not redistribute crAPI here — use the official images.
 
-## Steps
+## 1. Run crAPI
 
-1. **Run crAPI** (see the official instructions):
-   ```bash
-   git clone https://github.com/OWASP/crAPI.git
-   cd crAPI
-   docker compose up -d
-   ```
+```bash
+git clone https://github.com/OWASP/crAPI.git
+cd crAPI/deploy/docker
+docker compose up -d
+```
 
-2. **Create two users** (say Alice and Bob) through the web UI or REST API and
-   grab their **JWTs**. The browser DevTools Network tab shows the
-   `Authorization: Bearer <JWT>` header after login.
+The gateway comes up on `http://localhost:8888` and crAPI's own MCP server on
+`http://localhost:5500/mcp`. Its `.env` ships `TLS_ENABLED=true`; if you turn
+that off, turn it off for the **whole** stack, because the services verify each
+other's tokens over the same setting and a half-converted stack answers `500`.
 
-3. **Fill in `matrix.yaml`**:
-   - Paste the two JWTs into the `subjects` block.
-   - Set each subject's `user_id` attribute to the id crAPI assigns them (it's in
-     the JWT claims).
-   - Adjust the resource paths to match your crAPI version. If you're not sure
-     which endpoints exist, scaffold a starter list from a HAR capture:
-     ```bash
-     # DevTools -> Network -> Preserve log -> save as traffic.har
-     overstep scaffold traffic.har --fmt har > resources.snippet.yaml
-     ```
+## 2. Create two users and claim their vehicles
 
-4. **Run overstep**:
-   ```bash
-   overstep run examples/crapi/matrix.yaml --out out
-   ```
+Two identities holding genuinely *different* objects are what makes a cross-owner
+probe possible, so this part is not optional. crAPI will do it over its own API:
 
-5. **Review findings** in `out/report.html` (human) or `out/findings.json` /
-   `out/overstep.sarif` (machine / CI).
+```bash
+API=http://localhost:8888
+for U in alice bob; do
+  curl -s -X POST "$API/identity/api/auth/signup" -H 'Content-Type: application/json' \
+    -d "{\"name\":\"$U\",\"email\":\"$U@example.test\",\"number\":\"90090090${#U}\",\"password\":\"Passw0rd!x\"}"
+done
+```
+
+Log each one in for a JWT:
+
+```bash
+curl -s -X POST "$API/identity/api/auth/login" -H 'Content-Type: application/json' \
+  -d '{"email":"alice@example.test","password":"Passw0rd!x"}'
+```
+
+Signing up mails each user a VIN and pincode — read them from MailHog at
+`http://localhost:8025` — and claiming the vehicle is what gives the account an
+object to own:
+
+```bash
+curl -s -X POST "$API/identity/api/v2/vehicle/add_vehicle" -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $ALICE_JWT" -d '{"vin":"<from the mail>","pincode":"<from the mail>"}'
+curl -s "$API/identity/api/v2/vehicle/vehicles" -H "Authorization: Bearer $ALICE_JWT"
+```
+
+The `uuid` in that last response is the object id the matrix needs. The seeded
+`admin@example.com` / `Admin!123` account already owns one.
+
+## 3. Fill in the matrix
+
+[`matrix.yaml`](matrix.yaml) is written for this flow. Two things to get right:
+
+- **Tokens come from the environment**, as `${CRAPI_ALICE_TOKEN}` and friends.
+  Put them in a file and pass `--env-file`; do not paste them into the matrix.
+- **Object ids go in `objects:`**, one real vehicle uuid per subject. Do *not*
+  reach for `owner_attr: user_id` here — a vehicle is keyed by uuid, not by the
+  owner's numeric id, and pointing the two at each other produces a request for
+  an object nobody owns. overstep reports that as an `unexpected-deny` rather
+  than a finding, which is correct and is also the matrix telling you it is
+  wrong.
+
+Adjust the paths to the crAPI version you are running. If you are not sure which
+endpoints exist, draft a starter list from a HAR capture:
+
+```bash
+# DevTools -> Network -> Preserve log -> save as traffic.har
+overstep scaffold traffic.har --fmt har > resources.snippet.yaml
+```
+
+## 4. Run it
+
+```bash
+overstep validate examples/crapi/matrix.yaml --env-file crapi.env --live
+overstep plan     examples/crapi/matrix.yaml --env-file crapi.env
+overstep run      examples/crapi/matrix.yaml --env-file crapi.env --out out
+```
+
+`validate --live` first: it is one allowed request per subject, and it catches
+the expired JWT that would otherwise turn every negative test into a pass for
+the wrong reason. Against a current crAPI expect object-level findings on the
+vehicle location and function-level findings on the shop's order history, each
+**confirmed** — the victim's marker turns up in the response, so data really did
+cross the boundary rather than an empty `200` coming back.
+
+Review `out/report.html` (human) or `out/findings.json` / `out/overstep.sarif`
+(machine / CI).
+
+## 5. The MCP surface, same instance
+
+crAPI's MCP server fronts the same API, so the same questions have a second door.
+Draft a matrix from the live server:
+
+```bash
+overstep scaffold http://localhost:5500/mcp --fmt mcp --server-name crapi \
+    --token "$CRAPI_ALICE_TOKEN" > mcp-matrix.yaml
+```
+
+That reads its real tool list and infers which tools are object-level and which
+argument owns the object. Give the object-level ones the same vehicle uuids,
+write the policy, and run it.
+
+Worth knowing before you read the result: crAPI's MCP server authenticates to
+crAPI **once**, with a hardcoded admin API key, and then serves every caller with
+it. So findings there include an unauthenticated caller reaching tools reserved
+for a role — the same defect as the REST BOLA, arriving as a confused deputy.
+That is a property of this target, not of the protocol.
 
 ## Wiring it into CI
 
@@ -43,13 +117,21 @@ Snapshot the authorization surface once you've triaged the known findings, then
 fail the pipeline only when something *changes*:
 
 ```bash
-overstep snapshot examples/crapi/matrix.yaml --out baseline.json
+overstep snapshot examples/crapi/matrix.yaml --env-file crapi.env --out baseline.json
 # later, on every PR:
-overstep run examples/crapi/matrix.yaml --baseline baseline.json --fail-on drift
+overstep run examples/crapi/matrix.yaml --env-file crapi.env \
+    --baseline baseline.json --fail-on vuln-or-drift
 ```
+
+Gate on `vuln-or-drift` rather than `drift`: a newly added operation has nothing
+in the baseline to differ from, so a drift-only gate goes green on exactly the
+case the baseline is for.
 
 ## Notes
 
 - Start read-only (GET resources) before adding write operations to the matrix.
+  `--read-only` skips mutating verbs, and the summary now names the surfaces it
+  skipped so a clean result is not read as covering them.
 - Keep `matrix.yaml` and `baseline.json` in version control so authorization is
-  reviewed like any other code.
+  reviewed like any other code. Keep the tokens out of both.
+- Only test targets you are authorized to test. crAPI on your own machine is one.
