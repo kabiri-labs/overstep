@@ -6,17 +6,11 @@ on:
   pull_request:
     branches: [ main, master ]
 
-# `upload-sarif` writes to the code-scanning API, and the repository's default
-# token is read-only, so every push to main failed on that step while the pull
-# request that preceded it passed. The scan itself was fine: the job's only real
-# output is the upload, which means authz-scan was a no-op on main and nothing
-# ever reached the Security tab.
-#
-# Declared here rather than by widening the repository default, which would hand
-# write access to every workflow and every scope for the sake of one step.
+# The floor for every job: read the code, nothing else. `authz-scan` raises its
+# own ceiling where it is declared, because it is the only job that writes
+# anything.
 permissions:
   contents: read
-  security-events: write
 
 jobs:
   build-test:
@@ -60,6 +54,20 @@ jobs:
   # publish them to GitHub code scanning.
   authz-scan:
     runs-on: ubuntu-latest
+    # `upload-sarif` writes to the code-scanning API, and the repository's
+    # default token is read-only, so every push to main failed on that step
+    # while the pull request that preceded it passed. The scan itself was fine:
+    # uploading is this job's only real output, which made authz-scan a no-op on
+    # main with nothing ever reaching the Security tab.
+    #
+    # Scoped to this job rather than declared at the top level, where it would
+    # also reach the build-test matrix — four jobs that pip-install and run a
+    # test suite, and so execute third-party code that would be holding a token
+    # able to rewrite code-scanning data for no reason. A job block replaces the
+    # top-level one outright, so `contents: read` is restated here.
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
