@@ -97,9 +97,10 @@ Review `out/report.html` (human) or `out/findings.json` / `out/overstep.sarif`
 ## 5. The MCP surface, same instance
 
 crAPI's MCP server fronts the same API, so the same questions have a second door.
-[`matrix_mcp.yaml`](matrix_mcp.yaml) asks them: the same three resources, keyed
-to the same vehicle uuids, so a finding here and a finding on the REST side are
-the same defect reached two ways.
+[`matrix_mcp.yaml`](matrix_mcp.yaml) asks them, and asks them *identically*: each
+resource carries its REST twin's name, reaches the same crAPI route, and uses the
+same vehicle uuids. The two runs therefore produce the same `test_id`s, and the
+reports can be compared line for line.
 
 Fill in the same three uuids as in step 3, then:
 
@@ -110,7 +111,14 @@ overstep run      examples/crapi/matrix_mcp.yaml --env-file crapi.env --out out-
 
 Use a different `--out` than the REST run: reports are cleared from it before
 anything is sent, so pointing both runs at one directory leaves you with only
-the second.
+the second — and the comparison is the point.
+
+What that comparison shows on a current crAPI: every finding the REST run
+reports comes back through the MCP door with the same `test_id` and the same
+class — both `vehicle_location` BOLA findings and both `all_shop_orders`
+privilege escalations. The MCP run adds its own: the tool-enumeration probes,
+which have no REST equivalent, and the `anon` cases, which get through only
+there.
 
 The endpoint is written as `/mcp`. A current crAPI answers that with a `307` to
 `/mcp/`, which overstep follows, so either spelling reaches the server.
