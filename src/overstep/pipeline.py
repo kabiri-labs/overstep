@@ -10,7 +10,7 @@ live target.
 from __future__ import annotations
 
 import os
-from typing import Callable, List, Optional, Sequence, Tuple
+from typing import Callable, Iterable, List, Optional, Sequence, Tuple
 
 from overstep.auth import authenticate as default_authenticator
 from overstep.classifier import classify
@@ -258,7 +258,7 @@ def snapshot_pipeline(
     return build_snapshot(cases, observations), teardown_warnings
 
 
-def clear_reports(outdir: str) -> List[str]:
+def clear_reports(outdir: str, inputs: Iterable[str] = ()) -> List[str]:
     """Delete the documents a previous run left in ``outdir``; return the paths.
 
     ``run`` writes its reports last, so a run that dies before that — a matrix
@@ -277,7 +277,29 @@ def clear_reports(outdir: str) -> List[str]:
     passed over. Carrying on would leave exactly the document this function
     exists to remove, and the common cause — a ``report.html`` still open in a
     browser — is one sentence away from fixed.
+
+    ``inputs`` are the paths this run was told to *read* — the matrix, a
+    baseline, a waivers file, a dotenv. One of them landing on a name a reporter
+    owns is refused here rather than worked around, because the collision has no
+    safe resolution: removing the file loses what the run was told to read, and
+    sparing it only defers the loss to :func:`write_reports`, which overwrites
+    that name at the end. A matrix kept at ``out/findings.json`` would be
+    destroyed either way, and silently in the second case — the run succeeds and
+    the file is simply gone. Refusing costs one clear message instead.
     """
+    owned = {
+        os.path.realpath(os.path.join(outdir, spec.filename)): spec.filename
+        for spec in all_reporters()
+    }
+    for given in inputs:
+        collides = owned.get(os.path.realpath(given))
+        if collides:
+            raise PipelineError(
+                f"'{given}' is also where this run would write its '{collides}' "
+                f"report, so overstep would delete or overwrite it. Move the file, "
+                f"or choose another --out directory."
+            )
+
     removed: List[str] = []
     for spec in all_reporters():
         path = os.path.join(outdir, spec.filename)

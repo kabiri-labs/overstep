@@ -187,6 +187,22 @@ def run(
 ):
     """Run the matrix against a live target and write reports."""
     _validate_fail_on(fail_on)
+
+    # First, before anything that can reject the invocation. Reports are written
+    # last, so every exit between here and there — a matrix that will not parse,
+    # no resolvable base URL, an unreadable baseline, a failed setup step, an
+    # interrupt — would otherwise leave the previous run's documents in --out
+    # with nothing in them to say they are a week old. Exit 2 is loud, but the
+    # documents are not: a pipeline that uploads --out as an artifact, or a
+    # dashboard reading findings.json, shows the earlier run's results as this
+    # one's. The input paths travel along so a collision with a report name is
+    # refused rather than deleted.
+    try:
+        clear_reports(out, inputs=[p for p in (matrix, baseline, waivers, env_file) if p])
+    except PipelineError as exc:
+        console.print(f"[bold red]error:[/] {exc}")
+        raise typer.Exit(code=2)
+
     spec = _load(matrix, env_file)
     # Said before the first request goes out: the file is the only place that
     # says which line to edit. The errors also travel into the health verdict,
@@ -199,14 +215,6 @@ def run(
 
     base_url = _resolve(spec, base)
 
-    # Before the first request, not after the last: a run that dies in setup or
-    # is interrupted never reaches write_reports, and the previous run's
-    # documents would be left sitting in --out looking exactly like this run's.
-    try:
-        clear_reports(out)
-    except PipelineError as exc:
-        console.print(f"[bold red]error:[/] {exc}")
-        raise typer.Exit(code=2)
     try:
         snapshot_data = load_snapshot(baseline) if baseline else None
         waiver_list = load_waivers(waivers) if waivers else None

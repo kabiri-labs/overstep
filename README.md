@@ -823,10 +823,13 @@ worth naming. `validate` is still where these are cheapest to see, and `--strict
 is what fails on the warnings too.
 
 **Reports are cleared before the run, not written after it.** `run` removes the
-documents a previous run left in `--out` before it sends anything, because a run
-that dies in setup or is interrupted never reaches the writing step and would
-otherwise leave last week's reports looking exactly like this run's. Only the
-filenames overstep's own reporters own are touched.
+documents a previous run left in `--out` before it reads anything, because a run
+that will not parse, finds no base URL, dies in setup or is interrupted never
+reaches the writing step and would otherwise leave last week's reports looking
+exactly like this run's. Only the filenames overstep's own reporters own are
+touched, and a file the run was told to read — the matrix, a baseline, a waivers
+file — that sits on one of those names is refused rather than deleted, since the
+report of that name would overwrite it at the end regardless.
 
 **The credential half of that check needs expected-allow tests to work, on the
 target you want it to speak for.** An allowed request is the only thing that
