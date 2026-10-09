@@ -101,8 +101,11 @@ being registered there.
 **`examples/crapi/`** is rewritten around what a live run actually needs: the
 signup and vehicle-claim flow that gives two identities genuinely different
 objects, tokens via `--env-file`, object ids in `objects:` rather than
-`owner_attr` (a vehicle is keyed by uuid, not by its owner's numeric id), a
-positive control, and the MCP half of the same instance.
+`owner_attr` (a vehicle is keyed by uuid, not by its owner's numeric id), and a
+positive control. It now carries a matrix per surface — `matrix.yaml` for the
+REST gateway, `matrix_mcp.yaml` for the MCP server the same instance exposes —
+both keyed to the same vehicles, so the same missing check can be seen through
+two different doors. Each loads and lints clean with no environment set.
 
 ## [1.6.0] - 2026-10-08
 
