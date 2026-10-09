@@ -1,11 +1,11 @@
 # overstep × OWASP crAPI
 
 This example runs overstep against **OWASP crAPI**, an intentionally-vulnerable
-API, so you can see real BOLA / BFLA findings end to end. The matrix here covers
-the REST gateway. A current crAPI also exposes an MCP server in front of the same
-data, and [step 5](#5-the-mcp-surface-same-instance) drafts a matrix for that
-surface instead of shipping one, because its tool list and object ids belong to
-your instance.
+API, so you can see real BOLA / BFLA findings end to end — on both of its
+surfaces. [`matrix.yaml`](matrix.yaml) covers the REST gateway and
+[`matrix_mcp.yaml`](matrix_mcp.yaml) the MCP server a current crAPI exposes in
+front of the same data. Both are keyed to the same vehicles, so the two results
+are comparable: the same missing check, reached through two different doors.
 
 > We do not redistribute crAPI here — use the official images.
 
@@ -97,16 +97,34 @@ Review `out/report.html` (human) or `out/findings.json` / `out/overstep.sarif`
 ## 5. The MCP surface, same instance
 
 crAPI's MCP server fronts the same API, so the same questions have a second door.
-Draft a matrix from the live server:
+[`matrix_mcp.yaml`](matrix_mcp.yaml) asks them: the same three resources, keyed
+to the same vehicle uuids, so a finding here and a finding on the REST side are
+the same defect reached two ways.
+
+Fill in the same three uuids as in step 3, then:
+
+```bash
+overstep validate examples/crapi/matrix_mcp.yaml --env-file crapi.env --live
+overstep run      examples/crapi/matrix_mcp.yaml --env-file crapi.env --out out-mcp
+```
+
+Use a different `--out` than the REST run: reports are cleared from it before
+anything is sent, so pointing both runs at one directory leaves you with only
+the second.
+
+The endpoint is written as `/mcp`. A current crAPI answers that with a `307` to
+`/mcp/`, which overstep follows, so either spelling reaches the server.
+
+To see the whole surface rather than these three resources — a current crAPI
+exposes 44 tools — draft one from the live server instead:
 
 ```bash
 overstep scaffold http://localhost:5500/mcp --fmt mcp --server-name crapi \
-    --token "$CRAPI_ALICE_TOKEN" > mcp-matrix.yaml
+    --token "$CRAPI_ALICE_TOKEN" > mcp-full.yaml
 ```
 
 That reads its real tool list and infers which tools are object-level and which
-argument owns the object. Give the object-level ones the same vehicle uuids,
-write the policy, and run it.
+argument owns the object. The policy is still the part only you can write.
 
 Worth knowing before you read the result: crAPI's MCP server authenticates to
 crAPI **once**, with a hardcoded admin API key, and then serves every caller with

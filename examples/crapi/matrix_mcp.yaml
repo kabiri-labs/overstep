@@ -1,0 +1,104 @@
+# Authorization matrix for the MCP server a live OWASP crAPI exposes.
+#
+# The same three questions as matrix.yaml in this directory, asked through the
+# other door. crAPI's chatbot service fronts the same API over Streamable HTTP,
+# so a finding here and a finding there are the same defect reached two ways —
+# and the object ids are deliberately the same vehicle uuids, so the comparison
+# is exact.
+#
+#   overstep validate examples/crapi/matrix_mcp.yaml --env-file crapi.env --live
+#   overstep run      examples/crapi/matrix_mcp.yaml --env-file crapi.env --out out
+#
+# See README.md in this directory for the accounts and the vehicle-claim flow
+# these ids come from. Two things worth knowing before you read a result:
+#
+#   * The endpoint is `/mcp`. A current crAPI answers that with a 307 to `/mcp/`,
+#     which overstep follows, so either spelling reaches the server.
+#   * crAPI's MCP server authenticates to crAPI **once**, with a hardcoded admin
+#     API key, and then serves every caller with it. Findings therefore include
+#     an unauthenticated caller reaching tools reserved for a role. That is a
+#     property of this target, not of the protocol.
+
+roles: [anonymous, user, mechanic, admin]
+
+modules:
+  mcp:
+    servers:
+      - name: crapi
+        url: http://localhost:5500/mcp
+        protocol_version: "2025-06-18"
+
+    # There is no 403 on this surface: a refusal arrives as an isError result or
+    # a JSON-RPC error. `deny_status` is the half that is easy to miss — this
+    # server rejects an unauthenticated request on the HTTP leg, and without
+    # reading the status a server that refuses *before* dispatching is the one a
+    # run would report wide open.
+    access:
+      is_error_is_deny: true
+      jsonrpc_error_is_deny: true
+      deny_status: ["4xx", "5xx"]
+
+    probes:
+      # Asked for deliberately: this server advertises its whole catalogue to
+      # every caller, which is what the probe reports.
+      tool_enumeration: true
+
+subjects:
+  # Tokens stay out of this file; the `${VAR:-fallback}` form means the example
+  # still loads without a dotenv, with a placeholder that cannot be mistaken for
+  # a credential. `marker` is what turns a cross-owner success into a
+  # `confirmed` finding rather than a `suspected` one.
+  - name: alice
+    role: user
+    token: "${CRAPI_ALICE_TOKEN:-PASTE_ALICE_JWT_HERE}"
+    marker: "alice@example.test"
+  - name: bob
+    role: user
+    token: "${CRAPI_BOB_TOKEN:-PASTE_BOB_JWT_HERE}"
+    marker: "bob@example.test"
+  - name: root
+    role: admin
+    token: "${CRAPI_ADMIN_TOKEN:-PASTE_ADMIN_JWT_HERE}"
+    marker: "admin@example.com"
+  - name: anon
+    role: anonymous
+    token: null
+
+resources:
+  # The positive control. Without at least one allowed case per target, an
+  # expired JWT turns every negative test into a pass for the wrong reason.
+  - name: get_dashboard
+    call: { server: crapi, tool: get_dashboard }
+    type: function
+
+  # Object-level, on the tool argument `scaffold` identifies as the owning one.
+  # Example uuids, and only examples: a run against them probes objects nobody
+  # owns. Replace all three with the real values from
+  # `GET /identity/api/v2/vehicle/vehicles` — the same ones matrix.yaml uses.
+  - name: get_location
+    call: { server: crapi, tool: get_location }
+    type: object
+    owner: vehicleId
+    objects:
+      alice: "00000000-0000-4000-8000-0000000a11ce"
+      bob: "00000000-0000-4000-8000-00000000b0b1"
+      root: "00000000-0000-4000-8000-0000000c0de5"
+
+  # Function-level: every workshop user, not the caller's own record.
+  - name: get_workshop_users_all
+    call: { server: crapi, tool: get_workshop_users_all }
+    type: function
+
+policy:
+  get_dashboard:
+    allow:
+      - { role: user }
+      - { role: mechanic }
+      - { role: admin }
+  get_location:
+    allow:
+      - { role: user, scope: own }    # a driver sees only their own vehicle
+      - { role: admin, scope: any }
+  get_workshop_users_all:
+    allow:
+      - { role: admin }               # admin-only
