@@ -61,6 +61,37 @@ _MAX_LIST_PAGES = 20
 # the run's subject matter — it has to stay on the normal allow/deny path.
 _AUTH_STATUSES = frozenset({401, 403})
 
+
+def _unanswered(status: int) -> bool:
+    """Did this status fail to say anything about authorization?
+
+    A server that is briefly unable to answer, or broken, has not refused
+    anything. The distinction matters wherever a refusal is the evidence *for* a
+    finding: there, reading "could not tell" as "denied" invents the finding.
+    """
+    return status in _RETRY_STATUSES or status >= 500
+
+
+def _answered_without_a_session(handshake: "_Handshake") -> bool:
+    """Did the server say, clearly, that this caller gets no session of its own?
+
+    Two spellings, and both are answers. A server may **refuse** the anonymous
+    handshake outright — 401 or 403 — or it may **accept** it and simply issue no
+    ``Mcp-Session-Id``, which is what the bundled demo does and what any server
+    that hands sessions only to identified callers does. The second is the one
+    worth spelling out, because it arrives as a 200: reading only the status, it
+    looks like success, and the absence of the header is the whole message.
+
+    Anything else is not an answer. A 404 says the endpoint moved, a 500 says the
+    server broke, a 429 that outlived its retries says to come back later — and
+    none of them says whether an anonymous caller may hold a session. They are
+    excluded here rather than enumerated as failures, so a shape nobody
+    anticipated lands on "unknown" instead of on "confirmed".
+    """
+    if handshake.session or handshake.status is None or handshake.refusal:
+        return False
+    return handshake.status < 300 or handshake.status in _AUTH_STATUSES
+
 # JSON-RPC's pre-defined codes for a request the server could not accept *as a
 # request*. A server denying authorization does not answer with these: it sets
 # ``isError`` on a result, or uses a code of its own — JSON-RPC reserves
@@ -447,8 +478,26 @@ async def _hop(
     resp = await client.post(url, json=payload, headers=headers)
     target = redirect_target(resp, url)
     if target:
-        return await client.post(target, json=payload, headers=headers), target
+        resp, url = await client.post(target, json=payload, headers=headers), target
+    refused = redirect_refusal(resp, url)
+    if refused:
+        # Not followed, and not readable either: raised so it is recorded as a
+        # request that never arrived rather than scored as the server's answer.
+        raise UnfollowedRedirect(refused)
     return resp, url
+
+
+class UnfollowedRedirect(httpx.HTTPError):
+    """A redirect this transport will not replay, raised where it happens.
+
+    Subclasses ``httpx.HTTPError`` on purpose: every leg of an MCP exchange
+    already turns one of those into an observation with ``status == 0``, which
+    is what a request that never arrived has to look like. Returning the 3xx
+    instead was the bug this replaces — a body-less redirect carries no in-band
+    deny signal and no deny status, so the matcher read it as *allowed*, every
+    negative case against such an endpoint became a finding, and the run
+    reported itself conclusive while nothing had been delivered.
+    """
 
 
 def same_origin(a: str, b: str) -> bool:
@@ -709,7 +758,15 @@ async def _session_probe(
             max_retries=max_retries, backoff_base=backoff_base,
         )
         ridden = _read(inv, with_session)
-        rode_session, text, listed, error = ridden.effect, ridden.text, ridden.listed, ridden.error
+        rode_session, text, error = ridden.effect, ridden.text, ridden.error
+        # Every page, because the comparison below is what decides whether the
+        # session was worth stealing: a catalogue whose privileged half sits
+        # after the first page would otherwise match the anonymous one exactly
+        # and the hijack would be waved through.
+        listed = await _read_all_pages(
+            client, inv, {**headers, "Mcp-Session-Id": session}, ridden,
+            max_retries=max_retries, backoff_base=backoff_base,
+        ) if rode_session == Effect.ALLOW else list(ridden.listed)
         own_session = None
         own_listed: List[str] = []
         undetermined: Optional[str] = None
@@ -738,25 +795,40 @@ async def _session_probe(
                     client, inv.url, headers, inv.protocol_version
                 )
                 if opened_alone.session:
-                    alone = _read(
-                        inv,
-                        await _post(
+                    alone_resp = await _post(
+                        client, inv,
+                        {**headers, "Mcp-Session-Id": opened_alone.session},
+                        max_retries=max_retries, backoff_base=backoff_base,
+                    )
+                    alone = _read(inv, alone_resp)
+                    if _unanswered(alone_resp.status_code):
+                        # The handshake worked and the request did not. Its
+                        # refusal would read as "the anonymous session is denied
+                        # this", which is the evidence that confirms a hijack —
+                        # so a 503 after exhausted retries would manufacture one.
+                        undetermined = f"HTTP {alone_resp.status_code} on the control request"
+                    else:
+                        own_session = alone.effect
+                        own_listed = await _read_all_pages(
                             client, inv,
                             {**headers, "Mcp-Session-Id": opened_alone.session},
+                            alone,
                             max_retries=max_retries, backoff_base=backoff_base,
-                        ),
-                    )
-                    own_session, own_listed = alone.effect, alone.listed
-                elif opened_alone.status is None or opened_alone.status in _RETRY_STATUSES:
-                    # Nothing answered, or the server was briefly unable to. The
-                    # control asked its question and got no reply, which is not
-                    # the same as a refusal -- and a refusal is what the verdict
-                    # below would read it as, emitting a confirmed high-severity
-                    # finding off the back of a dropped connection. An explicit
-                    # 401 or 403 is a real answer and falls through: an anonymous
-                    # caller genuinely may not open a session here.
+                        )
+                elif _answered_without_a_session(opened_alone):
+                    # The answer that confirms: an anonymous caller may not open
+                    # a session here, so the subject's session carried authority
+                    # this caller could not obtain alone. Falls through to the
+                    # verdict below.
+                    pass
+                else:
+                    # Nothing answered, a 500, a 502, a 504, a 429 after its
+                    # retries, a protocol refusal — a control that asked its
+                    # question and got no reply. That is not a refusal, and
+                    # reading it as one emits a confirmed high-severity finding
+                    # off the back of a dropped connection.
                     undetermined = opened_alone.refusal or (
-                        "HTTP %d" % opened_alone.status
+                        f"HTTP {opened_alone.status}"
                         if opened_alone.status
                         else "no response"
                     )

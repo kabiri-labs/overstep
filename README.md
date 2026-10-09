@@ -672,14 +672,19 @@ it is a finding:
   could not have. Such a server needs no credential at all, which the
   function-level and enumeration probes report instead.
 
-  What is compared is the access, not the two outcomes. A server may let anyone
-  open a session and still filter the listing by the identity bound to it, which
-  allows both requests while the victim's session returns more of the catalogue
-  than the caller could reach alone — the defect, and invisible if both are read
-  as merely "allowed". The control also has to answer: a *refused* anonymous
-  handshake confirms the hijack, while one that times out or answers `503` says
-  nothing, and the probe is skipped rather than resting a high-severity finding
-  on a dropped connection.
+  What is compared is the access, not the two outcomes, and both catalogues are
+  followed to the last page. A server may let anyone open a session and still
+  filter the listing by the identity bound to it, which allows both requests
+  while the victim's session returns more of the catalogue than the caller could
+  reach alone — the defect, and invisible if both are read as merely "allowed".
+
+  The control also has to answer, and a server has two ways of saying the same
+  thing: it may refuse the anonymous handshake (`401`/`403`), or accept it and
+  issue no session id — a `200` whose whole message is the absent header. Both
+  confirm the hijack. Anything else — no response, a `500`, a `429` that
+  outlived its retries, a control request that fails after its handshake
+  succeeded — says nothing, and the probe is skipped with the reason rather than
+  resting a high-severity finding on a dropped connection.
 
 A server that issues no session id has nothing to hijack, and the probe is
 recorded as skipped rather than passed — as it is when the second control shows
@@ -723,7 +728,9 @@ rewritten to GET by convention, so replaying a JSON-RPC POST to any of them is
 not what the server asked for, and would run a mutating `tools/call` twice if the
 first endpoint had already dispatched it. The origin matters because a credential
 must not be replayed at a host you did not name. A cross-origin redirect is
-refused and says so, rather than being reported as an unreadable response.
+refused and recorded as a request that never arrived — so the run is
+inconclusive and the message names both ends, rather than the body-less `3xx`
+being scored as the server's answer.
 
 You do not have to know which one to write — `scaffold` asks the server
 (`server/discover` first, then a negotiated `initialize`) and records the answer.

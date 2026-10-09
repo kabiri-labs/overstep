@@ -24,7 +24,12 @@ import pytest
 
 from overstep.matrix import Matrix
 from overstep.models import Effect, Variant, VulnClass
-from overstep.modules.mcp.transport import redirect_target, same_origin
+from overstep.modules.mcp.transport import (
+    UnfollowedRedirect,
+    redirect_refusal,
+    redirect_target,
+    same_origin,
+)
 from overstep.pipeline import run_pipeline
 from overstep.planner import plan
 
@@ -394,6 +399,212 @@ def test_a_method_preserving_redirect_is_replayed(status):
 
     assert any(url.endswith("/mcp/") for url in handler.seen)
     assert result.health.transport_errors == 0
+
+
+# --------------------------------------------------------------------------
+# A control that could not answer is not a refusal
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("status", [429, 500, 502, 503, 504])
+def test_no_finding_when_the_anonymous_handshake_could_not_answer(status):
+    """A broken or busy server has not refused anything.
+
+    Only 429 and 503 were treated as unanswered, so a 500, 502 or 504 fell
+    through and reported a confirmed hijack for every credentialed subject.
+    """
+    result = _run(_matrix(), _anonymous_handshake_answers(status))
+
+    assert [f for f in result.findings if f.vuln_class == VulnClass.SESSION_HIJACK] == []
+    for obs in _session_observations(result):
+        assert obs.skipped
+        assert "could not tell" in (obs.error or "")
+
+
+def _control_request_fails(status: int):
+    """Anyone may open a session; the request on an anonymous one then fails.
+
+    The second half of the same mistake: the handshake answers, so the control
+    looks runnable, and the failure of its *request* is read as "the anonymous
+    session is denied this" — which is the evidence that confirms a hijack.
+    """
+    def handle(request: httpx.Request) -> httpx.Response:
+        msg = json.loads(request.content)
+        method, req_id = msg.get("method"), msg.get("id")
+        auth = request.headers.get("authorization", "")
+        token = auth[7:] if auth.lower().startswith("bearer ") else ""
+        session = request.headers.get("mcp-session-id", "")
+
+        if method == "initialize":
+            issued = SUBJECT_SESSION if token else ANON_SESSION
+            return httpx.Response(
+                200,
+                json={"jsonrpc": "2.0", "id": req_id, "result": {}},
+                headers={"Mcp-Session-Id": issued},
+            )
+        if not session:
+            return httpx.Response(
+                400,
+                json={"jsonrpc": "2.0", "id": "server-error",
+                      "error": {"code": -32600, "message": "Bad Request: Missing session ID"}},
+            )
+        if session == ANON_SESSION:
+            return httpx.Response(status, json={"detail": "later"})
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": req_id,
+                                         "result": {"tools": [{"name": "read_document"}]}})
+    return handle
+
+
+@pytest.mark.parametrize("status", [429, 503, 500])
+def test_no_finding_when_the_control_request_could_not_answer(status):
+    result = _run(_matrix(), _control_request_fails(status))
+
+    assert [f for f in result.findings if f.vuln_class == VulnClass.SESSION_HIJACK] == []
+    for obs in _session_observations(result):
+        assert obs.skipped
+        assert "control request" in (obs.error or "")
+
+
+def test_a_handshake_that_answers_and_issues_no_session_still_confirms():
+    """The answer that is not a refusal, and the one the narrow rule missed.
+
+    A server may accept the anonymous handshake and simply issue no
+    `Mcp-Session-Id` — a 200 whose whole message is the absent header. That is
+    as explicit as a 401: this caller holds no session of its own, so the
+    subject's session carried authority it could not obtain. Reading only 401
+    and 403 as answers turned the bundled demo's three real findings into
+    skipped probes.
+    """
+    def handle(request: httpx.Request) -> httpx.Response:
+        msg = json.loads(request.content)
+        method, req_id = msg.get("method"), msg.get("id")
+        auth = request.headers.get("authorization", "")
+        token = auth[7:] if auth.lower().startswith("bearer ") else ""
+        session = request.headers.get("mcp-session-id", "")
+
+        if method == "initialize":
+            headers = {"Mcp-Session-Id": SUBJECT_SESSION} if token else {}
+            return httpx.Response(
+                200, json={"jsonrpc": "2.0", "id": req_id, "result": {}}, headers=headers
+            )
+        if not session:
+            return httpx.Response(
+                400,
+                json={"jsonrpc": "2.0", "id": "server-error",
+                      "error": {"code": -32600, "message": "Bad Request: Missing session ID"}},
+            )
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": req_id,
+                                         "result": {"tools": [{"name": "read_document"}]}})
+
+    result = _run(_matrix(), handle)
+
+    hijacks = [f for f in result.findings if f.vuln_class == VulnClass.SESSION_HIJACK]
+    assert hijacks, "a 200 that issues no session was mistaken for an unanswered control"
+    assert {f.subject for f in hijacks} == {"alice"}
+
+
+# --------------------------------------------------------------------------
+# A redirect that is not followed never arrived
+# --------------------------------------------------------------------------
+
+
+def test_a_cross_origin_redirect_is_recorded_as_undelivered():
+    """It used to be scored as the server's answer.
+
+    A body-less 3xx carries no in-band deny signal and no deny status, so the
+    matcher read it as *allowed*: every negative case against such an endpoint
+    became a finding, and the run called itself conclusive while nothing had
+    been delivered.
+    """
+    handler = _redirecting(location="http://elsewhere.test/mcp/")
+
+    result = _run(_matrix("http://docs.test/mcp"), handler)
+
+    # No vulnerability is invented. An expected-allow case that never arrived is
+    # still reported as `unexpected-deny`, which is the correct signal and the
+    # one that says the matrix or the target is wrong.
+    assert result.vulnerabilities == [], [
+        (f.test_id, f.vuln_class.value) for f in result.vulnerabilities
+    ]
+    assert result.health.transport_errors > 0
+    assert result.health.inconclusive
+    sent = [o for o in result.observations if not o.skipped]
+    assert sent and all(o.status == 0 for o in sent)
+    assert any("different origin" in (o.error or "") for o in sent)
+
+
+def test_the_unfollowed_redirect_error_names_both_ends():
+    url = "http://docs.test/mcp"
+    resp = httpx.Response(307, headers={"location": "http://evil.test/mcp/"})
+
+    message = redirect_refusal(resp, url)
+
+    assert message is not None
+    assert "evil.test" in message and url in message
+    # It travels as an HTTPError so every leg already records status 0 for it.
+    assert issubclass(UnfollowedRedirect, httpx.HTTPError)
+
+
+# --------------------------------------------------------------------------
+# Both catalogues are compared in full, not page by page
+# --------------------------------------------------------------------------
+
+
+def _paginated_catalogue():
+    """The victim-only tool sits on the second page.
+
+    Page one is identical for both sessions, so a comparison that reads only the
+    first page finds containment and waves the hijack through.
+    """
+    owner = {SUBJECT_SESSION: "alice", ANON_SESSION: None}
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        msg = json.loads(request.content)
+        method, req_id = msg.get("method"), msg.get("id")
+        params = msg.get("params") or {}
+        auth = request.headers.get("authorization", "")
+        token = auth[7:] if auth.lower().startswith("bearer ") else ""
+        session = request.headers.get("mcp-session-id", "")
+
+        if method == "initialize":
+            issued = SUBJECT_SESSION if token else ANON_SESSION
+            return httpx.Response(
+                200,
+                json={"jsonrpc": "2.0", "id": req_id, "result": {}},
+                headers={"Mcp-Session-Id": issued},
+            )
+        if not session:
+            return httpx.Response(
+                400,
+                json={"jsonrpc": "2.0", "id": "server-error",
+                      "error": {"code": -32600, "message": "Bad Request: Missing session ID"}},
+            )
+        if method == "tools/list":
+            privileged = bool(owner.get(session))
+            if params.get("cursor") == "page2":
+                tools = [{"name": ADMIN_ONLY_TOOL}] if privileged else []
+                return httpx.Response(200, json={"jsonrpc": "2.0", "id": req_id,
+                                                 "result": {"tools": tools}})
+            # Page one is the same whoever asks.
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": req_id, "result": {
+                "tools": [{"name": "read_document"}], "nextCursor": "page2",
+            }})
+        return httpx.Response(200, json={
+            "jsonrpc": "2.0", "id": req_id,
+            "result": {"content": [{"type": "text", "text": "{}"}], "isError": False},
+        })
+    return handle
+
+
+def test_a_hijack_hidden_on_the_second_page_is_still_reported():
+    result = _run(_matrix(), _paginated_catalogue())
+
+    hijacks = [f for f in result.findings if f.vuln_class == VulnClass.SESSION_HIJACK]
+    assert hijacks, "the comparison stopped at the first page"
+    assert {f.subject for f in hijacks} == {"alice"}
+    assert any(
+        ADMIN_ONLY_TOOL in (o.listed_tools or []) for o in _session_observations(result)
+    ), "the second page was never read"
 
 
 # --------------------------------------------------------------------------

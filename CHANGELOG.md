@@ -26,15 +26,22 @@ session and be served the same access, it could not have — the endpoint needs 
 credential at all, which the function-level and enumeration probes already
 report.
 
-What is compared is the access rather than the two outcomes. A server may let
-anyone open a session and still filter `tools/list` by the identity bound to it,
-which allows both requests while the victim's session returns strictly more of
-the catalogue — tool names the caller had no way to learn alone, and a defect
-that reducing both responses to "allowed" would hide. The control also has to
-answer: an anonymous handshake *refused* with 401 or 403 confirms the hijack,
-while one that times out or answers 503 establishes nothing, and the probe is
-then skipped rather than resting a confirmed high-severity finding on a dropped
-connection. When that
+What is compared is the access rather than the two outcomes, and both
+catalogues are read to the last page. A server may let anyone open a session and
+still filter `tools/list` by the identity bound to it, which allows both requests
+while the victim's session returns strictly more of the catalogue — tool names
+the caller had no way to learn alone, and a defect that reducing both responses
+to "allowed", or reading only the first page, would hide.
+
+The control also has to produce an answer, and two shapes count as one. A server
+may **refuse** the anonymous handshake with 401 or 403, or **accept** it and
+issue no `Mcp-Session-Id` at all — a 200 whose whole message is the absent
+header, which is what any server that hands sessions only to identified callers
+does. Both say this caller holds no session of its own, and both confirm the
+hijack. Anything else says nothing: no response, a 404, a 500, a 429 that
+outlived its retries, a protocol refusal, or a control request that fails after
+its handshake succeeded. Those skip the probe with the reason rather than resting
+a confirmed high-severity finding on a dropped connection. When that
 is the case the probe is recorded as **skipped, with the reason**, the same shape
 as a server that issues no session id: the question was not answered, and
 reporting it as passed would credit a control the server does not have.
@@ -59,8 +66,15 @@ URI" and `301`/`302` are rewritten to GET by long convention, so replaying a
 JSON-RPC POST to any of the three is not what the server asked for — it fails
 against a GET-only target, and duplicates the operation if the first endpoint had
 already dispatched a mutating `tools/call` before answering. The origin is the
-other half: a credential must not be replayed at a host nobody named. A
-cross-origin redirect is still refused, and now says that is what happened.
+other half: a credential must not be replayed at a host nobody named.
+
+A cross-origin redirect is still refused, and it is now recorded as a request
+that **never arrived**. Returning the 3xx to be scored was the worse half of the
+bug: a body-less redirect carries no in-band deny signal and no deny status, so
+the matcher read it as *allowed*, every negative case against such an endpoint
+became a finding, and the run called itself conclusive while nothing had been
+delivered. It travels as a transport error now, so the run is inconclusive and
+the message names both ends.
 
 ### Changed
 
