@@ -52,6 +52,14 @@ policy:
       - { role: user, scope: own }
 """
 
+# Indentation YAML cannot read, so the matrix never parses and `run` exits 2
+# before it reaches anything else.
+UNPARSEABLE_MATRIX = """
+subjects:
+- name: a
+   role: user
+"""
+
 
 def _case(case_id: str, expected: Effect, *, resource: str = "r", method: str = "GET") -> TestCase:
     return TestCase(
@@ -305,6 +313,121 @@ def test_clear_reports_refuses_to_leave_a_document_it_could_not_remove(tmp_path)
 
     assert blocker.name in str(exc.value)
     assert "--out" in str(exc.value)
+
+
+def test_an_input_sharing_a_report_name_is_refused_not_deleted(tmp_path):
+    """The collision has no safe resolution, so it is refused up front.
+
+    Sparing the file from the cleanup is not enough: `write_reports` overwrites
+    that name at the end of the run, so a matrix kept at `out/findings.json`
+    would be destroyed either way — and silently in that case, since the run
+    succeeds and the file is simply gone.
+    """
+    out = tmp_path / "out"
+    out.mkdir()
+    collision = out / "findings.json"
+    collision.write_text("mine", encoding="utf-8")
+
+    with pytest.raises(PipelineError) as exc:
+        clear_reports(str(out), inputs=[str(collision)])
+
+    assert collision.read_text(encoding="utf-8") == "mine"
+    assert "findings.json" in str(exc.value)
+    assert "--out" in str(exc.value)
+
+
+def test_an_input_elsewhere_is_not_a_collision(tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "findings.json").write_text("stale", encoding="utf-8")
+    elsewhere = tmp_path / "findings.json"
+    elsewhere.write_text("mine", encoding="utf-8")
+
+    removed = clear_reports(str(out), inputs=[str(elsewhere)])
+
+    assert [os.path.basename(p) for p in removed] == ["findings.json"]
+    assert elsewhere.read_text(encoding="utf-8") == "mine"
+
+
+@pytest.mark.parametrize("flag", ["--baseline", "--waivers"])
+def test_run_refuses_an_input_that_would_be_overwritten(tmp_path, flag):
+    out = tmp_path / "out"
+    out.mkdir()
+    collision = out / "findings.json"
+    collision.write_text('{"decisions": {}}', encoding="utf-8")
+    path = tmp_path / "matrix.yaml"
+    path.write_text(PLACEHOLDER_MATRIX, encoding="utf-8")
+
+    result = CliRunner().invoke(
+        app, ["run", str(path), "--out", str(out), flag, str(collision)]
+    )
+
+    assert result.exit_code == 2
+    assert collision.read_text(encoding="utf-8") == '{"decisions": {}}', (
+        "a user-supplied input was destroyed"
+    )
+
+
+def test_run_refuses_a_matrix_that_would_be_overwritten(tmp_path):
+    """The silent variant: without this the run succeeds and the matrix is gone."""
+    out = tmp_path / "out"
+    out.mkdir()
+    matrix = out / "findings.json"
+    matrix.write_text(PLACEHOLDER_MATRIX, encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["run", str(matrix), "--out", str(out)])
+
+    assert result.exit_code == 2
+    assert matrix.read_text(encoding="utf-8") == PLACEHOLDER_MATRIX
+
+
+def test_a_matrix_that_will_not_parse_leaves_no_stale_report(tmp_path):
+    """Exit 2 is loud; the documents it leaves behind are not.
+
+    A pipeline that uploads --out as an artifact, or a dashboard reading
+    findings.json, shows the earlier run's results as this one's.
+    """
+    out = tmp_path / "out"
+    out.mkdir()
+    stale = out / "findings.json"
+    stale.write_text('{"summary": {"vulnerabilities": 0}}', encoding="utf-8")
+    broken = tmp_path / "m.yaml"
+    broken.write_text(UNPARSEABLE_MATRIX, encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["run", str(broken), "--out", str(out)])
+
+    assert result.exit_code == 2
+    assert not stale.exists(), "the previous run's report survived an unparseable matrix"
+
+
+def test_a_matrix_with_no_base_url_leaves_no_stale_report(tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    stale = out / "findings.json"
+    stale.write_text('{"summary": {"vulnerabilities": 0}}', encoding="utf-8")
+    path = tmp_path / "matrix.yaml"
+    path.write_text(
+        """
+roles: [user]
+subjects:
+  - { name: alice, role: user, token: a, attributes: { user_id: u1 } }
+resources:
+  - name: get_user
+    request: { method: GET, path: "/users/{id}" }
+    type: object
+    owner: id
+    owner_attr: user_id
+policy:
+  get_user:
+    allow: [{ role: user, scope: own }]
+""",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(app, ["run", str(path), "--out", str(out)])
+
+    assert result.exit_code == 2
+    assert not stale.exists()
 
 
 def test_a_run_that_dies_in_setup_leaves_no_stale_report(tmp_path, monkeypatch):
