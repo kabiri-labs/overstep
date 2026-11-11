@@ -256,3 +256,58 @@ def test_validate_stays_quiet_when_nobody_may_delete_or_nothing_is_shared():
         {"alice": "d-a", "bob": "d-b", "root": "d-r"}
     )
     assert _shared_object_warnings(separate) == []
+
+
+def _with_users(matrix, path, **extra):
+    matrix.resources.append(type(matrix.resources[0])(
+        name="get_user", request={"method": "GET", "path": path}, type="object",
+        owner="id", objects={"alice": "o-a", "bob": "o-b", "root": "o-r"}, **extra,
+    ))
+    return matrix
+
+
+def test_equal_ids_under_an_unrelated_path_are_not_a_shared_object():
+    """Deleting order 1 removes no user 1, however alike the two ids look."""
+    warnings = _shared_object_warnings(_with_users(orders_matrix(), "/users/{id}"))
+
+    assert len(warnings) == 1
+    assert "get_user" not in warnings[0]
+    assert "get_order" in warnings[0], "the resources at the DELETE's own path still count"
+
+
+def test_a_path_beneath_the_deleted_one_shares_its_object():
+    matrix = _with_users(orders_matrix(), "/orders/{order_id}/items")
+
+    assert "get_user" in _shared_object_warnings(matrix)[0]
+
+
+def test_a_path_that_only_starts_with_the_same_letters_does_not():
+    matrix = _with_users(orders_matrix(), "/orders-archive/{id}")
+
+    assert "get_user" not in _shared_object_warnings(matrix)[0]
+
+
+def test_an_mcp_resource_with_the_same_ids_is_not_a_shared_object():
+    matrix = Matrix(
+        modules={
+            "rest": {"base_url": "http://orders.test"},
+            "mcp": {"servers": [{"name": "docs", "url": "http://mcp.test/mcp"}]},
+        },
+        roles=["user", "admin"],
+        subjects=[
+            {"name": "alice", "role": "user", "token": "a"},
+            {"name": "root", "role": "admin", "token": "r"},
+        ],
+        resources=[
+            {"name": "delete_order", "request": {"method": "DELETE", "path": "/orders/{id}"},
+             "type": "object", "owner": "id", "objects": {"alice": "1", "root": "2"}},
+            {"name": "read_doc", "call": {"server": "docs", "tool": "read_document"},
+             "type": "object", "owner": "doc_id", "objects": {"alice": "1", "root": "2"}},
+        ],
+        policy={
+            "delete_order": {"allow": [{"role": "admin", "scope": "any"}]},
+            "read_doc": {"allow": [{"role": "user", "scope": "own"}]},
+        },
+    )
+
+    assert _shared_object_warnings(matrix) == []

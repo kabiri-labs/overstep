@@ -376,7 +376,25 @@ class Matrix(BaseModel):
 
         An object that *is* created in ``setup:`` — a ``{{capture}}`` — is new
         on every run, so sharing it costs nothing and is not reported.
+
+        Equal identifiers are not evidence of a shared object: orders 1 and 2
+        and users 1 and 2 are four things, and deleting an order removes no
+        user. The identifiers have to be read in the same place, so the other
+        resource must be an HTTP one at the DELETE's own path or beneath it —
+        ``/orders/{id}`` and ``/orders/{id}/items``, whatever each calls its
+        parameter. Two paths that really do name one object are missed by
+        that, which is the cheaper mistake for a warning ``--strict`` turns
+        into a failed build.
         """
+        def shape(path: str) -> str:
+            return re.sub(r"\{[^}]*\}", "{}", path).rstrip("/")
+
+        def same_namespace(deleted: str, other) -> bool:
+            if other.request is None:
+                return False
+            theirs = shape(other.request.path)
+            return theirs == deleted or theirs.startswith(deleted + "/")
+
         def objects_of(res) -> set:
             if res.type != ResourceType.OBJECT:
                 return set()
@@ -396,10 +414,13 @@ class Matrix(BaseModel):
             if entry is None or not entry.allow:
                 continue
             mine = objects_of(res)
+            deleted = shape(res.request.path)
             sharing = sorted(
                 other.name
                 for other in self.resources
-                if other.name != res.name and mine & objects_of(other)
+                if other.name != res.name
+                and same_namespace(deleted, other)
+                and mine & objects_of(other)
             )
             if sharing:
                 problems.append(Problem(

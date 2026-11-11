@@ -59,7 +59,8 @@ behaviour it had.
 server.** A plausible default is the wrong thing to put in a file nobody has
 edited yet. `validate` reports the placeholder as an error with its line, like
 the token and identifier placeholders, with advice of its own. A document that
-declares `servers` is unaffected.
+declares `servers` is unaffected, and an explicit `--base` stands in for the
+placeholder — the address that will be used is the one on the command line.
 
 ### Added
 
@@ -84,7 +85,9 @@ back. A matrix whose ids are written in the file rather than created in `setup:`
 therefore reports the sharing resources as unexpectedly denied on its second
 run, against a target where nothing changed. The warning names the resources and
 both ways out. Objects that are `{{captures}}` from `setup:` are new on every run
-and are not reported.
+and are not reported. Equal identifiers alone are not taken as a shared object:
+the other resource has to be an HTTP one at the `DELETE`'s path or beneath it, so
+orders `1` and `2` are never confused with users `1` and `2`.
 
 ## [1.7.0] - 2026-10-09
 
