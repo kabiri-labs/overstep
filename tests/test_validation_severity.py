@@ -142,7 +142,7 @@ def test_placeholders_are_reported_in_file_order(scaffolded):
 def test_token_and_identifier_placeholders_get_different_advice(scaffolded):
     messages = {p.message.split("'")[1]: p.message for p in scan(str(scaffolded))}
     token = next(m for k, m in messages.items() if k.startswith("PASTE_"))
-    identifier = next(m for k, m in messages.items() if k.startswith("REPLACE_ME"))
+    identifier = next(m for k, m in messages.items() if k.startswith("REPLACE_ME_1"))
 
     assert "${ENV_VAR}" in token
     assert "cross-owner probe" in identifier
@@ -261,5 +261,6 @@ def test_run_names_the_placeholder_line_before_sending_anything(scaffolded, tmp_
     )
 
     assert "PASTE_" in result.stdout
-    # Printed ahead of the run's own output rather than buried in the summary.
-    assert result.stdout.index("PASTE_") < result.stdout.index("Planned")
+    # And since 1.8.0 it is all that arrives: the run stops there, as bad input.
+    assert result.exit_code == 2
+    assert "Planned" not in result.stdout

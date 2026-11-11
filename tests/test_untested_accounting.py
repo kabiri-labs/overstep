@@ -143,15 +143,20 @@ def test_matrix_errors_reach_the_verdict_through_the_pipeline(matrix):
     assert summarize(result)["inconclusive"] is True
 
 
-def test_run_reports_a_placeholder_matrix_as_inconclusive(tmp_path):
-    """End to end: the exit code, and the reason that names the value to replace."""
+def test_run_refuses_a_placeholder_matrix_as_bad_input(tmp_path):
+    """End to end: the exit code, and the line that names the value to replace.
+
+    Exit 2 rather than 3 since 1.8.0: the run is refused before anything is
+    sent, so there is no run to call inconclusive. ``test_no_network_on_errors``
+    proves the "nothing is sent" half.
+    """
     path = tmp_path / "matrix.yaml"
     path.write_text(PLACEHOLDER_MATRIX, encoding="utf-8")
 
     result = CliRunner().invoke(app, ["run", str(path), "--out", str(tmp_path / "out")])
 
-    assert result.exit_code == EXIT_INCONCLUSIVE
-    assert "does not describe a usable test" in result.stdout
+    assert result.exit_code == 2
+    assert "no request was sent" in result.stdout
     assert "PASTE_ALICE_TOKEN" in result.stdout
 
 
@@ -168,7 +173,8 @@ def test_snapshot_refuses_a_baseline_from_a_broken_matrix(tmp_path):
 
     result = CliRunner().invoke(app, ["snapshot", str(path), "--out", str(baseline)])
 
-    assert result.exit_code == EXIT_INCONCLUSIVE
+    assert result.exit_code == 2
+    assert "baseline not written" in result.stdout
     assert not os.path.exists(baseline), "a baseline was written from a matrix that cannot test"
 
 
