@@ -46,6 +46,16 @@ _IDENTIFIER_FIX = (
 )
 
 
+# The OpenAPI scaffold writes this when the document names no server. Spelled
+# out here rather than imported: the core may not depend on a module, and the
+# pattern above already matches it — only the advice differs.
+_BASE_URL_MARKER = "REPLACE_ME_BASE_URL"
+_BASE_URL_FIX = (
+    "the OpenAPI document named no server, so set it to the URL the API is "
+    "really served at; nothing is sent until you do"
+)
+
+
 class _MarkedStr(str):
     """A string that remembers the line of the file it was parsed from."""
 
@@ -90,6 +100,8 @@ def _walk(node: Any, path: str) -> Iterator[Tuple[str, str, Optional[int]]]:
 
 
 def _fix_for(value: str) -> str:
+    if value == _BASE_URL_MARKER:
+        return _BASE_URL_FIX
     return _TOKEN_FIX if value.startswith("PASTE_") else _IDENTIFIER_FIX
 
 

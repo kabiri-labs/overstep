@@ -31,6 +31,36 @@ Observations are handed on in plan order, so no document a run writes moves.
 Only HTTP names its destructive verb. An MCP tool says `mutating` and nothing
 more, so mutating tools are held back together rather than guessed at.
 
+### Changed
+
+**`run` and `snapshot` send nothing when the matrix has an error, and exit 2
+where they used to exit 3.** This is a change to an exit code, so it is called
+out here: a pipeline that matched on `3` for "the matrix still has a placeholder
+in it" now sees `2`, the code for bad input, which is what such a file is.
+
+Since 1.6.0 the errors were printed and the run carried on, so the reader could
+see what such a matrix produced. What it produced, for an untouched
+`scaffold --with-policy`, was 48 requests — `POST`, `PATCH` and `DELETE` among
+them — sent with placeholder credentials to `http://localhost:8000`, the
+scaffold's guess when the OpenAPI document names no `servers`. On the machine
+this was found on, an unrelated service was listening there.
+
+The refusal comes before any network I/O: auth-provider logins and `setup:`
+steps are requests too, and they went first. `--allow-inconclusive` does not
+override it — that flag is for a run that happened and proved nothing.
+`validate --live` had the same gap and is closed the same way: it probes only a
+matrix with no errors, and says so when it holds back.
+
+`run_pipeline` and `snapshot_pipeline` still accept `matrix_errors` and still
+report such a run as inconclusive, so a caller embedding the pipeline keeps the
+behaviour it had.
+
+**The OpenAPI scaffold writes `REPLACE_ME_BASE_URL` when the document names no
+server.** A plausible default is the wrong thing to put in a file nobody has
+edited yet. `validate` reports the placeholder as an error with its line, like
+the token and identifier placeholders, with advice of its own. A document that
+declares `servers` is unaffected.
+
 ### Added
 
 **`validate` warns when a `DELETE` the policy allows shares its objects with

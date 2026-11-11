@@ -242,6 +242,11 @@ def _describes_authorization(doc: Dict[str, Any]) -> bool:
     return False
 
 
+# Written where the base URL goes when the document does not say. The scan in
+# :mod:`overstep.placeholders` recognises it by this exact value.
+BASE_URL_PLACEHOLDER = "REPLACE_ME_BASE_URL"
+
+
 def scaffold_matrix(
     path: str,
     *,
@@ -312,12 +317,17 @@ def scaffold_matrix(
     if warn is not None and not documented:
         warn(_UNDOCUMENTED_WARNING)
 
+    # A document that names no server gets a placeholder `validate` refuses,
+    # not a plausible guess. `http://localhost:8000` looked like an answer and
+    # was one only by coincidence: a matrix nobody had edited would send its
+    # writes to whatever was listening there.
     servers = doc.get("servers")
-    base_url = (
-        servers[0].get("url", "http://localhost:8000")
+    declared = (
+        servers[0].get("url")
         if isinstance(servers, list) and servers and isinstance(servers[0], dict)
-        else "http://localhost:8000"
+        else None
     )
+    base_url = declared if isinstance(declared, str) and declared else BASE_URL_PLACEHOLDER
 
     # The least-privileged non-anonymous role gets two subjects: a cross-owner
     # (BOLA) probe only exists when two subjects own *different* objects, so one

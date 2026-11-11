@@ -441,7 +441,10 @@ explicit warning, because reading silence as "everything is public" would produc
 a matrix with zero negative tests.
 
 The scaffold leaves `PASTE_..._TOKEN` and `REPLACE_ME_1` / `REPLACE_ME_2` where it
-cannot know the answer. Two things to get right: give the two peer subjects
+cannot know the answer — and `REPLACE_ME_BASE_URL` when the document names no
+`servers`, rather than guessing an address something else may be listening on.
+`validate` reports each one as an error with its line, and `run` and `snapshot`
+send nothing while any remain. Two things to get right: give the two peer subjects
 genuinely **different** objects, and keep secrets out of the file (`${ALICE_TOKEN}`
 from the environment or `--env-file`). Then review the starter policy — it is a
 guess, and it is the one part of the file only you can write.
@@ -456,7 +459,8 @@ overstep run matrix.yaml --out out --read-only
 `--live` proves each credential is still accepted, which matters because an
 expired token turns every negative test into a pass for the wrong reason. It is
 side-effect free: probes go out read-only and non-mutating operations are
-preferred.
+preferred. It sends nothing while the file itself has an error — a placeholder
+token proves nothing about a credential.
 
 **A worked example against a target nobody here wrote.**
 [`examples/crapi/`](examples/crapi/) points overstep at a live
@@ -921,15 +925,17 @@ stops a busy target outvoting a small one also stops it covering for one.
 credentials to fail the build.** Unreachability is still caught either way; it is
 only the credential check that has nothing to stand on.
 
-**The file can void a run too.** An error-level problem in the matrix — a
+**A matrix with an error in it is not run at all.** An error-level problem — a
 `PASTE_..._TOKEN` nobody filled in, a policy naming a resource that does not
-exist — makes the run inconclusive for the same reason an unreachable target
-does: a placeholder credential is refused everywhere, so every negative test
-passes because nothing was authorized, and with no working positive control
-there is nothing to notice. Warnings do not count; they describe a matrix that
-runs and tests less than it looks like, which is a legitimate file with a gap
-worth naming. `validate` is still where these are cheapest to see, and `--strict`
-is what fails on the warnings too.
+exist — stops `run` and `snapshot` with exit `2` before the first request,
+auth-provider logins and `setup:` steps included. A run over such a file could
+only mislead: a placeholder credential is refused everywhere, so every negative
+test passes because nothing was authorized. And it is not harmless to send — an
+untouched scaffold carries writes and deletes. `--allow-inconclusive` does not
+change this; it is for a run that happened and proved nothing. Warnings do not
+count; they describe a matrix that runs and tests less than it looks like, which
+is a legitimate file with a gap worth naming. `validate` is where both are
+cheapest to see, and `--strict` is what fails on the warnings too.
 
 **Coverage.** `overstep coverage` measures two gaps and sends nothing:
 
@@ -974,8 +980,8 @@ run reports a resource nobody probed instead of counting it as clean.
 | `--insecure` | ✅ | ✅ | disable TLS verification |
 
 Exit codes: **0** clean · **1** findings (per `--fail-on`) · **2** bad input or
-setup failure · **3** inconclusive run — including a matrix whose own errors mean
-nothing it reports can be trusted.
+setup failure — including a matrix with an error in it, which is refused before
+anything is sent · **3** inconclusive run.
 
 `run` and `snapshot` share one pipeline — authenticate → setup → plan → dispatch
 (destructive operations last) → teardown — so every transport behaves identically and setup fixtures are cleaned up

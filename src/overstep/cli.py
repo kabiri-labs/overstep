@@ -53,7 +53,8 @@ FAIL_ON_CHOICES = ("vuln", "drift", "vuln-or-drift", "any", "never")
 
 # Exit code for a run that proved nothing (unreachable target, rejected
 # credentials). Distinct from 1 (findings) and 2 (bad input / setup failure) so
-# CI can tell "your API is broken" apart from "the scan never ran".
+# CI can tell "your API is broken" apart from "the scan never ran". A matrix with
+# an error in it is bad input: it exits 2, before anything is sent.
 EXIT_INCONCLUSIVE = 3
 
 app = typer.Typer(
@@ -141,6 +142,27 @@ def _report_problems(problems: list[Problem]) -> list[str]:
     return errors
 
 
+def _refuse_on_errors(errors: list[str], action: str) -> None:
+    """Stop before the first byte leaves when the matrix has an error in it.
+
+    Exit 2, not 3: an inconclusive run is one that was sent and proved nothing,
+    and this one is never sent. It used to be — the errors were printed and the
+    run carried on so the reader could "see what such a matrix produced", which
+    for an untouched scaffold meant POSTs, PATCHes and DELETEs carrying
+    placeholder credentials at whatever happened to be listening on the
+    scaffold's guessed address. Nothing a run over such a file reports is worth
+    that, and auth providers and ``setup:`` steps send requests too, so the
+    refusal comes before all of them.
+    """
+    if not errors:
+        return
+    console.print(
+        f"[bold red]{action}[/] — the matrix has {len(errors)} error(s), and "
+        f"no request was sent. Fix them and check with 'overstep validate'."
+    )
+    raise typer.Exit(code=2)
+
+
 def _preflight(spec: Matrix, base: Optional[str], *, verify_tls: bool) -> list[Problem]:
     """Ask the target the two questions the file cannot answer.
 
@@ -204,14 +226,10 @@ def run(
         raise typer.Exit(code=2)
 
     spec = _load(matrix, env_file)
-    # Said before the first request goes out: the file is the only place that
-    # says which line to edit. The errors also travel into the health verdict,
-    # so a matrix that cannot describe a usable test is reported as an
-    # inconclusive run rather than a clean one — a placeholder token is refused
-    # by every request it sends, which otherwise reads as eleven passed negative
-    # tests. The run still proceeds and still writes its reports: the reader
-    # needs to see what such a matrix actually produced.
-    matrix_errors = _report_problems(_diagnose(matrix, spec))
+    # Said, and acted on, before the first request goes out: the file is the
+    # only place that says which line to edit, and a matrix with an error in it
+    # sends nothing at all.
+    _refuse_on_errors(_report_problems(_diagnose(matrix, spec)), "not run")
 
     base_url = _resolve(spec, base)
 
@@ -228,7 +246,6 @@ def run(
             base_url,
             baseline=snapshot_data,
             waivers=waiver_list,
-            matrix_errors=matrix_errors,
             concurrency=concurrency,
             verify_tls=not insecure,
             read_only=read_only,
@@ -287,14 +304,16 @@ def snapshot(
     # A baseline is what every later run is measured against, so a matrix with
     # an unfilled placeholder does not merely mislead once: it records
     # "everything is denied" and reports the first healthy run as wholesale
-    # drift. Diagnosed here for the same reason as in `run`, and refused.
-    matrix_errors = _report_problems(_diagnose(matrix, spec))
+    # drift. Diagnosed here for the same reason as in `run`, and refused before
+    # anything is sent.
+    _refuse_on_errors(
+        _report_problems(_diagnose(matrix, spec)), "baseline not written"
+    )
     base_url = _resolve(spec, base)
     try:
         snap, warnings = snapshot_pipeline(
             spec,
             base_url,
-            matrix_errors=matrix_errors,
             concurrency=concurrency,
             verify_tls=not insecure,
             read_only=read_only,
@@ -372,7 +391,12 @@ def validate(
     """Check a matrix file for structural problems and unfilled placeholders."""
     spec = _load(matrix, env_file)
     problems = _diagnose(matrix, spec)
-    if live:
+    # The live probe is a request like any other, carrying whatever the file
+    # holds to wherever the file points. A matrix with an error in it is not
+    # entitled to send one: a placeholder base URL has no target, and a
+    # placeholder token proves nothing about a credential.
+    probe = live and not any(p.severity is Severity.ERROR for p in problems)
+    if probe:
         problems = problems + _preflight(spec, base, verify_tls=not insecure)
     errors = [p for p in problems if p.severity is Severity.ERROR]
     warnings = [p for p in problems if p.severity is Severity.WARNING]
@@ -383,6 +407,11 @@ def validate(
         console.print(f"[yellow]warning:[/] {problem}")
 
     if errors:
+        if live and not probe:
+            console.print(
+                "[yellow]note:[/] --live sent nothing — the target is not probed "
+                "until the errors above are fixed"
+            )
         # No "next" here: the errors are the next step, and each already says
         # what to do about it.
         raise typer.Exit(code=1)
