@@ -349,6 +349,14 @@ overstep run examples/mcp_api/matrix.yaml --out out
    session-hijack                      3
    tool-enumeration                    4
  Object resources probed             2/2
+Defects (7) — one line per thing to fix:
+  privilege-escalation  tools/call list_all_users  as alice, anon, bob  (high, confirmed)
+  session-hijack  tools/list docs  as alice, bob, root  (high, confirmed)
+  BOLA  resources/read doc://acme/{doc_id}  as alice, bob  (high, confirmed)
+  BOLA  tools/call read_document  as alice, bob  (high, confirmed)
+  privilege-escalation  resources/read doc://acme/{doc_id}  as anon  (high, confirmed)
+  privilege-escalation  tools/call read_document  as anon  (high, confirmed)
+  tool-enumeration  tools/list docs  as alice, bob  (medium, confirmed)
 ```
 
 Its matrix has the same shape — the same core at the top, a different module
@@ -878,8 +886,8 @@ non-mutating is still sent — the flag reads the declaration, not the target.
 
 **Destructive operations go last.** The plan is not sent as one concurrent pool.
 Requests that change nothing go first; then writes that are not a `DELETE`,
-together with every MCP tool marked `mutating`; then `DELETE`s. Inside the last
-two steps the requests the matrix expects *refused* go before the ones it expects
+together with every MCP tool marked `mutating`; then `DELETE`s. Inside steps 2
+and 3 the requests the matrix expects *refused* go before the ones it expects
 allowed, and `--concurrency` applies within a step. An allowed `DELETE` really
 deletes, so sent alongside everything else it takes an object other requests
 still target: they come back `404`, which is an unexpected denial on a different
@@ -993,8 +1001,8 @@ setup failure — including a matrix with an error in it, which is refused befor
 anything is sent · **3** inconclusive run.
 
 `run` and `snapshot` share one pipeline — authenticate → setup → plan → dispatch
-(destructive operations last) → teardown — so every transport behaves identically and setup fixtures are cleaned up
-even if a run is interrupted.
+(destructive operations last) → teardown — so every transport behaves identically
+and setup fixtures are cleaned up even if a run is interrupted.
 
 ### Finding taxonomy
 
