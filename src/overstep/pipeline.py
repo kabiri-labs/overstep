@@ -10,7 +10,7 @@ live target.
 from __future__ import annotations
 
 import os
-from typing import Callable, Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from overstep.auth import authenticate as default_authenticator
 from overstep.classifier import classify
@@ -23,6 +23,7 @@ from overstep.fixtures import run_teardown as default_teardown_runner
 from overstep.matrix import Matrix
 from overstep.models import (
     EVIDENCE_BODY_LIMIT,
+    Effect,
     Observation,
     RunHealth,
     RunResult,
@@ -71,6 +72,62 @@ def resolve_base_url(matrix: Matrix, override: Optional[str] = None) -> str:
     return base
 
 
+def _phase_of(case: TestCase) -> int:
+    """Where a case sits in the run: the later, the more it can take from others."""
+    if not case.is_mutating:
+        return 0
+    # Only HTTP names its destructive verb. An MCP tool says `mutating` and no
+    # more, so it is held back with the other writes rather than guessed at.
+    destructive = case.mcp is None and case.method.upper() == "DELETE"
+    return 1 + 2 * destructive + (case.expected == Effect.ALLOW)
+
+
+def phases(cases: Sequence[TestCase]) -> List[List[TestCase]]:
+    """Split the plan into the groups that are safe to send concurrently.
+
+    One pool for everything makes the result depend on timing as soon as an
+    allowed operation is destructive: an expected-allow DELETE removes an object
+    other in-flight cases still target, and they come back 404. That shows up as
+    an unexpected denial on a different test each run — and, more quietly, as an
+    expected-deny probe that "passes" against an object that is no longer there,
+    which is a missing check reported as a working one.
+
+    So the cases go out in this order, each group finishing before the next
+    starts, and concurrency applies within a group:
+
+    1. everything that changes nothing;
+    2. writes that are not a DELETE (and every mutating MCP tool) the matrix
+       expects refused, then the ones it expects allowed;
+    3. DELETEs expected refused, then DELETEs expected allowed.
+
+    Refusals lead inside each step for the reason above: a probe has to meet the
+    object it is probing. Plan order is kept within a group, and empty groups
+    are dropped so a transport is never handed nothing.
+    """
+    grouped: Dict[int, List[TestCase]] = {}
+    for case in cases:
+        grouped.setdefault(_phase_of(case), []).append(case)
+    return [grouped[key] for key in sorted(grouped)]
+
+
+def _dispatch_in_phases(
+    executor: ExecutorFn, resolved: str, matrix: Matrix, cases: List[TestCase], **kwargs
+) -> List[Observation]:
+    """Send each phase in turn and hand the observations back in plan order.
+
+    Plan order rather than send order, so nothing downstream — the documents a
+    run writes least of all — moves because the schedule did.
+    """
+    observations: List[Observation] = []
+    for group in phases(cases):
+        observations.extend(executor(resolved, matrix.subjects, group, **kwargs))
+    position = {case.id: index for index, case in enumerate(cases)}
+    # Stable, so anything a transport returned beyond the plan keeps its place
+    # at the end instead of being dropped.
+    observations.sort(key=lambda obs: position.get(obs.test_id, len(position)))
+    return observations
+
+
 def _execute_stages(
     matrix: Matrix,
     resolved: str,
@@ -88,7 +145,8 @@ def _execute_stages(
     """The stages shared by ``run`` and ``snapshot``.
 
     Order: authenticate (obtain tokens) → run setup steps (create fixtures,
-    capture object ids) → plan (using the captures) → dispatch. Teardown runs in a
+    capture object ids) → plan (using the captures) → dispatch, one
+    :func:`phases` group at a time. Teardown runs in a
     ``finally`` so any fixtures the setup steps created are cleaned up even when
     planning or dispatch raises or the run is interrupted; a teardown failure only
     adds a warning and never masks the original error. Returns the planned cases,
@@ -98,9 +156,10 @@ def _execute_stages(
     context = setup_runner(matrix, base_url=resolved, verify_tls=verify_tls)
     try:
         cases = plan(matrix, context)
-        observations = executor(
+        observations = _dispatch_in_phases(
+            executor,
             resolved,
-            matrix.subjects,
+            matrix,
             cases,
             concurrency=concurrency,
             verify_tls=verify_tls,

@@ -2,7 +2,7 @@
 
 **Authorization testing for REST APIs and MCP servers — one problem class, two surfaces.**
 
-![Version](https://img.shields.io/badge/version-1.7.0-blue)
+![Version](https://img.shields.io/badge/version-1.8.0-blue)
 [![CI](https://github.com/kabiri-labs/overstep/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kabiri-labs/overstep/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -863,6 +863,19 @@ non-mutating is still sent — the flag reads the declaration, not the target.
 [`examples/ci/gitlab-ci.yml`](examples/ci/gitlab-ci.yml), the
 `ghcr.io/kabiri-labs/overstep` image, and an `overstep-validate` pre-commit hook.
 
+**Destructive operations go last.** The plan is not sent as one concurrent pool.
+Requests that change nothing go first; then writes that are not a `DELETE`,
+together with every MCP tool marked `mutating`; then `DELETE`s. Inside the last
+two steps the requests the matrix expects *refused* go before the ones it expects
+allowed, and `--concurrency` applies within a step. An allowed `DELETE` really
+deletes, so sent alongside everything else it takes an object other requests
+still target: they come back `404`, which is an unexpected denial on a different
+test each run — and an expected-deny probe that "passes" against an object that
+is no longer there. Ordering makes one run stable; it does not bring the object
+back, so `validate` warns when a `DELETE` the policy allows shares its objects
+with other resources. Create those objects in `setup:` and every run starts with
+its own.
+
 **Reports are cleared before the run, not written after it.** `run` removes the
 documents a previous run left in `--out` before it reads anything, because a run
 that will not parse, finds no base URL, dies in setup or is interrupted never
@@ -964,8 +977,8 @@ Exit codes: **0** clean · **1** findings (per `--fail-on`) · **2** bad input o
 setup failure · **3** inconclusive run — including a matrix whose own errors mean
 nothing it reports can be trusted.
 
-`run` and `snapshot` share one pipeline — authenticate → setup → plan → dispatch →
-teardown — so every transport behaves identically and setup fixtures are cleaned up
+`run` and `snapshot` share one pipeline — authenticate → setup → plan → dispatch
+(destructive operations last) → teardown — so every transport behaves identically and setup fixtures are cleaned up
 even if a run is interrupted.
 
 ### Finding taxonomy

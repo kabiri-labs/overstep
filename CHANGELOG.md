@@ -1,5 +1,45 @@
 # Changelog
 
+## [1.8.0] - 2026-11-11
+
+Three gaps found by using overstep the way a first-time user does — a fresh
+install, the scaffold, and a target written separately from this repository with
+an endpoint that really deletes. None was reachable from the bundled demos.
+
+### Fixed
+
+**A run no longer changes its answer from one invocation to the next when an
+allowed operation is destructive.** Every case went out in one concurrent pool,
+so an expected-allow `DELETE` removed an object that other in-flight cases still
+targeted. Against a target with three resources sharing three objects, 16 of 40
+runs at the default `--concurrency 10` reported one spurious `unexpected-deny` —
+on a different test each time, always a `404` — and `--fail-on drift` against a
+baseline failed 4 runs in 12. `--concurrency 1` was clean, which is how the cause
+showed.
+
+The quieter half is the one that matters for a security gate: an expected-deny
+probe against an object that has already been deleted is answered `404`, which
+is read as a correct refusal. A missing check could pass that way.
+
+Cases are now sent in steps, each finishing before the next starts, with
+`--concurrency` applying inside a step: requests that change nothing; then
+writes that are not a `DELETE`, and every MCP tool marked `mutating`; then
+`DELETE`s. Within the last two, the cases expected refused go before the ones
+expected allowed. `snapshot` shares the orchestration and gets the same order.
+Observations are handed on in plan order, so no document a run writes moves.
+
+Only HTTP names its destructive verb. An MCP tool says `mutating` and nothing
+more, so mutating tools are held back together rather than guessed at.
+
+### Added
+
+**`validate` warns when a `DELETE` the policy allows shares its objects with
+other resources.** Ordering makes one run stable; it cannot bring the object
+back. A matrix whose ids are written in the file rather than created in `setup:`
+therefore reports the sharing resources as unexpectedly denied on its second
+run, against a target where nothing changed. The warning names the resources and
+both ways out.
+
 ## [1.7.0] - 2026-10-09
 
 Both changes come from pointing overstep at a live third-party MCP server — the
