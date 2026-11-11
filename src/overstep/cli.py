@@ -119,7 +119,11 @@ def _load(matrix_path: str, env_file: Optional[str] = None):
         raise typer.Exit(code=2)
 
 
-def _diagnose(matrix_path: str, spec: Matrix) -> list[Problem]:
+# Where the file keeps the address `--base` replaces.
+BASE_URL_LOCATION = "modules.rest.base_url"
+
+
+def _diagnose(matrix_path: str, spec: Matrix, base: Optional[str] = None) -> list[Problem]:
     """Everything wrong with a matrix, from the file and from the model.
 
     The two scans see different things — only the file has line numbers and
@@ -127,7 +131,11 @@ def _diagnose(matrix_path: str, spec: Matrix) -> list[Problem]:
     and placeholders lead because they are the ones that stop a run from meaning
     anything.
     """
-    return scan_placeholders(matrix_path) + spec.diagnose()
+    # An explicit --base is the address that will be used, so a placeholder
+    # still sitting in the file's own is not a reason to refuse. Every other
+    # placeholder is: nothing on the command line stands in for a credential.
+    ignore = (BASE_URL_LOCATION,) if base else ()
+    return scan_placeholders(matrix_path, ignore=ignore) + spec.diagnose()
 
 
 def _report_problems(problems: list[Problem]) -> list[str]:
@@ -235,7 +243,7 @@ def run(
     # Said, and acted on, before the first request goes out: the file is the
     # only place that says which line to edit, and a matrix with an error in it
     # sends nothing at all.
-    _refuse_on_errors(_report_problems(_diagnose(matrix, spec)), "not run")
+    _refuse_on_errors(_report_problems(_diagnose(matrix, spec, base)), "not run")
 
     base_url = _resolve(spec, base)
 
@@ -316,7 +324,7 @@ def snapshot(
     # drift. Diagnosed here for the same reason as in `run`, and refused before
     # anything is sent.
     _refuse_on_errors(
-        _report_problems(_diagnose(matrix, spec)), "baseline not written"
+        _report_problems(_diagnose(matrix, spec, base)), "baseline not written"
     )
     base_url = _resolve(spec, base)
     try:
@@ -399,7 +407,7 @@ def validate(
 ):
     """Check a matrix file for structural problems and unfilled placeholders."""
     spec = _load(matrix, env_file)
-    problems = _diagnose(matrix, spec)
+    problems = _diagnose(matrix, spec, base)
     # The live probe is a request like any other, carrying whatever the file
     # holds to wherever the file points. A matrix with an error in it is not
     # entitled to send one: a placeholder base URL has no target, and a

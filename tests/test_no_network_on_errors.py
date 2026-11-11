@@ -203,3 +203,69 @@ def test_a_declared_server_is_still_used(tmp_path):
     document = yaml.safe_load(scaffold_matrix(str(spec)))
 
     assert document["modules"]["rest"]["base_url"] == "https://api.shop.test/v1"
+
+
+# --- an explicit --base stands in for the file's placeholder -----------------
+
+
+@pytest.fixture
+def filled_but_for_the_base_url(scaffolded):
+    """Credentials and object ids filled in; the address left for the command line."""
+    import re
+
+    text = scaffolded.read_text(encoding="utf-8")
+    text = re.sub(r"PASTE_(\w+)_TOKEN", lambda m: f"token-{m.group(1).lower()}", text)
+    # Every identifier placeholder, suffixed or bare, and not the base URL's.
+    text = re.sub(r"REPLACE_ME(?!_BASE_URL)(\w*)", lambda m: f"u{m.group(1) or '_admin'}", text)
+    # The scaffold's header comment mentions the token placeholder by name, so
+    # the check is on values rather than on the text.
+    assert BASE_URL_PLACEHOLDER in text and "token: PASTE_" not in text
+    scaffolded.write_text(text, encoding="utf-8")
+    return scaffolded
+
+
+@pytest.mark.parametrize("command", ["run", "snapshot"])
+def test_base_overrides_a_placeholder_base_url(command, filled_but_for_the_base_url, tmp_path, sent):
+    result = CliRunner().invoke(
+        app,
+        [command, str(filled_but_for_the_base_url), "--base", "http://127.0.0.1:1",
+         "--out", str(tmp_path / "o")],
+    )
+
+    assert BASE_URL_PLACEHOLDER not in result.stdout
+    assert sent, "the override names a real address, so the run goes ahead"
+    assert all("http://127.0.0.1:1/" in request for request in sent)
+    assert result.exit_code != 2
+
+
+def test_validate_live_with_base_probes_past_a_placeholder_base_url(
+    filled_but_for_the_base_url, sent
+):
+    CliRunner().invoke(
+        app, ["validate", str(filled_but_for_the_base_url), "--live", "--base", "http://127.0.0.1:1"]
+    )
+
+    assert sent and all("http://127.0.0.1:1/" in request for request in sent)
+
+
+def test_without_base_the_placeholder_base_url_still_refuses(filled_but_for_the_base_url, tmp_path, sent):
+    result = CliRunner().invoke(
+        app, ["run", str(filled_but_for_the_base_url), "--out", str(tmp_path / "o")]
+    )
+
+    assert result.exit_code == 2
+    assert sent == []
+    assert BASE_URL_PLACEHOLDER in result.stdout
+
+
+def test_base_excuses_only_the_base_url(scaffolded, tmp_path, sent):
+    """Nothing on the command line stands in for a credential."""
+    result = CliRunner().invoke(
+        app,
+        ["run", str(scaffolded), "--base", "http://127.0.0.1:1", "--out", str(tmp_path / "o")],
+    )
+
+    assert result.exit_code == 2
+    assert sent == []
+    assert "PASTE_" in result.stdout
+    assert BASE_URL_PLACEHOLDER not in result.stdout

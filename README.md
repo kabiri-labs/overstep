@@ -460,7 +460,8 @@ The scaffold leaves `PASTE_..._TOKEN` and `REPLACE_ME_1` / `REPLACE_ME_2` where 
 cannot know the answer — and `REPLACE_ME_BASE_URL` when the document names no
 `servers`, rather than guessing an address something else may be listening on.
 `validate` reports each one as an error with its line, and `run` and `snapshot`
-send nothing while any remain. Two things to get right: give the two peer subjects
+send nothing while any remain. An explicit `--base` stands in for the base URL
+placeholder, and for nothing else. Two things to get right: give the two peer subjects
 genuinely **different** objects, and keep secrets out of the file (`${ALICE_TOKEN}`
 from the environment or `--env-file`). Then review the starter policy — it is a
 guess, and it is the one part of the file only you can write.
@@ -894,7 +895,7 @@ still target: they come back `404`, which is an unexpected denial on a different
 test each run — and an expected-deny probe that "passes" against an object that
 is no longer there. Ordering makes one run stable; it does not bring the object
 back, so `validate` warns when a `DELETE` the policy allows shares its objects
-with other resources. Create those objects in `setup:` and every run starts with
+with other resources at the same path or beneath it. Create those objects in `setup:` and every run starts with
 its own; objects that are already `{{captures}}` are not warned about.
 
 **Reports are cleared before the run, not written after it.** `run` removes the

@@ -23,7 +23,7 @@ the line as written.
 from __future__ import annotations
 
 import re
-from typing import Any, Iterator, List, Optional, Tuple
+from typing import Any, Iterator, List, Optional, Sequence, Tuple
 
 import yaml
 
@@ -105,8 +105,13 @@ def _fix_for(value: str) -> str:
     return _TOKEN_FIX if value.startswith("PASTE_") else _IDENTIFIER_FIX
 
 
-def scan(path: str) -> List[Problem]:
+def scan(path: str, ignore: Sequence[str] = ()) -> List[Problem]:
     """Report every unfilled scaffold placeholder in a matrix file.
+
+    ``ignore`` names locations whose value this invocation will not use — the
+    file's base URL when one was given on the command line. A placeholder
+    nothing reads is not what stops a run from meaning anything, and refusing
+    over it would make the override useless on exactly the file that needs it.
 
     Returns errors — a matrix carrying these cannot produce a meaningful run.
     A file that cannot be read or parsed yields nothing rather than raising:
@@ -120,7 +125,7 @@ def scan(path: str) -> List[Problem]:
 
     problems: List[Problem] = []
     for location, value, line in _walk(document, ""):
-        if _PLACEHOLDER_RE.match(value):
+        if location not in ignore and _PLACEHOLDER_RE.match(value):
             problems.append(
                 Problem(
                     f"{location} is still the scaffold placeholder '{value}' — "
