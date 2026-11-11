@@ -304,10 +304,18 @@ overstep run examples/rest_api/matrix.yaml --out out
    BOLA                                2
    privilege-escalation                6
  Object resources probed             2/2
+Defects (3) — one line per thing to fix:
+  privilege-escalation  DELETE /users/{id}  as alice, bob  (high, confirmed)
+  privilege-escalation  GET /admin/users  as alice, bob  (high, confirmed)
+  BOLA  GET /users/{id}  as alice, bob  (high, unverified)
 ```
 
-Eight probes got through, tracing back to **three** distinct defects — one row per
-thing to fix, with the subjects that reached it as evidence of blast radius.
+Eight probes got through, tracing back to **three** distinct defects — one line per
+thing to fix, with the subjects that reached it as evidence of blast radius. The
+terminal names them, so a CI log is enough to act on: up to 20 defects, then a
+pointer to `report.html`. Requests the matrix allows and the target refused are
+listed separately as *unexpected denials*, because they usually mean the matrix
+is wrong rather than the target.
 
 The same matrix against a target that *does* enforce it ships alongside, at
 [`examples/secure_api/`](examples/secure_api/):
@@ -856,8 +864,9 @@ authorization gets reviewed like any other code.
 
 **Safety and pipeline flags.** `--read-only` skips every mutating operation
 (POST/PUT/PATCH/DELETE over HTTP, any tool marked `mutating` over MCP), and the
-run says so: the summary carries a skipped count and names the surfaces nothing
-was sent to, and `findings.json` records `read_only`, `skipped_tests` and
+run says so: `Tests run` counts what was sent, with the planned total and the
+skipped count on rows of their own, the summary names the surfaces nothing was
+sent to, and `findings.json` records `read_only`, `skipped_tests` and
 `skipped_surfaces`. It does **not** skip `setup:` and `teardown:` steps, which
 still run and still change state, and a mutating operation the matrix declares as
 non-mutating is still sent — the flag reads the declaration, not the target.

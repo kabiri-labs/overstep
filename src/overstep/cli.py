@@ -22,6 +22,7 @@ from typing import Optional
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from overstep import __version__
@@ -32,7 +33,7 @@ from overstep.documents import DocumentError
 from overstep.drift import load_snapshot, save_snapshot
 from overstep.fixtures import SetupError
 from overstep.matrix import Matrix, MatrixError, Problem, Severity, load_matrix
-from overstep.models import Effect, ProbeCoverage, RunHealth, RunResult
+from overstep.models import Effect, ProbeCoverage, RunHealth, RunResult, VulnClass
 from overstep.placeholders import scan as scan_placeholders
 from overstep.preflight import check as preflight_check
 from overstep.pipeline import (
@@ -46,6 +47,7 @@ from overstep.pipeline import (
 )
 from overstep.planner import plan
 from overstep.report import summarize
+from overstep.report.base import defects
 from overstep.waivers import WaiverError, load_waivers
 
 # The accepted values for --fail-on, in the order they appear in help text.
@@ -65,6 +67,10 @@ console = Console()
 # Warnings that must not pollute a redirected stdout (scaffold writes YAML there).
 err_console = Console(stderr=True)
 
+
+# How many findings the terminal lists before pointing at the report. A CI log
+# is read by scrolling, and a matrix-sized list buries the summary above it.
+FINDING_ROWS = 20
 
 # Set this to anything to silence the "next:" hints.
 NO_HINTS_ENV = "OVERSTEP_NO_HINTS"
@@ -267,7 +273,10 @@ def run(
     )
     write_reports(result, out)
     _print_summary(result)
-    console.print(f"Reports written to [bold]{out}/[/]")
+    _print_findings(result)
+    # Never wrapped: rich breaks a long line at the terminal width, which lands
+    # in the middle of a path and leaves nothing a reader can copy.
+    console.print(f"Reports written to [bold]{escape(out)}/[/]", soft_wrap=True)
 
     # An inconclusive run has no findings for the wrong reason, so its exit code
     # must not depend on --fail-on: reporting "clean" here is exactly the
@@ -799,7 +808,12 @@ def _print_summary(result: RunResult) -> None:
     table = Table(title="overstep summary")
     table.add_column("Metric")
     table.add_column("Value", justify="right")
-    table.add_row("Tests run", str(s["total_tests"]))
+    # "Run" means sent. Under --read-only the plan and the run differ by every
+    # mutating case, and one number for both read as if all of them went out.
+    planned, skipped = s["total_tests"], s["skipped_tests"]
+    table.add_row("Tests run", str(planned - skipped))
+    if skipped:
+        table.add_row("Planned", str(planned))
     # Listing probes are neither controls nor denial checks, so they are named
     # rather than folded into either — otherwise the row stops adding up to the
     # total and the count of real positive controls reads higher than it is.
@@ -825,6 +839,65 @@ def _print_summary(result: RunResult) -> None:
     console.print(table)
     _print_unprobed(result.coverage)
     _print_skipped(result)
+
+
+def _print_findings(result: RunResult) -> None:
+    """Say which endpoint and which subject, not only how many.
+
+    The summary counts. In a CI log or over SSH it was also everything a person
+    saw, so the answer to "what do I fix" was a file on another machine. The
+    list is the defect roll-up the reports already use — one line per thing to
+    fix — and it is capped, because a list as long as the matrix pushes the
+    summary off the screen it was printed on.
+
+    Unexpected denials are listed apart from the defects. They fail no default
+    gate and usually mean the matrix is wrong rather than the target, which is
+    a different job for a different person.
+
+    Lines are printed unwrapped for the reason the report path is: a wrapped
+    path cannot be copied.
+    """
+    def line(text: str) -> None:
+        console.print(text, soft_wrap=True, highlight=False)
+
+    def more(hidden: int) -> None:
+        if hidden > 0:
+            line(f"  [dim]+{hidden} more in report.html[/]")
+
+    templates = {case.id: case.path_template for case in result.cases}
+    by_group = {}
+    for finding in result.vulnerabilities:
+        by_group.setdefault(finding.group, finding)
+
+    rollup = defects(result.vulnerabilities)
+    if rollup:
+        line(f"[bold red]Defects ({len(rollup)})[/] — one line per thing to fix:")
+        for defect in rollup[:FINDING_ROWS]:
+            first = by_group[defect["group"]]
+            # A finding derived from a case (`<case id>::<tool>`) has no case of
+            # its own; the path it was observed on is the next best thing.
+            path = templates.get(first.test_id) or first.path
+            line(
+                f"  [red]{escape(str(defect['vuln_class']))}[/]  "
+                f"{escape(str(defect['method']))} {escape(path)}  "
+                f"as {escape(', '.join(defect['subjects']))}  "
+                f"[dim]({defect['severity']}, {defect['confidence']})[/]"
+            )
+        more(len(rollup) - FINDING_ROWS)
+
+    denied = [f for f in result.findings if f.vuln_class is VulnClass.UNEXPECTED_DENY]
+    if denied:
+        line(
+            f"[bold yellow]Unexpected denials ({len(denied)})[/] — the matrix allows "
+            f"these and the target refused; usually the matrix is what is wrong:"
+        )
+        for finding in denied[:FINDING_ROWS]:
+            status = f"HTTP {finding.status}" if finding.status else "no response"
+            line(
+                f"  [yellow]{escape(finding.test_id)}[/]  "
+                f"{escape(finding.method)} {escape(finding.path)}  [dim]({status})[/]"
+            )
+        more(len(denied) - FINDING_ROWS)
 
 
 def _add_delivery_row(table: Table, health: RunHealth) -> None:
