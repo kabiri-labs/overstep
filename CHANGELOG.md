@@ -83,7 +83,8 @@ other resources.** Ordering makes one run stable; it cannot bring the object
 back. A matrix whose ids are written in the file rather than created in `setup:`
 therefore reports the sharing resources as unexpectedly denied on its second
 run, against a target where nothing changed. The warning names the resources and
-both ways out.
+both ways out. Objects that are `{{captures}}` from `setup:` are new on every run
+and are not reported.
 
 ## [1.7.0] - 2026-10-09
 

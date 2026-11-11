@@ -887,7 +887,7 @@ test each run — and an expected-deny probe that "passes" against an object tha
 is no longer there. Ordering makes one run stable; it does not bring the object
 back, so `validate` warns when a `DELETE` the policy allows shares its objects
 with other resources. Create those objects in `setup:` and every run starts with
-its own.
+its own; objects that are already `{{captures}}` are not warned about.
 
 **Reports are cleared before the run, not written after it.** `run` removes the
 documents a previous run left in `--out` before it reads anything, because a run
