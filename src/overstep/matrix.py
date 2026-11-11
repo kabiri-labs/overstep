@@ -363,6 +363,53 @@ class Matrix(BaseModel):
         return problems
 
 
+    def _destructive_sharing_problems(self) -> List["Problem"]:
+        """Warn when an allowed DELETE targets objects other resources also use.
+
+        The run already orders around this — DELETEs go last, refused before
+        allowed — so results within one run are stable. What ordering cannot
+        give back is the object: after an allowed DELETE it is gone, for the
+        teardown step that expected to remove it and for the next run of a
+        matrix whose ids are written in the file rather than created in
+        ``setup:``. That run then reports the sharing resources as unexpectedly
+        denied, on a target where nothing changed.
+        """
+        def objects_of(res) -> set:
+            if res.type != ResourceType.OBJECT:
+                return set()
+            values = (
+                res.objects.get(s.name, s.attributes.get(res.owner_attr))
+                for s in self.subjects
+            )
+            return {str(v) for v in values if v is not None}
+
+        problems: List[Problem] = []
+        for res in self.resources:
+            if res.request is None or str(
+                getattr(res.request.method, "value", res.request.method)
+            ).upper() != "DELETE":
+                continue
+            entry = self.policy.get(res.name)
+            if entry is None or not entry.allow:
+                continue
+            mine = objects_of(res)
+            sharing = sorted(
+                other.name
+                for other in self.resources
+                if other.name != res.name and mine & objects_of(other)
+            )
+            if sharing:
+                problems.append(Problem(
+                    f"resource '{res.name}' is a DELETE the policy allows, and it "
+                    f"shares objects with {', '.join(sharing)} — the run sends "
+                    f"DELETEs last so its own results are stable, but the objects "
+                    f"are gone afterwards: create them in 'setup:' so every run "
+                    f"starts with its own, or give '{res.name}' objects nothing "
+                    f"else reads",
+                    Severity.WARNING,
+                ))
+        return problems
+
     def _condition_problems(self) -> List["Problem"]:
         """Check every rule ``condition`` against the attributes that exist.
 
@@ -585,6 +632,7 @@ class Matrix(BaseModel):
                     error(
                         f"{phase} step '{label}' references unknown server '{step.call.server}'"
                     )
+        problems.extend(self._destructive_sharing_problems())
         for res in self.resources:
             for sub_name in res.objects:
                 if sub_name not in subject_set:
