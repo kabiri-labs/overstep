@@ -63,6 +63,21 @@ declares `servers` is unaffected.
 
 ### Added
 
+**`run` prints which endpoints are broken, not only how many.** The summary gave
+`Vulnerabilities 8 (3 defects)` and per-class counts; which endpoint and which
+subject meant opening `report.html` or `findings.json`. In a CI log or over SSH
+the terminal is everything a person sees. The defect roll-up the reports already
+carry now follows the summary — class, method and path, the subjects that got
+through, severity and confidence — capped at 20 lines with a count of the rest.
+Unexpected denials are listed separately: they fail no default gate and usually
+mean the matrix is wrong.
+
+Two smaller fixes to the same output. The `Reports written to` path and the
+finding lines are no longer wrapped at the terminal width, which broke them in
+the middle of a path. And under `--read-only`, `Tests run` counted the skipped
+cases as run; it now counts what was sent, with a `Planned` row beside it
+whenever the two differ. No report document changes.
+
 **`validate` warns when a `DELETE` the policy allows shares its objects with
 other resources.** Ordering makes one run stable; it cannot bring the object
 back. A matrix whose ids are written in the file rather than created in `setup:`
