@@ -373,6 +373,9 @@ class Matrix(BaseModel):
         matrix whose ids are written in the file rather than created in
         ``setup:``. That run then reports the sharing resources as unexpectedly
         denied, on a target where nothing changed.
+
+        An object that *is* created in ``setup:`` — a ``{{capture}}`` — is new
+        on every run, so sharing it costs nothing and is not reported.
         """
         def objects_of(res) -> set:
             if res.type != ResourceType.OBJECT:
@@ -381,7 +384,7 @@ class Matrix(BaseModel):
                 res.objects.get(s.name, s.attributes.get(res.owner_attr))
                 for s in self.subjects
             )
-            return {str(v) for v in values if v is not None}
+            return {str(v) for v in values if v is not None and "{{" not in str(v)}
 
         problems: List[Problem] = []
         for res in self.resources:

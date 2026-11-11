@@ -236,6 +236,16 @@ def test_validate_warns_when_an_allowed_delete_shares_objects():
     assert "get_order" in warnings[0] and "patch_order" in warnings[0]
 
 
+def test_validate_stays_quiet_about_objects_setup_creates_fresh_each_run():
+    """The advice is "create them in setup:", so a matrix that already does is fine."""
+    matrix = orders_matrix()
+    captured = {"alice": "{{A_ORDER}}", "bob": "{{B_ORDER}}", "root": "{{R_ORDER}}"}
+    for resource in matrix.resources:
+        resource.objects = dict(captured)
+
+    assert _shared_object_warnings(matrix) == []
+
+
 def test_validate_stays_quiet_when_nobody_may_delete_or_nothing_is_shared():
     refused = orders_matrix()
     refused.policy["delete_order"].allow.clear()
