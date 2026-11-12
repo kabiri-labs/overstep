@@ -269,3 +269,63 @@ def test_base_excuses_only_the_base_url(scaffolded, tmp_path, sent):
     assert sent == []
     assert "PASTE_" in result.stdout
     assert BASE_URL_PLACEHOLDER not in result.stdout
+
+
+# --- the MCP scaffold's server URL -------------------------------------------
+
+TOOLS = {"tools": [
+    {"name": "read_document", "description": "Read a document.",
+     "inputSchema": {"type": "object", "properties": {"doc_id": {"type": "string"}}}},
+    {"name": "reset_tenant", "description": "Admin only. Reset the tenant.",
+     "inputSchema": {"type": "object", "properties": {}}},
+]}
+
+
+@pytest.fixture
+def mcp_scaffolded(tmp_path):
+    """`overstep scaffold tools.json --fmt mcp > matrix.yaml`, unedited."""
+    listing = tmp_path / "tools.json"
+    listing.write_text(json.dumps(TOOLS), encoding="utf-8")
+
+    def scaffold(*flags):
+        result = CliRunner().invoke(app, ["scaffold", str(listing), "--fmt", "mcp", *flags])
+        assert result.exit_code == 0, result.output
+        matrix = tmp_path / "matrix.yaml"
+        matrix.write_text(result.stdout, encoding="utf-8")
+        return matrix
+
+    return scaffold
+
+
+def test_a_saved_listing_gets_a_placeholder_server_url_not_a_guess(mcp_scaffolded):
+    text = mcp_scaffolded().read_text(encoding="utf-8")
+    document = yaml.safe_load(text)
+
+    assert document["modules"]["mcp"]["servers"][0]["url"] == "REPLACE_ME_MCP_URL"
+    assert "localhost" not in text
+
+
+def test_validate_names_the_server_url_placeholder_and_what_it_needs(mcp_scaffolded):
+    result = CliRunner().invoke(app, ["validate", str(mcp_scaffolded())])
+    flat = " ".join(result.stdout.split())
+
+    assert result.exit_code == 1
+    assert "is still the scaffold placeholder 'REPLACE_ME_MCP_URL'" in flat
+    assert "saved listing" in flat
+
+
+def test_run_on_an_untouched_mcp_scaffold_sends_nothing(mcp_scaffolded, tmp_path, sent):
+    result = CliRunner().invoke(
+        app, ["run", str(mcp_scaffolded()), "--out", str(tmp_path / "out")]
+    )
+
+    assert result.exit_code == 2
+    assert sent == []
+
+
+def test_an_explicit_server_url_is_still_used(mcp_scaffolded):
+    document = yaml.safe_load(
+        mcp_scaffolded("--server-url", "https://mcp.shop.test/mcp").read_text(encoding="utf-8")
+    )
+
+    assert document["modules"]["mcp"]["servers"][0]["url"] == "https://mcp.shop.test/mcp"
