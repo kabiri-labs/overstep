@@ -86,10 +86,25 @@ def case_rows(result: RunResult) -> List[Dict[str, object]]:
     """
     observed = {obs.test_id: obs for obs in result.observations}
 
+    planned = {case.id for case in result.cases}
+
     def judged(findings: List[Finding]) -> set:
-        # A finding derived from a case is filed under `<case id>::<detail>`.
-        ids = {f.test_id for f in findings}
-        return ids | {i.rsplit("::", 1)[0] for i in ids}
+        """The cases these findings are about.
+
+        A finding normally carries its case's id. One derived from a case —
+        a tool a listing should not have advertised — is filed under
+        `<case id>::<detail>` and belongs to that parent. The parent is only
+        looked for when the id is not itself a case: a cross-method probe is a
+        case of its own whose id also ends in `::<METHOD>`, and trimming that
+        would mark the request it was derived from as failed when it passed.
+        """
+        ids = set()
+        for finding in findings:
+            if finding.test_id in planned or "::" not in finding.test_id:
+                ids.add(finding.test_id)
+            else:
+                ids.add(finding.test_id.rsplit("::", 1)[0])
+        return ids
 
     found, waived = judged(result.findings), judged(result.waived)
     rows: List[Dict[str, object]] = []

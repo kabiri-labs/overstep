@@ -914,8 +914,9 @@ still run and still change state, and a mutating operation the matrix declares a
 non-mutating is still sent — the flag reads the declaration, not the target.
 `--max-retries N` (default 2) retries `429`/`503`, honouring `Retry-After`.
 `--concurrency N` bounds in-flight requests, and `--delay SECONDS` sets the least
-time between the start of one test request and the next — across the whole pool,
-so it is a rate a target would recognise rather than a pause multiplied by the
+time between the start of one test request and the next — across the whole pool
+and from one phase of the run to the next, so it is a rate a target would
+recognise rather than a pause multiplied by the
 concurrency. `--timeout SECONDS` (default 15) is how long any connection waits,
 logins and `setup:` steps included. `--proxy URL` sends every request through a
 proxy; without it the usual `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` variables

@@ -15,7 +15,8 @@ function that opens a connection, so a target slower than that could not be
 tested at all. `--timeout SECONDS` now reaches both transports, login providers,
 `setup:` and `teardown:` steps, the MCP client and its OAuth discovery; the
 default is still 15. `--delay SECONDS` is the least time between the start of one
-test request and the next, counted across the whole pool — `--concurrency` was
+test request and the next, counted across the whole pool and across the phases
+and transports a run is dispatched in — `--concurrency` was
 the only throttle, and a pause per connection multiplied by ten is no limit a
 target would recognise. `--proxy URL` sends every request through a proxy.
 Without it nothing changes: `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` were

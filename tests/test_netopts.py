@@ -189,3 +189,85 @@ def test_without_a_delay_the_pool_is_not_slowed(monkeypatch):
 
     assert len(starts) == 5
     assert starts[-1] < 0.2
+
+
+def _dispatches(monkeypatch, count):
+    """When each request reached the wire over several one-request dispatches."""
+    stamps = []
+
+    def handler(request):
+        stamps.append(time.perf_counter())
+        return httpx.Response(200, json={})
+
+    original = httpx.AsyncClient
+
+    def factory(*args, **kwargs):
+        kwargs["transport"] = httpx.MockTransport(handler)
+        return original(*args, **kwargs)
+
+    import overstep.modules.rest.executor as ex
+
+    monkeypatch.setattr(ex.httpx, "AsyncClient", factory)
+    matrix, cases = _five_cases()
+    for case in cases[:count]:
+        # One executor call each, as the pipeline makes per phase and the
+        # dispatcher makes per transport: a new gate and a new event loop.
+        asyncio.run(execute("http://api.test", matrix.subjects, [case], concurrency=5))
+    return [s - stamps[0] for s in stamps]
+
+
+def test_the_delay_holds_across_separate_dispatches(monkeypatch):
+    """A run is several dispatches; the pause must not restart at each one."""
+    with netopts.using(delay=0.1):
+        starts = _dispatches(monkeypatch, 4)
+
+    gaps = [b - a for a, b in zip(starts, starts[1:])]
+    assert starts[-1] >= 0.24, starts
+    assert all(gap >= 0.06 for gap in gaps), gaps
+
+
+def test_the_delay_holds_between_the_phases_of_a_real_run(monkeypatch):
+    """Through the pipeline: a read phase followed by a write phase."""
+    from overstep.pipeline import run_pipeline
+
+    stamps = []
+
+    def handler(request):
+        stamps.append((request.method, time.perf_counter()))
+        return httpx.Response(200, json={})
+
+    original = httpx.AsyncClient
+
+    def factory(*args, **kwargs):
+        kwargs["transport"] = httpx.MockTransport(handler)
+        return original(*args, **kwargs)
+
+    import overstep.modules.rest.executor as ex
+
+    monkeypatch.setattr(ex.httpx, "AsyncClient", factory)
+    matrix = Matrix(
+        modules={"rest": {"base_url": "http://api.test"}},
+        roles=["user"],
+        subjects=[{"name": "alice", "role": "user", "token": "a"}],
+        resources=[
+            {"name": "read", "request": {"method": "GET", "path": "/x"}},
+            {"name": "write", "request": {"method": "POST", "path": "/x"}},
+        ],
+        policy={"read": {"allow": [{"role": "user"}]}, "write": {"allow": [{"role": "user"}]}},
+    )
+    with netopts.using(delay=0.15):
+        run_pipeline(matrix)
+
+    assert [method for method, _ in stamps] == ["GET", "POST"]
+    assert stamps[1][1] - stamps[0][1] >= 0.1
+
+
+def test_one_runs_clock_does_not_carry_into_the_next(monkeypatch):
+    """The clock belongs to the block: a later run does not wait on an earlier one."""
+    with netopts.using(delay=5):
+        _dispatches(monkeypatch, 1)
+    began = time.perf_counter()
+    with netopts.using(delay=5):
+        _dispatches(monkeypatch, 1)
+
+    assert time.perf_counter() - began < 1
