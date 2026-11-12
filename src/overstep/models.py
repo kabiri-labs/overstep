@@ -1045,6 +1045,12 @@ class RunResult(BaseModel):
     # How many cases the whole matrix plans, selected or not. Zero when the
     # result was built by hand; `planned_tests` falls back to what was run.
     planned: int = 0
+    # When the run began (UTC, ISO 8601) and how long it took, login and setup
+    # included. A report is read later and somewhere else, and "which run is
+    # this" should not depend on the file's modification time surviving the
+    # trip. None on a result nobody timed.
+    started_at: Optional[str] = None
+    duration_s: Optional[float] = None
 
     @property
     def partial(self) -> bool:

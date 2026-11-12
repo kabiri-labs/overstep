@@ -51,10 +51,11 @@ UPDATE = bool(os.environ.get("OVERSTEP_UPDATE_GOLDEN"))
 ARTIFACTS = ("findings.json", "overstep.sarif", "junit.xml", "report.html", "baseline.json")
 
 # Measured, not assumed: two consecutive runs of both demos differ in exactly
-# these. `latency_ms` and `generated_at` are wall-clock; the package version
+# these. `latency_ms` and `generated_at` are wall-clock, as are the run's own
+# `started_at` and `duration_s` since 1.9.0; the package version
 # appears in a snapshot's header and in the SARIF tool block, and would otherwise
 # make every version bump look like a broken contract.
-VOLATILE_KEYS = ("latency_ms", "generated_at")
+VOLATILE_KEYS = ("latency_ms", "generated_at", "started_at", "duration_s")
 
 # The two demos. Each is a matrix, the server module backing it, and the
 # transport module whose httpx client has to be pointed at the ASGI app.
@@ -147,6 +148,10 @@ def _normalize(text: str) -> str:
 def _artifacts(result, tmp_path) -> dict:
     """Every document one run produces, normalized and keyed by filename."""
     outdir = str(tmp_path)
+    # The HTML report prints when the run started and how long it took, and has
+    # no keys to scrub. Both are pinned on a copy before writing, so the page is
+    # compared with the header present and only its two clock readings fixed.
+    result = result.model_copy(update={"started_at": "<VOLATILE>", "duration_s": 0.0})
     write_reports(result, outdir)
     save_snapshot(
         build_snapshot(result.cases, result.observations),
