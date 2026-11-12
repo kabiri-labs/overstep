@@ -1036,6 +1036,23 @@ class RunResult(BaseModel):
     # every document they write, so a reader cannot tell a clean report that
     # covered the write surface from one that never touched it.
     read_only: bool = False
+    # What the run was narrowed to, when it was: the resources and subjects
+    # named on the command line. Empty means the whole matrix. Carried for the
+    # same reason as `read_only` — a run of one resource finds nothing wrong
+    # with the other twenty, and every document it writes has to say that it
+    # never looked, or its silence about them reads as a clean bill.
+    selection: Dict[str, List[str]] = Field(default_factory=dict)
+    # How many cases the whole matrix plans, selected or not. Zero when the
+    # result was built by hand; `planned_tests` falls back to what was run.
+    planned: int = 0
+
+    @property
+    def partial(self) -> bool:
+        return any(self.selection.values())
+
+    @property
+    def planned_tests(self) -> int:
+        return self.planned or len(self.cases)
 
     @property
     def vulnerabilities(self) -> List[Finding]:

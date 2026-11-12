@@ -125,6 +125,12 @@ def summarize(result: RunResult) -> Dict[str, object]:
         # same document, so "no findings" cannot be read for how much of the
         # surface it covers.
         "read_only": result.read_only,
+        # Whether the run was narrowed to named resources or subjects, to what,
+        # and out of how many cases. A partial run's "no findings" covers only
+        # what it sent, so the three travel with the counts they qualify.
+        "partial": result.partial,
+        "selection": {key: list(names) for key, names in result.selection.items()},
+        "planned_tests": result.planned_tests,
         "skipped_tests": result.health.skipped,
         "skipped_surfaces": list(result.health.skipped_surfaces),
         # "No BOLA findings" is only evidence for the object resources this run
