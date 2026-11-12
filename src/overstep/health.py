@@ -177,6 +177,7 @@ def assess(
     *,
     unreachable_ratio: float = UNREACHABLE_RATIO,
     blocking_problems: Sequence[str] = (),
+    halted: Sequence[str] = (),
 ) -> RunHealth:
     """Judge whether a run's observations are worth drawing conclusions from.
 
@@ -189,6 +190,13 @@ def assess(
     control exists to notice, and the run reports ``Vulnerabilities 0`` with a
     zero exit code. That is the fail-open this module was written to remove,
     arriving through the file instead of the network.
+
+    ``halted`` carries the reason a run stopped before it could send anything —
+    today, a discovery hop refused because the target named an identifier that
+    was not its own. Such a run may still carry a finding, which is new: the
+    refusal is itself a result. It is not a tested authorization surface, and
+    nothing about the policy was observed, so the verdict stays inconclusive
+    however loudly that one finding reads.
     """
     grouped = _group(cases, observations)
     sent_all = [o for o in observations if not o.skipped]
@@ -209,6 +217,11 @@ def assess(
         skipped=sum(1 for o in observations if o.skipped),
         skipped_surfaces=_skipped_surfaces(cases, observations),
     )
+
+    # First, because it is why every count above is zero: the run ended before
+    # the planner ran, so nothing below has anything to measure.
+    for reason in halted:
+        health.reasons.append(reason)
 
     # Recorded before anything about delivery, so a matrix that cannot describe
     # a usable test is named even when every request it generated was skipped or

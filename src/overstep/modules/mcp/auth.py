@@ -42,17 +42,41 @@ token those credentials buy must be spent where the run intended.
 from __future__ import annotations
 
 import ipaddress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import List, Optional, Tuple
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
 from overstep import netopts
+from overstep.discovery import MetadataDefect
 
 
 class DiscoveryError(RuntimeError):
-    """Raised when an MCP server's OAuth metadata cannot be discovered."""
+    """Raised when an MCP server's OAuth metadata cannot be discovered.
+
+    ``defect`` is set on the subset of these failures that are a statement about
+    the target rather than about the document being absent or malformed: the
+    server named an identifier that is not its own, moved the fetch to another
+    origin, or served the hop in the clear. Those four are the MUSTs this module
+    already checked to protect itself, and the ones :data:`CONFORMANCE_KINDS`
+    turns into a finding. A missing document and a missing ``token_endpoint``
+    carry no defect: absence is not evidence that somebody else was named.
+    """
+
+    def __init__(self, message: str, *, defect: Optional[MetadataDefect] = None):
+        super().__init__(message)
+        self.defect = defect
+
+
+# The rules whose breach `metadata_identity` reports. Named here so the help
+# text, the tests and the finding detail cannot drift apart.
+CONFORMANCE_KINDS = (
+    "resource-mismatch",    # RFC 9728 section 3.3
+    "issuer-mismatch",      # RFC 8414 section 3.3
+    "cross-origin-redirect",
+    "insecure-transport",
+)
 
 
 @dataclass(frozen=True)
@@ -206,7 +230,20 @@ def require_https(url: str, what: str, *, allow_plaintext: bool = False) -> None
         return
     raise DiscoveryError(
         f"{what} '{url}' is not HTTPS — credentials would travel in the clear. "
-        f"Use https, a loopback address, or --insecure if this is a test rig."
+        f"Use https, a loopback address, or --insecure if this is a test rig.",
+        defect=MetadataDefect(
+            kind="insecure-transport",
+            resource="",
+            url=url,
+            detail=(
+                f"The {what} is published at '{url}', which is not HTTPS. The MCP "
+                f"authorization specification requires every authorization server "
+                f"endpoint to be served over TLS, and a client secret is what "
+                f"travels to this URL next."
+            ),
+            claimed=urlsplit(url).scheme or "(no scheme)",
+            expected="https",
+        ),
     )
 
 
@@ -227,7 +264,21 @@ def _get_json(client: httpx.Client, urls: List[str]) -> Optional[Tuple[str, dict
         if _origin_key(str(resp.url)) != _origin_key(url):
             raise DiscoveryError(
                 f"metadata request for '{url}' was redirected to another origin "
-                f"('{resp.url}') — refusing to trust it"
+                f"('{resp.url}') — refusing to trust it",
+                defect=MetadataDefect(
+                    kind="cross-origin-redirect",
+                    resource="",
+                    url=url,
+                    detail=(
+                        f"The metadata request for '{url}' was redirected to "
+                        f"'{resp.url}', which is a different origin. A document "
+                        f"fetched from somewhere else describes somewhere else, "
+                        f"and following the redirect would only give the host that "
+                        f"answered a second name to satisfy."
+                    ),
+                    claimed=_origin(str(resp.url)),
+                    expected=_origin(url),
+                ),
             )
         if resp.status_code < 400:
             try:
@@ -299,7 +350,23 @@ def _validate_resource(prm: dict, accepted: List[str], source_url: str) -> str:
             f"Protected Resource Metadata at '{source_url}' claims resource '{claimed}', "
             f"which is not the resource under test ({allowed}) — refusing to request a "
             f"token bound to somewhere else (RFC 9728 section 3.3). Set the provider's "
-            f"'resource' if this server is legitimately known by another identifier."
+            f"'resource' if this server is legitimately known by another identifier.",
+            defect=MetadataDefect(
+                kind="resource-mismatch",
+                resource="",
+                url=source_url,
+                detail=(
+                    f"The Protected Resource Metadata served at '{source_url}' claims "
+                    f"the resource identifier '{claimed}', which is not the identifier "
+                    f"that URL was built from ({allowed}). RFC 9728 section 3.3 requires "
+                    f"the two to be identical. The value becomes the RFC 8707 resource "
+                    f"indicator on the token request, so a server naming somebody else "
+                    f"here has the authorization server mint a token valid for them and "
+                    f"is then handed it."
+                ),
+                claimed=claimed,
+                expected=accepted[0],
+            ),
         )
     return claimed
 
@@ -322,7 +389,21 @@ def _validate_issuer(meta: dict, issuer: str, source_url: str) -> None:
     if claimed not in (issuer, issuer.rstrip("/")):
         raise DiscoveryError(
             f"authorization server metadata at '{source_url}' claims issuer '{claimed}' "
-            f"but was requested for '{issuer}' — refusing to use it (RFC 8414 section 3.3)"
+            f"but was requested for '{issuer}' — refusing to use it (RFC 8414 section 3.3)",
+            defect=MetadataDefect(
+                kind="issuer-mismatch",
+                resource="",
+                url=source_url,
+                detail=(
+                    f"The authorization server metadata served at '{source_url}' claims "
+                    f"the issuer '{claimed}', but the document was requested for "
+                    f"'{issuer}'. RFC 8414 section 3.3 requires the two to be identical; "
+                    f"without that check anyone able to answer at the well-known URL can "
+                    f"name whichever token endpoint they like."
+                ),
+                claimed=claimed,
+                expected=issuer,
+            ),
         )
 
 
@@ -414,7 +495,18 @@ def resolve_discovery(matrix, provider, *, client, verify_tls: bool):
         )
     except DiscoveryError as exc:
         # Recognised and failed, which must stop the run rather than fall
-        # through to another resolver's guess.
-        raise DiscoveryFailed(str(exc)) from exc
+        # through to another resolver's guess. The abort is the point: the next
+        # thing to travel this way is a credential, and a host that failed an
+        # identity check does not get one. What is new is that the evidence
+        # leaves with the exception, so the run can write a report saying what
+        # the server claimed instead of dying with a console message.
+        defect = exc.defect
+        if defect is not None and matrix.modules.mcp.probes.conformance.metadata_identity:
+            # The module names the finding; the core never learns whose
+            # metadata this was.
+            defect = replace(defect, resource=f"mcp:{server.name}" if server else server_url)
+        else:
+            defect = None
+        raise DiscoveryFailed(str(exc), defect=defect) from exc
 
     return Discovered(token_endpoint=found.token_endpoint, resource=found.resource)

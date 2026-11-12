@@ -45,6 +45,14 @@ def _classify_violation(matrix: Matrix, case: TestCase) -> VulnClass:
         return VulnClass.TOKEN_AUDIENCE
     if case.variant == Variant.SESSION:
         return VulnClass.SESSION_HIJACK
+    # Neither of these is about this subject's role or this object's owner
+    # either: one is a document the server served under somebody else's name,
+    # the other an authorization server minting a client for nobody in
+    # particular. Both are read before the policy, which has nothing to say.
+    if case.variant == Variant.METADATA:
+        return VulnClass.METADATA_SPOOF
+    if case.variant == Variant.REGISTER:
+        return VulnClass.OPEN_REGISTRATION
 
     subject_rank = matrix.role_rank(case.role)
     required_rank = _min_required_rank(matrix, case)
@@ -167,6 +175,11 @@ def _grade(vuln: VulnClass, case: TestCase, obs: Observation):
 
 
 def _detail(case: TestCase, obs: Observation, vuln: VulnClass, confidence: str = "confirmed") -> str:
+    # A conformance probe arrives with its own sentence: what the target claimed
+    # and what the rule required is the whole finding, and neither is derivable
+    # from the response the way an access-control detail is.
+    if vuln == VulnClass.METADATA_SPOOF and case.defect_detail:
+        return case.defect_detail
     if vuln == VulnClass.BOLA:
         if confidence == "confirmed":
             leaked = ", ".join(obs.matched_markers)
@@ -368,7 +381,10 @@ def classify(
             # the probe's by that tool name; the request to reproduce is the
             # probe itself.
             case = by_case.get(f.test_id.rsplit("::", 1)[0])
-        subject = subjects.get(f.subject)
+        # A conformance probe is made by nobody in particular, so its caller is
+        # not in the matrix. Standing one up rather than giving up on the repro
+        # keeps the artifact that makes a finding worth sending to somebody.
+        subject = subjects.get(f.subject) or Subject(name=f.subject, role=f.role)
         if case is not None and subject is not None:
             f.curl = to_curl(repro_base, subject, case)
             f.request = request_record(repro_base, subject, case)

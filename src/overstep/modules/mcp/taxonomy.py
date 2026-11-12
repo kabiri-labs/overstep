@@ -47,6 +47,36 @@ TAXONOMY = {
         security_severity="5.3",
         help_uri="https://owasp.org/API-Security/editions/2023/en/0xa5-broken-function-level-authorization/",
     ),
+    # A document naming an identifier that is not the server's own is an origin
+    # validation failure — CWE-346 — and OWASP files it under API2:2023 for the
+    # same reason the audience class sits there: the value decides where a
+    # credential goes next. Scored just below TOKEN_AUDIENCE at 8.6 rather than
+    # level with it, because this one is caught: the run refuses the document
+    # and stops before any credential is minted, so the finding records an
+    # attempt that failed rather than a credential already loose. What keeps it
+    # high all the same is that the attempt is unauthenticated and costs the
+    # target nothing to retry against a client that does not check.
+    VulnClass.METADATA_SPOOF: Taxon(
+        cwe="CWE-346",
+        cwe_name="Origin Validation Error",
+        owasp_api="API2:2023 Broken Authentication",
+        security_severity="7.5",
+        help_uri="https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/",
+    ),
+    # Registration without a credential is a missing authorization check on a
+    # write — CWE-862 — and the thing written is a client id bound to a redirect
+    # URI the caller chose. Scored below METADATA_SPOOF because it is one step
+    # further from a credential: an open registry is the position an attacker
+    # starts from, not the moment a token changes hands. It sits above
+    # TOOL_ENUMERATION at 5.3 because enumeration discloses and this one
+    # creates.
+    VulnClass.OPEN_REGISTRATION: Taxon(
+        cwe="CWE-862",
+        cwe_name="Missing Authorization",
+        owasp_api="API2:2023 Broken Authentication",
+        security_severity="7.3",
+        help_uri="https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/",
+    ),
 }
 
 
@@ -57,6 +87,13 @@ HELP = {
         "An MCP server let a session id stand in for a credential.",
     VulnClass.TOOL_ENUMERATION:
         "An MCP server advertised tools to a subject that may not invoke them.",
+    VulnClass.METADATA_SPOOF:
+        "An MCP server served OAuth metadata naming an identifier that was not "
+        "its own, so the discovery chain was refused before any credential was "
+        "requested.",
+    VulnClass.OPEN_REGISTRATION:
+        "An MCP server's authorization server registered a client for a caller "
+        "that presented no credential.",
 }
 
 

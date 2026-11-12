@@ -75,6 +75,13 @@ class Variant(str, Enum):
     SESSION = "session"
     # What the server is willing to *list* to this subject, as opposed to run.
     ENUMERATE = "enumerate"
+    # A metadata document served under an identifier that is not the server's
+    # own. Not a request a subject made: the probe is the discovery hop the run
+    # was performing anyway, before it would hand a credential to the host.
+    METADATA = "metadata"
+    # An unauthenticated client registration (RFC 7591) at the authorization
+    # server the target named.
+    REGISTER = "register"
 
 
 class VulnClass(str, Enum):
@@ -95,6 +102,18 @@ class VulnClass(str, Enum):
     # A server advertised tools to a subject the matrix does not allow to invoke
     # them. Disclosure of the function surface rather than access to it.
     TOOL_ENUMERATION = "tool-enumeration"
+    # A server named an identifier that is not its own in the metadata the
+    # discovery chain reads before any credential is handed over: the resource
+    # or issuer it claims belongs to somebody else, the document was fetched
+    # across an origin boundary, or the hop was not HTTPS. RFC 8414's own
+    # example is a document served from attacker.example claiming an honest
+    # issuer, and the credential is what travels next.
+    METADATA_SPOOF = "metadata-spoof"
+    # An authorization server minted a client for a caller that presented no
+    # credential at all. Anyone can obtain a client id bound to a redirect URI
+    # of their choosing, which is the starting position for the
+    # authorization-code interception the redirect registry exists to prevent.
+    OPEN_REGISTRATION = "open-registration"
     AUTHORIZATION_DRIFT = "authorization-drift"
     UNEXPECTED_DENY = "unexpected-deny"
 
@@ -781,6 +800,13 @@ class TestCase(BaseModel):
     # For an AUDIENCE-variant probe: the audience the credential being replayed
     # was issued for, so the finding can name it. None on every other case.
     audience: Optional[str] = None
+    # For a METADATA-variant probe: which identity rule the target broke, and
+    # the sentence that explains it. This probe is a document the run read on
+    # its way to authenticating rather than a request it composed, so there is
+    # no response body the detail could be derived from later; it travels with
+    # the case exactly as `audience` does. None on every other case.
+    defect_kind: Optional[str] = None
+    defect_detail: Optional[str] = None
 
     @property
     def is_negative(self) -> bool:
@@ -1070,6 +1096,8 @@ class RunResult(BaseModel):
             VulnClass.TOKEN_AUDIENCE,
             VulnClass.SESSION_HIJACK,
             VulnClass.TOOL_ENUMERATION,
+            VulnClass.METADATA_SPOOF,
+            VulnClass.OPEN_REGISTRATION,
         }
         return [f for f in self.findings if f.vuln_class in vuln]
 

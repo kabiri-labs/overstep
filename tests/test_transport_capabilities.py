@@ -225,17 +225,22 @@ CORE_CLASSES = {
     "BOLA", "BFLA", "BOPLA", "privilege-escalation",
     "authorization-drift", "unexpected-deny",
 }
-MCP_CLASSES = {"token-audience", "session-hijack", "tool-enumeration"}
+MCP_CLASSES = {
+    "token-audience", "session-hijack", "tool-enumeration",
+    "metadata-spoof", "open-registration",
+}
 
 
 def test_the_mcp_surface_contributes_its_own_finding_classes():
-    """Three classes exist because this surface has a protocol with rules.
+    """These classes exist because this surface has a protocol with rules.
 
     Credential audience and session binding are requirements the MCP
     authorization spec places on the server itself; tool enumeration asks about
-    a catalogue nothing else has. They sat in the shared taxonomy beside BOLA,
-    which made the table every surface reads describe one surface's protocol —
-    down to SARIF help text starting "An MCP server...".
+    a catalogue nothing else has. Metadata identity and open registration are
+    two more of the same kind, about the OAuth documents and endpoints around
+    the server rather than the server's own JSON-RPC. They sat in the shared
+    taxonomy beside BOLA, which made the table every surface reads describe one
+    surface's protocol — down to SARIF help text starting "An MCP server...".
     """
     from overstep.modules.mcp.taxonomy import TAXONOMY as mcp_taxonomy
 

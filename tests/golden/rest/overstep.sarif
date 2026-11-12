@@ -199,6 +199,60 @@
               }
             },
             {
+              "id": "metadata-spoof",
+              "name": "METADATA_SPOOF",
+              "shortDescription": {
+                "text": "metadata-spoof"
+              },
+              "fullDescription": {
+                "text": "An MCP server served OAuth metadata naming an identifier that was not its own, so the discovery chain was refused before any credential was requested."
+              },
+              "helpUri": "https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/",
+              "help": {
+                "text": "An MCP server served OAuth metadata naming an identifier that was not its own, so the discovery chain was refused before any credential was requested.\n\nCWE-346 (Origin Validation Error) · API2:2023 Broken Authentication"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "cwe": "CWE-346",
+                "owasp-api": "API2:2023 Broken Authentication",
+                "security-severity": "7.5",
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-346",
+                  "API2:2023"
+                ]
+              }
+            },
+            {
+              "id": "open-registration",
+              "name": "OPEN_REGISTRATION",
+              "shortDescription": {
+                "text": "open-registration"
+              },
+              "fullDescription": {
+                "text": "An MCP server's authorization server registered a client for a caller that presented no credential."
+              },
+              "helpUri": "https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/",
+              "help": {
+                "text": "An MCP server's authorization server registered a client for a caller that presented no credential.\n\nCWE-862 (Missing Authorization) · API2:2023 Broken Authentication"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "cwe": "CWE-862",
+                "owasp-api": "API2:2023 Broken Authentication",
+                "security-severity": "7.3",
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-862",
+                  "API2:2023"
+                ]
+              }
+            },
+            {
               "id": "authorization-drift",
               "name": "AUTHORIZATION_DRIFT",
               "shortDescription": {
