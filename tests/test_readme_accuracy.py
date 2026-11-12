@@ -53,6 +53,8 @@ IMPLEMENTED_CAPABILITIES = {
     "credential audience probe": "token_audience",
     "session-binding probe": "session_binding",
     "tool-enumeration probe": "tool_enumeration",
+    "metadata-identity conformance probe": "metadata_identity",
+    "open-registration conformance probe": "open_registration",
     "stdio transport": "stdio",
     "OAuth discovery": "discover_from",
 }

@@ -610,6 +610,30 @@ def _enumeration_cases(matrix: Matrix, context: Dict[str, str]) -> List[TestCase
     return cases
 
 
+def _surface_cases(matrix: Matrix, context: Dict[str, str]) -> List[TestCase]:
+    """Cases a surface contributes that no declared resource could produce.
+
+    Everything above this comes from the matrix: a resource crossed with a
+    subject, or a protocol probe about a credential somebody declared. A surface
+    may also know a question that belongs to no resource and no identity —
+    whether the server meets a requirement the specification places on it,
+    whoever is asking. Those are asked for through the transport registry rather
+    than written here, because the request that asks them is spelled in that
+    surface's own specification: the planner would otherwise have to know what
+    an RFC 7591 registration looks like in order to generate one.
+    """
+    # Imported at call time: a surface registers itself by importing this
+    # module, so reaching for the registry while this one is being imported
+    # would close the loop.
+    from overstep.transports import all_transports
+
+    cases: List[TestCase] = []
+    for spec in all_transports():
+        if spec.plan_cases is not None:
+            cases.extend(spec.plan_cases(matrix, context))
+    return cases
+
+
 def plan(matrix: Matrix, context: Optional[Dict[str, str]] = None) -> List[TestCase]:
     """Generate the full list of test cases for a matrix.
 
@@ -735,4 +759,5 @@ def plan(matrix: Matrix, context: Optional[Dict[str, str]] = None) -> List[TestC
     cases.extend(_audience_cases(matrix, context))
     cases.extend(_session_cases(matrix, context))
     cases.extend(_enumeration_cases(matrix, context))
+    cases.extend(_surface_cases(matrix, context))
     return cases

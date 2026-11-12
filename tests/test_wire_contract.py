@@ -323,6 +323,8 @@ VULN_CLASS_WIRE_VALUES = {
     "TOKEN_AUDIENCE": "token-audience",
     "SESSION_HIJACK": "session-hijack",
     "TOOL_ENUMERATION": "tool-enumeration",
+    "METADATA_SPOOF": "metadata-spoof",
+    "OPEN_REGISTRATION": "open-registration",
     "AUTHORIZATION_DRIFT": "authorization-drift",
     "UNEXPECTED_DENY": "unexpected-deny",
 }
@@ -336,6 +338,8 @@ VARIANT_WIRE_VALUES = {
     "AUDIENCE": "audience",
     "SESSION": "session",
     "ENUMERATE": "enumerate",
+    "METADATA": "metadata",
+    "REGISTER": "register",
 }
 
 

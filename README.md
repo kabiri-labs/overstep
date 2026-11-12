@@ -2,7 +2,7 @@
 
 **Authorization testing for REST APIs and MCP servers — one problem class, two surfaces.**
 
-![Version](https://img.shields.io/badge/version-1.9.0-blue)
+![Version](https://img.shields.io/badge/version-1.10.0-blue)
 [![CI](https://github.com/kabiri-labs/overstep/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kabiri-labs/overstep/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -82,6 +82,7 @@ The vocabulary is the standard one, and it is transport-independent:
 | **Multi-tenancy isolation** | does the tenant boundary hold when the caller is authenticated but foreign? | REST, MCP |
 | **Credential audience binding** | does the callee check who the credential was issued *for*? | MCP |
 | **Session binding** | can a connection identifier stand in for a credential? | MCP |
+| **Server conformance** | does the server meet the requirements the protocol places on it — metadata that names itself, a registry that asks who is calling? | MCP |
 | **Authorization drift** | did any of the above answers change since the last release? | REST, MCP |
 
 ### The shared core
@@ -132,8 +133,11 @@ class is currently hardest to reason about, for four reasons:
   every tool and hand the data out through the other door.
 - **The protocol carries authorization requirements of its own.** A server must
   refuse a credential that was not issued for it, and — on the revisions that have
-  sessions — must not let a session identifier stand in for one. Neither is a
-  question about your policy, and neither surfaces in any test of your tools.
+  sessions — must not let a session identifier stand in for one. The OAuth
+  machinery around it carries more: metadata documents that name the server
+  rather than somebody else, and a client registry that does not hand a client
+  id to an anonymous caller. None of these is a question about your policy, and
+  none surfaces in any test of your tools.
 
 overstep tests the **server's own enforcement** on this surface. It does not drive
 the agent, and it does not evaluate what the agent was persuaded to ask for; see
@@ -147,9 +151,11 @@ Conservative markers: **implemented** means exercised by the test suite;
 The bundled demos are a *subset* of that — they cover object- and function-level
 probes, resource reads, session binding and tool enumeration, and are what the
 numbers further down are measured from. Property-level checks, policy conditions,
-cross-method probing, credential audience and OAuth discovery are covered by tests
-rather than by a demo matrix, so read those rows as "there is a test for it", not
-as "you can watch it run in two minutes".
+cross-method probing, credential audience, OAuth discovery and the two server
+conformance probes are covered by tests rather than by a demo matrix, so read
+those rows as "there is a test for it", not as "you can watch it run in two
+minutes". The conformance probes in particular need an authorization server that
+misbehaves, which is not something a demo you are invited to run should ship.
 
 | Capability | REST | MCP |
 |---|---|---|
@@ -162,6 +168,8 @@ as "you can watch it run in two minutes".
 | Credential audience probe | n/a | **implemented** (Streamable HTTP only) |
 | Session-binding probe | n/a | **implemented** (Streamable HTTP, stateful revisions; not applicable on `2026-07-28`) |
 | Tool-enumeration probe | n/a | **implemented**, opt-in |
+| Metadata-identity conformance probe | n/a | **implemented** (Streamable HTTP, where a provider discovers its token endpoint) |
+| Open-registration conformance probe | n/a | **implemented**, opt-in — writes to the target's authorization server |
 | Transport | **implemented** (HTTP/HTTPS) | **implemented** (Streamable HTTP and stdio) |
 | Matrix scaffolding | **partial** — OpenAPI drafts a full matrix with `--with-policy`; a HAR capture drafts resources only, with no policy | **implemented** — a live server or a saved listing drafts a full matrix |
 | Credential acquisition | **implemented** (arbitrary login request, OAuth 2.1 password and client-credentials grants) | **partial** — the same, plus RFC 9728/8414/8707 discovery; the interactive authorization-code flow is not supported |
@@ -611,7 +619,10 @@ findings.
 request record, with the credential replaced by a shell variable named after the
 subject it belongs to (`OVERSTEP_TOKEN_<SUBJECT>`), so the line is safe to paste
 into a ticket and still works once the variable is set. stdio findings get an
-stdio repro; a session-binding finding gets the two-step form its defect requires.
+stdio repro; a session-binding finding gets the two-step form its defect
+requires; a [conformance](#the-mcp-protocol-probes) finding has no credential in
+it at all, because neither of those probes presents one — which makes it the one
+repro you can forward to the server's owner exactly as the report prints it.
 
 **Property-level checks.** List the JSON keys an allowed response must never
 contain. Matching is key-based, so a name appearing in free text does not
@@ -696,17 +707,20 @@ resources:
 
 ### The MCP protocol probes
 
-Three checks run against every Streamable HTTP server beyond what the matrix
-declares, because they ask about the **credential** and the **connection** rather
-than about any one operation. None is available on stdio, where identity is an
-environment variable the server itself named rather than anything travelling on a
-connection.
+Five checks run against every Streamable HTTP server beyond what the matrix
+declares. The first three ask about the **credential** and the **connection**
+rather than about any one operation; the last two ask whether the server meets a
+requirement the specification places on it, whoever is asking. None is available
+on stdio, where identity is an environment variable the server itself named
+rather than anything travelling on a connection.
 
 | Probe | Default | Asks |
 |---|---|---|
 | Credential audience | on | does the server check who the credential was issued *for*? |
 | Session binding | on | can a session id stand in for a credential? |
 | Tool enumeration | off | is the privileged half of the catalogue advertised to everyone? |
+| Metadata identity | on | does the server's OAuth metadata name the server? |
+| Open registration | off | will its authorization server register a client for anyone? |
 
 **Credential audience.** The MCP authorization spec is unambiguous: a server must
 not accept a token that was not issued for it. A server that skips the check is a
@@ -777,6 +791,43 @@ that cannot list at all has nothing to disclose. Enumeration probes are never
 counted as positive controls, since a public listing answers with no credential at
 all.
 
+**Server conformance.** Two requirements the MCP authorization specification
+places on the server rather than on its policy, grouped under
+`modules.mcp.probes.conformance`.
+
+*Metadata identity* is on by default and sends nothing of its own. Before
+overstep will request a token it already checks that the documents a server
+serves describe that server: the `resource` in its Protected Resource Metadata
+(RFC 9728 §3.3), the `issuer` in its Authorization Server Metadata (RFC 8414
+§3.3), that no redirect moved a metadata fetch to another origin, and that both
+hops are HTTPS. A document failing any of those still **stops the run** — the
+next thing to travel that way is a client secret — and now also produces a
+`metadata-spoof` finding, so the report says why it stopped instead of leaving a
+console line and no documents. Such a run is reported as inconclusive: one
+finding about the metadata is not a tested authorization surface.
+
+*Open registration* is opt-in, and the one write overstep aims at a third party.
+It POSTs an RFC 7591 client registration — carrying no credential — to the
+authorization server the target named, and reports `open-registration` when a
+`client_id` comes back. It needs a redirect URI you control, so that what it
+minted is recognisable as its own; `--read-only` skips it, and the phased
+dispatcher sends it last with the other writes.
+
+```yaml
+modules:
+  mcp:
+    probes:
+      conformance:
+        metadata_identity: true
+        open_registration: true
+    canary:
+      redirect_uri: https://canary.example/cb
+```
+
+On revision `2026-07-28` Dynamic Client Registration is deprecated in favour of
+Client ID Metadata Documents, so an open registry there is a finding about a
+mechanism already on its way out.
+
 #### MCP protocol revisions
 
 Through `2025-11-25` a connection opens with an `initialize` handshake and may
@@ -830,10 +881,12 @@ the authorization server and token endpoint must be HTTPS (loopback and
 `--insecure` excepted); the metadata's `issuer` must be identical to the identifier
 the well-known URL was built from (RFC 8414 §3.3); the resource metadata's
 `resource` must be identical to the server URL your matrix declared (RFC 9728
-§3.3); and a metadata request must not be redirected to another origin. None of
-those catches a target that names an authorization server it simply owns and
-describes honestly — `issuer:` is what refuses that, and `validate` warns when a
-provider sends a secret without one.
+§3.3); and a metadata request must not be redirected to another origin. Each
+failure stops the run *and* is reported as a `metadata-spoof` finding — see
+[the conformance probes](#the-mcp-protocol-probes). None of those catches a
+target that names an authorization server it simply owns and describes honestly
+— `issuer:` is what refuses that, and `validate` warns when a provider sends a
+secret without one.
 
 The interactive authorization-code flow needs a browser and is not supported.
 
@@ -854,7 +907,8 @@ modules:
 ```
 
 Everything else is identical — object and function resources, ownership, markers,
-`--read-only`, reports. The three protocol probes do not apply.
+`--read-only`, reports. None of the five protocol probes applies: there is no
+connection to carry a credential or a session, and no OAuth metadata to check.
 
 ### Gating on change: baselines and waivers
 
@@ -905,8 +959,8 @@ Keep `matrix.yaml`, `baseline.json` and `waivers.yaml` in version control and
 authorization gets reviewed like any other code.
 
 **Safety and pipeline flags.** `--read-only` skips every mutating operation
-(POST/PUT/PATCH/DELETE over HTTP, any tool marked `mutating` over MCP), and the
-run says so: `Tests run` counts what was sent, with the planned total and the
+(POST/PUT/PATCH/DELETE over HTTP, any tool marked `mutating` over MCP, and the
+client-registration conformance probe), and the run says so: `Tests run` counts what was sent, with the planned total and the
 skipped count on rows of their own, the summary names the surfaces nothing was
 sent to, and `findings.json` records `read_only`, `skipped_tests` and
 `skipped_surfaces`. It does **not** skip `setup:` and `teardown:` steps, which
@@ -972,7 +1026,12 @@ accepted, every negative test "passes" for the wrong reason and a naive summary
 reads `Vulnerabilities 0`. overstep calls that run **inconclusive** and exits `3`.
 A run is inconclusive when, for any one target, at least half its requests failed
 at the transport layer, or nothing proves its credentials work — every
-expected-allow test skipped, or none of the ones that ran allowed. The judgement is
+expected-allow test skipped, or none of the ones that ran allowed — or when the
+run stopped before it could send anything, which today means a
+[metadata document](#the-mcp-protocol-probes) that failed its identity check.
+That last case is the one that can carry a finding and still be inconclusive: a
+`metadata-spoof` says something about the server's OAuth documents and nothing
+about whether it enforces your policy. The judgement is
 per target, so a busy healthy one cannot outvote a small one that answered nothing.
 Exit code 3 is distinct from 1 (findings) and 2 (bad input), so CI can tell "your
 server has a hole" from "the scan never ran", and `snapshot` refuses to write a
@@ -1078,6 +1137,8 @@ SARIF rules (with a `security-severity` score) and on every JSON finding.
 | token-audience | CWE-863 | API2:2023 | MCP |
 | session-hijack | CWE-287 | API2:2023 | MCP |
 | tool-enumeration | CWE-200 | API5:2023 | MCP |
+| metadata-spoof | CWE-346 | API2:2023 | MCP |
+| open-registration | CWE-862 | API2:2023 | MCP |
 
 ## What overstep does not do
 
@@ -1090,9 +1151,13 @@ Knowing the edges is part of deciding whether this fits.
   inconclusive checks exist to catch the common mistakes, not to guess intent.
 - **It does not test authentication.** Login strength, token forgery and session
   fixation are out of scope: overstep tests what an *already authenticated*
-  identity is permitted to do. Two deliberate exceptions, both because the MCP spec
-  makes them requirements of the server: credential audience validation and session
-  binding.
+  identity is permitted to do. The exceptions are admitted by one rule and no
+  other: the MCP specification places the requirement on the server under test.
+  Four qualify today — credential audience validation, session binding, metadata
+  identity and open client registration. A requirement the spec places on the
+  *client* or on the authorization server is not overstep's to check, which is
+  why PKCE downgrade, `state` handling and redirect-URI matching are absent
+  however often they appear in MCP flaw counts.
 - **It does not test the delegation chain.** overstep authenticates as a subject
   and tests the enforcement of the callee it talks to. It does not verify that
   authority was correctly **attenuated** across hops, that an on-behalf-of token

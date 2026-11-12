@@ -14,6 +14,7 @@ import time
 from datetime import datetime, timezone
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from overstep.auth import AuthError
 from overstep.auth import authenticate as default_authenticator
 from overstep.classifier import classify
 from overstep.coverage import assess as assess_coverage
@@ -33,11 +34,17 @@ from overstep.models import (
     RunResult,
     Subject,
     TestCase,
+    Variant,
 )
-from overstep.planner import plan
+from overstep.planner import make_test_id, plan
 from overstep.repro import credential_values, sanitize_evidence
 from overstep.report import all_reporters
 from overstep.waivers import Waiver, apply_waivers
+
+# Which transport renders the reproduction for a conformance case. Named rather
+# than imported: the string is the seam, and reaching for the module behind it
+# would be the core importing a surface.
+_CONFORMANCE_TRANSPORT = "mcp-oauth"
 
 # A callable with the same shape as executor.run, so tests can inject a fake.
 ExecutorFn = Callable[..., List[Observation]]
@@ -246,6 +253,48 @@ def _execute_stages(
     return cases, observations, teardown_warnings, planned
 
 
+def _halted_by_metadata(exc: AuthError) -> Tuple[List[TestCase], List[Observation], str]:
+    """What a run that stopped at a refused metadata document leaves behind.
+
+    The fetch happened, the document came back, and it failed a rule the MCP
+    specification places on the server. That is a test with a result, even
+    though nothing was planned, no credential was ever sent and the run goes no
+    further. Modelling it as a case and an observation — rather than appending a
+    finding here — means it is classified, graded, sanitized, reproduced and
+    counted by the same code every other finding passes through.
+
+    The observation's status is the one the metadata request actually got:
+    the document was served, which is the whole point. ``ALLOW`` against an
+    expected ``DENY`` is how every other probe in this tool says "the thing that
+    should not have been possible was".
+    """
+    defect = exc.defect
+    subject = exc.subject
+    name = getattr(subject, "name", None) or "-"
+    role = getattr(subject, "role", None) or "-"
+    case = TestCase(
+        id=make_test_id(defect.resource, name, Variant.METADATA),
+        resource=defect.resource,
+        subject=name,
+        role=role,
+        transport=_CONFORMANCE_TRANSPORT,
+        method="GET",
+        path_template=defect.url,
+        path=defect.url,
+        variant=Variant.METADATA,
+        expected=Effect.DENY,
+        resource_type=ResourceType.FUNCTION,
+        defect_kind=defect.kind,
+        defect_detail=defect.detail,
+    )
+    observation = Observation(test_id=case.id, status=200, effect=Effect.ALLOW)
+    reason = (
+        f"discovery for '{defect.resource}' was refused, so no credential was "
+        f"obtained and no authorization test ran — {exc}"
+    )
+    return [case], [observation], reason
+
+
 def _coverage_of(
     matrix: Matrix, cases: List[TestCase], only_resources: Sequence[str]
 ) -> ProbeCoverage:
@@ -307,22 +356,34 @@ def run_pipeline(
     resolved = resolve_base_url(matrix, base_url)
     started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     started = time.perf_counter()
-    cases, observations, teardown_warnings, planned = _execute_stages(
-        matrix,
-        resolved,
-        concurrency=concurrency,
-        verify_tls=verify_tls,
-        read_only=read_only,
-        max_retries=max_retries,
-        backoff_base=backoff_base,
-        executor=executor,
-        authenticator=authenticator,
-        setup_runner=setup_runner,
-        teardown_runner=teardown_runner,
-        only_resources=only_resources,
-        only_subjects=only_subjects,
-        observer=observer,
-    )
+    halted: List[str] = []
+    try:
+        cases, observations, teardown_warnings, planned = _execute_stages(
+            matrix,
+            resolved,
+            concurrency=concurrency,
+            verify_tls=verify_tls,
+            read_only=read_only,
+            max_retries=max_retries,
+            backoff_base=backoff_base,
+            executor=executor,
+            authenticator=authenticator,
+            setup_runner=setup_runner,
+            teardown_runner=teardown_runner,
+            only_resources=only_resources,
+            only_subjects=only_subjects,
+            observer=observer,
+        )
+    except AuthError as exc:
+        # Only the refusals that are a statement about the target are caught
+        # here. A password that did not work, a provider that is not declared,
+        # a token path that extracted nothing — those are the operator's to fix
+        # and stay what they have always been: an error, exit 2, no documents.
+        if getattr(exc, "defect", None) is None:
+            raise
+        cases, observations, reason = _halted_by_metadata(exc)
+        halted.append(reason)
+        teardown_warnings, planned = [], len(cases)
     duration_s = time.perf_counter() - started
     selection = {
         key: sorted(set(names))
@@ -350,7 +411,9 @@ def run_pipeline(
     # is worth drawing conclusions from: on an unreachable target no finding
     # exists for any waiver to match, and "this one may be fixed" would be a
     # claim about something nobody observed.
-    health = assess_health(cases, observations, blocking_problems=matrix_errors or ())
+    health = assess_health(
+        cases, observations, blocking_problems=matrix_errors or (), halted=halted
+    )
 
     waived: List = []
     warnings: List[str] = []

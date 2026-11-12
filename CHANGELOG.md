@@ -1,5 +1,77 @@
 # Changelog
 
+## [1.10.0] - 2026-11-12
+
+The first of the server-side conformance work: two requirements the MCP
+authorization specification places on the server rather than on its policy.
+One of them the code already checked and then threw away.
+
+### Added
+
+**`metadata-spoof` — the identity checks discovery was already making are now
+reported.** Before overstep requests a token it verifies that the documents a
+server serves describe that server: the `resource` in its Protected Resource
+Metadata (RFC 9728 section 3.3), the `issuer` in its Authorization Server
+Metadata (RFC 8414 section 3.3), that no redirect moved a metadata fetch to
+another origin, and that both hops are HTTPS. All four were being checked to
+protect the run, and all four results were discarded — the run stopped with
+`setup error:` on the console and wrote no documents at all. A gate that stops
+and leaves nothing behind is, in a CI log a week later, indistinguishable from
+one that ran and found nothing, which is the failure `overstep.health` exists to
+remove. The abort is unchanged and the credential still does not move; what is
+new is a finding, a reproduction that carries no credential, and a report saying
+why the run stopped. On by default via
+`modules.mcp.probes.conformance.metadata_identity`, and it sends no request of
+its own: the fetches were happening anyway.
+
+**`open-registration` — will the authorization server register a client for
+anybody?** Opt-in via `modules.mcp.probes.conformance.open_registration`, and
+the only write overstep aims at a third party. It POSTs an RFC 7591 client
+registration carrying no credential to the `registration_endpoint` discovery
+finds, and reports a `client_id` that comes back. `client_id` rather than the
+status code decides: some gateways answer 200 to anything, and reporting that as
+an open registry is the guess-from-status this tool refuses to make elsewhere.
+It requires `modules.mcp.canary.redirect_uri` — an address you control, so a
+minted client is recognisable as the probe's own — and a matrix that switches
+the probe on without one is refused at load rather than running a test that
+could not decide. `--read-only` skips it, and the phased dispatcher sends it
+last with the other writes. A server advertising no registration endpoint is
+recorded as skipped, not as clean.
+
+**A surface can contribute cases the planner could not have written.** A
+transport may now register `plan_cases`. Everything the planner generates comes
+from a declared resource crossed with a subject; a conformance probe belongs to
+no resource and no identity, and the request that asks it is spelled in an OAuth
+specification. Without the seam the core would have had to know what an RFC 7591
+registration looks like in order to generate one.
+
+### Changed
+
+**A run that stops at a refused metadata document now writes its reports, and
+its exit code changed from 2 to 3.** It previously printed `setup error:` and
+wrote nothing at all, so the artifact a CI job uploads was missing in exactly
+the case something was wrong. The documents now exist and name the defect, and
+the run is reported for what it is: inconclusive, which is exit 3. Both codes
+fail a gate, so a pipeline checking for success is unaffected; one keyed on 2
+specifically will see 3. An embedding caller that relied on `run_pipeline`
+raising `AuthError` here now receives a `RunResult` instead. Every other
+authentication failure — a password that did not work, a provider nobody
+declared, a token path that extracted nothing — raises exactly as before, and
+`snapshot` still refuses to write a baseline from a run that never
+authenticated.
+
+**`metadata-spoof` and `open-registration` count as vulnerabilities.** Both are
+in `RunResult.vulnerabilities`, so they are counted in the summary and gate a
+run through `--fail-on` like the other access classes.
+
+**Two finding classes and two test-id variants were added; none was renamed.**
+`vuln_class` gained `metadata-spoof` and `open-registration`, and the third
+segment of a test id gained `metadata` and `register`. The golden diff is two
+new rules in each SARIF document's `rules` table and nothing else: no existing
+rule id, finding shape or `findings.json` key moved, so a committed baseline, a
+waivers file keyed on `test_id` and a dashboard reading `findings.json` are
+unaffected. A SARIF consumer sees two rule ids it did not have.
+
 ## [1.9.0] - 2026-11-12
 
 The rest of what the same hands-on evaluation turned up: the controls a run was

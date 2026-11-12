@@ -15,7 +15,7 @@ from typing import Dict, List, Literal, Optional, get_args
 
 import yaml
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from overstep.documents import DocumentError, read_yaml
 from overstep.interpolation import InterpolationError, interpolate
@@ -89,6 +89,48 @@ class RestModule(BaseModel):
     access: ResponseMatcher = Field(default_factory=ResponseMatcher)
 
 
+class McpConformance(BaseModel):
+    """Requirements the MCP specification places on the server itself.
+
+    These divide on a different line from the three probes above, which is why
+    they have their own key. Those ask whether the server enforces what the
+    matrix declared; these ask whether it meets a MUST it owes every client,
+    policy or no policy. The two here also differ sharply in cost from each
+    other — one re-uses fetches the run was making anyway, the other writes to
+    somebody else's authorization server — so each is defaulted on its own
+    terms rather than as a group.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Report the identity checks discovery already performs on the documents the
+    # target serves. On by default, and the cheapest setting in this file: the
+    # fetches happen anyway, so it adds no request. What it changes is that a
+    # run stopping at a failed check now leaves a report behind saying why,
+    # instead of a console message and no documents at all.
+    metadata_identity: bool = True
+    # Ask the authorization server the target named to register a client for a
+    # caller presenting no credential. Off by default and deliberately: it is
+    # the only probe overstep ships that creates state on somebody else's
+    # system. It also needs `canary.redirect_uri`, so that what a minted client
+    # points at is an address the operator owns, and `--read-only` skips it.
+    open_registration: bool = False
+
+
+class McpCanary(BaseModel):
+    """Addresses the operator controls, used to confirm rather than infer.
+
+    A conformance probe may only report what it can observe. A redirect URI the
+    operator owns is what turns "the endpoint answered" into "a client was
+    minted, pointing where I asked" — the same role the subject markers play for
+    the object-level probes.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    redirect_uri: Optional[str] = None
+
+
 class McpProbes(BaseModel):
     """The three checks that ask about the credential and the connection.
 
@@ -116,6 +158,10 @@ class McpProbes(BaseModel):
     # matrix has to opt into rather than a violation of the protocol.
     tool_enumeration: bool = False
 
+    # Requirements the specification places on the server, as opposed to the
+    # three above, which ask what it does with a credential or a session.
+    conformance: McpConformance = Field(default_factory=McpConformance)
+
     # A typo here is the most expensive one in the file: `tool_enumeraton: true`
     # would leave the probe off, and the run would report clean without ever
     # having asked the question. Silently dropping it is not an option a security
@@ -133,6 +179,26 @@ class McpModule(BaseModel):
     # Default MCP matcher applied to every MCP resource that doesn't override it.
     access: McpMatcher = Field(default_factory=McpMatcher)
     probes: McpProbes = Field(default_factory=McpProbes)
+    canary: McpCanary = Field(default_factory=McpCanary)
+
+    @model_validator(mode="after")
+    def _registration_probe_needs_a_canary(self) -> "McpModule":
+        """Refuse a registration probe with nowhere to point a minted client.
+
+        Without a redirect URI the operator owns, the probe can send the request
+        but cannot tell a client it minted from one that was already there, and
+        a probe that cannot decide is a test that proves nothing. Refused at load
+        rather than skipped at run time: a matrix that switched the probe on and
+        got silence back would read exactly like a server that refused.
+        """
+        if self.probes.conformance.open_registration and not self.canary.redirect_uri:
+            raise ValueError(
+                "modules.mcp.probes.conformance.open_registration is on but "
+                "modules.mcp.canary.redirect_uri is not set — the probe registers a "
+                "client and needs a callback address you control to confirm what it "
+                "minted. Set the canary, or turn the probe off."
+            )
+        return self
 
 
 class Modules(BaseModel):

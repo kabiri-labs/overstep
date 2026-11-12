@@ -25,7 +25,19 @@ from overstep.templating import render
 
 
 class AuthError(RuntimeError):
-    """Raised when a subject's login fails or no token can be extracted."""
+    """Raised when a subject's login fails or no token can be extracted.
+
+    ``defect`` carries a :class:`~overstep.discovery.MetadataDefect` when the
+    login never happened because discovery refused a document the target served,
+    together with the subject whose authentication was in progress. The run
+    still stops — a credential must not be handed to a host that failed the
+    check — but the caller can now say in a report why it stopped.
+    """
+
+    def __init__(self, message: str, *, defect=None, subject=None):
+        super().__init__(message)
+        self.defect = defect
+        self.subject = subject
 
 
 def extract_token(path: str, data: Any) -> Optional[str]:
@@ -167,7 +179,9 @@ def authenticate(
                             matrix, provider, client=client, verify_tls=verify_tls
                         )
                     except DiscoveryFailed as exc:
-                        raise AuthError(str(exc)) from exc
+                        raise AuthError(
+                            str(exc), defect=exc.defect, subject=subject
+                        ) from exc
                 disc = discovery_cache[provider.name]
                 token_url = disc.token_endpoint
                 resource = provider.resource or disc.resource

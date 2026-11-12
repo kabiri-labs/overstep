@@ -29,6 +29,7 @@ ExecuteFn = Callable[..., List[Observation]]
 RecordFn = Callable[..., Dict[str, object]]   # a masked, structured request record
 ReproFn = Callable[..., str]                  # a copy-pasteable command
 StepFn = Callable[..., object]                # one setup/teardown step
+PlanFn = Callable[..., List[TestCase]]        # cases this surface contributes itself
 
 DEFAULT_TRANSPORT = "http"
 
@@ -54,6 +55,14 @@ class TransportSpec:
     build_record: Optional[RecordFn] = None
     build_repro: Optional[ReproFn] = None
     run_step: Optional[StepFn] = None
+    # Cases the planner could not have written. Everything the planner generates
+    # comes from a declared resource crossed with a subject; a surface may also
+    # know about a probe that belongs to no resource and no identity — a
+    # requirement the protocol places on the server rather than on the policy.
+    # Asking each surface for its own, instead of writing them in the core,
+    # is what stops one surface's specification leaking into the planner: the
+    # RFC 7591 body of the client-registration probe is MCP's to know.
+    plan_cases: Optional[PlanFn] = None
 
 
 _REGISTRY: Dict[str, TransportSpec] = {}
@@ -66,6 +75,7 @@ def register(
     build_record: Optional[RecordFn] = None,
     build_repro: Optional[ReproFn] = None,
     run_step: Optional[StepFn] = None,
+    plan_cases: Optional[PlanFn] = None,
 ) -> TransportSpec:
     """Register (or replace) a transport by name; returns the new spec."""
     spec = TransportSpec(
@@ -74,6 +84,7 @@ def register(
         build_record=build_record,
         build_repro=build_repro,
         run_step=run_step,
+        plan_cases=plan_cases,
     )
     _REGISTRY[name] = spec
     return spec

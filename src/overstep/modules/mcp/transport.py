@@ -1134,6 +1134,7 @@ def run_mcp(base_url: str, subjects: List[Subject], cases: List[TestCase], **kwa
 def _register() -> None:
     """Imported at call time: mcp_repro imports this module's protocol helpers."""
     from overstep.discovery import register as register_resolver
+    from overstep.modules.mcp import conformance
     from overstep.modules.mcp.taxonomy import register_all as register_taxonomy
     from overstep.modules.mcp.auth import resolve_discovery
     from overstep.modules.mcp.fixtures import run_step
@@ -1144,6 +1145,15 @@ def _register() -> None:
         build_record=build_record,
         build_repro=build_repro,
         run_step=run_step,
+    )
+    # The OAuth endpoints around an MCP server are plain HTTP, and the probes
+    # aimed at them carry no credential, so they are delivered by a transport of
+    # their own rather than by either of the two that do.
+    register(
+        conformance.TRANSPORT, conformance.execute,
+        build_record=conformance.build_record,
+        build_repro=conformance.build_repro,
+        plan_cases=conformance.plan_cases,
     )
     register_resolver("mcp", resolve_discovery)
     register_taxonomy()
