@@ -25,7 +25,7 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
-from overstep import __version__
+from overstep import __version__, netopts
 from overstep.auth import AuthError
 from overstep.coverage import SpecCoverage, against_spec
 from overstep.coverage import assess as assess_coverage
@@ -187,6 +187,29 @@ def _refuse_on_errors(errors: list[str], action: str) -> None:
     raise typer.Exit(code=2)
 
 
+def _network(
+    ctx: typer.Context,
+    timeout: Optional[float],
+    proxy: Optional[str],
+    delay: Optional[float] = None,
+) -> None:
+    """Apply the run's network settings until this command returns.
+
+    Rejected here, before the matrix is even read: a timeout of zero or a
+    negative delay is a mistyped invocation, and exit 2 is what that is.
+    Registered on the command's own context so the settings end with it —
+    they are process-wide while they last, and a second command in the same
+    process must not inherit them.
+    """
+    settings = netopts.using(timeout=timeout, proxy=proxy, delay=delay)
+    try:
+        settings.__enter__()
+    except ValueError as exc:
+        console.print(f"[bold red]error:[/] --{exc}")
+        raise typer.Exit(code=2)
+    ctx.call_on_close(lambda: settings.__exit__(None, None, None))
+
+
 def _preflight(spec: Matrix, base: Optional[str], *, verify_tls: bool) -> list[Problem]:
     """Ask the target the two questions the file cannot answer.
 
@@ -212,6 +235,7 @@ def _resolve(spec, override: Optional[str]) -> str:
 
 @app.command()
 def run(
+    ctx: typer.Context,
     matrix: str = typer.Argument(..., help="Path to the authorization matrix YAML."),
     base: Optional[str] = typer.Option(None, help="Base URL override."),
     out: str = typer.Option("out", help="Output directory for reports."),
@@ -226,6 +250,15 @@ def run(
     max_retries: int = typer.Option(2, help="Retries on 429/503 with backoff."),
     insecure: bool = typer.Option(False, help="Disable TLS verification."),
     env_file: Optional[str] = typer.Option(None, help="dotenv file with ${VAR} values."),
+    timeout: Optional[float] = typer.Option(
+        None, help="Seconds to wait for a connection or a response (default 15)."
+    ),
+    proxy: Optional[str] = typer.Option(
+        None, help="Proxy URL for every request. HTTP_PROXY/HTTPS_PROXY are honoured without it."
+    ),
+    delay: Optional[float] = typer.Option(
+        None, help="Least seconds between the start of one test request and the next."
+    ),
     allow_inconclusive: bool = typer.Option(
         False,
         help="Report a run that never reached the target instead of exiting 3.",
@@ -233,6 +266,7 @@ def run(
 ):
     """Run the matrix against a live target and write reports."""
     _validate_fail_on(fail_on)
+    _network(ctx, timeout, proxy, delay)
 
     # First, before anything that can reject the invocation. Reports are written
     # last, so every exit between here and there — a matrix that will not parse,
@@ -309,6 +343,7 @@ def run(
 
 @app.command()
 def snapshot(
+    ctx: typer.Context,
     matrix: str = typer.Argument(..., help="Path to the authorization matrix YAML."),
     base: Optional[str] = typer.Option(None, help="Base URL override."),
     out: str = typer.Option("baseline.json", help="Where to write the snapshot."),
@@ -317,6 +352,15 @@ def snapshot(
     max_retries: int = typer.Option(2, help="Retries on 429/503 with backoff."),
     insecure: bool = typer.Option(False, help="Disable TLS verification."),
     env_file: Optional[str] = typer.Option(None, help="dotenv file with ${VAR} values."),
+    timeout: Optional[float] = typer.Option(
+        None, help="Seconds to wait for a connection or a response (default 15)."
+    ),
+    proxy: Optional[str] = typer.Option(
+        None, help="Proxy URL for every request. HTTP_PROXY/HTTPS_PROXY are honoured without it."
+    ),
+    delay: Optional[float] = typer.Option(
+        None, help="Least seconds between the start of one test request and the next."
+    ),
     allow_inconclusive: bool = typer.Option(
         False,
         help="Write the baseline even if the run never reached the target.",
@@ -327,6 +371,7 @@ def snapshot(
     Uses the same orchestration as ``run`` (transport dispatch + teardown), so
     HTTP, MCP and mixed matrices all snapshot correctly.
     """
+    _network(ctx, timeout, proxy, delay)
     spec = _load(matrix, env_file)
     # A baseline is what every later run is measured against, so a matrix with
     # an unfilled placeholder does not merely mislead once: it records
@@ -403,6 +448,7 @@ def plan_cmd(
 
 @app.command()
 def validate(
+    ctx: typer.Context,
     matrix: str = typer.Argument(..., help="Path to the authorization matrix YAML."),
     strict: bool = typer.Option(
         False, help="Treat warnings as errors (exit 1 on any problem at all)."
@@ -414,8 +460,15 @@ def validate(
     base: Optional[str] = typer.Option(None, help="Base URL override (with --live)."),
     insecure: bool = typer.Option(False, help="Disable TLS verification (with --live)."),
     env_file: Optional[str] = typer.Option(None, help="dotenv file with ${VAR} values."),
+    timeout: Optional[float] = typer.Option(
+        None, help="Seconds to wait for a connection or a response (default 15)."
+    ),
+    proxy: Optional[str] = typer.Option(
+        None, help="Proxy URL for every request. HTTP_PROXY/HTTPS_PROXY are honoured without it."
+    ),
 ):
     """Check a matrix file for structural problems and unfilled placeholders."""
+    _network(ctx, timeout, proxy)
     spec = _load(matrix, env_file)
     problems = _diagnose(matrix, spec, base)
     # The live probe is a request like any other, carrying whatever the file

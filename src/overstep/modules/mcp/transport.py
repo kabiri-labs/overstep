@@ -26,6 +26,8 @@ from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 import httpx
 
+from overstep import netopts
+
 from overstep.modules.mcp.matching import content_text, contents_text, contents_uris, evaluate_mcp
 from overstep.modules.mcp.protocol import (
     CLIENT_INFO,
@@ -907,7 +909,7 @@ async def _call(
     client: httpx.AsyncClient,
     subject: Subject,
     case: TestCase,
-    semaphore: asyncio.Semaphore,
+    semaphore: netopts.Gate,
     *,
     read_only: bool,
     max_retries: int,
@@ -991,7 +993,7 @@ async def _call(
         )
 
 
-async def _stdio_tools_call(inv, timeout: float = 15.0) -> dict:
+async def _stdio_tools_call(inv, timeout: Optional[float] = None) -> dict:
     """Launch a stdio MCP server, do the handshake and one tools/call.
 
     Returns the parsed JSON-RPC message for the call (id 2), or ``{}`` on failure.
@@ -1040,7 +1042,7 @@ async def _stdio_tools_call(inv, timeout: float = 15.0) -> dict:
         return await read_id(2)
 
     try:
-        return await asyncio.wait_for(exchange(), timeout=timeout)
+        return await asyncio.wait_for(exchange(), timeout=netopts.timeout(timeout))
     except (asyncio.TimeoutError, Exception):
         return {}
     finally:
@@ -1100,7 +1102,7 @@ async def execute_mcp(
     cases: List[TestCase],
     *,
     concurrency: int = 10,
-    timeout: float = 15.0,
+    timeout: Optional[float] = None,
     verify_tls: bool = True,
     read_only: bool = False,
     max_retries: int = 0,
@@ -1110,8 +1112,10 @@ async def execute_mcp(
     """Run every MCP case and return one observation per case. ``base_url`` is
     ignored — each case carries its own MCP endpoint URL."""
     subject_map: Dict[str, Subject] = {s.name: s for s in subjects}
-    semaphore = asyncio.Semaphore(concurrency)
-    async with httpx.AsyncClient(timeout=timeout, verify=verify_tls, follow_redirects=False) as client:
+    semaphore = netopts.Gate(concurrency)
+    async with httpx.AsyncClient(
+        verify=verify_tls, follow_redirects=False, **netopts.client_kwargs(timeout)
+    ) as client:
         tasks = [
             _call(
                 client, subject_map[c.subject], c, semaphore,

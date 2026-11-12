@@ -16,6 +16,7 @@ from urllib.parse import urljoin
 
 import httpx
 
+from overstep import netopts
 from overstep.modules.rest.matching import evaluate
 from overstep.models import Effect, Observation, Subject, TestCase, drop_header
 
@@ -115,7 +116,7 @@ async def _fire(
     base_url: str,
     subject: Subject,
     case: TestCase,
-    semaphore: asyncio.Semaphore,
+    semaphore: netopts.Gate,
     *,
     read_only: bool = False,
     max_retries: int = 0,
@@ -192,7 +193,7 @@ async def execute(
     cases: List[TestCase],
     *,
     concurrency: int = 10,
-    timeout: float = 15.0,
+    timeout: Optional[float] = None,
     verify_tls: bool = True,
     read_only: bool = False,
     max_retries: int = 0,
@@ -200,9 +201,11 @@ async def execute(
 ) -> List[Observation]:
     """Run every test case and return one observation per case."""
     subject_map: Dict[str, Subject] = {s.name: s for s in subjects}
-    semaphore = asyncio.Semaphore(concurrency)
+    semaphore = netopts.Gate(concurrency)
 
-    async with httpx.AsyncClient(timeout=timeout, verify=verify_tls, follow_redirects=False) as client:
+    async with httpx.AsyncClient(
+        verify=verify_tls, follow_redirects=False, **netopts.client_kwargs(timeout)
+    ) as client:
         tasks = [
             _fire(
                 client,
@@ -225,7 +228,7 @@ def run(
     cases: List[TestCase],
     *,
     concurrency: int = 10,
-    timeout: float = 15.0,
+    timeout: Optional[float] = None,
     verify_tls: bool = True,
     read_only: bool = False,
     max_retries: int = 0,

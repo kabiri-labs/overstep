@@ -14,6 +14,8 @@ from urllib.parse import urljoin
 
 import httpx
 
+from overstep import netopts
+
 from overstep.jsonpath import extract
 from overstep.matrix import Matrix
 from overstep.discovery import Discovered, DiscoveryFailed
@@ -144,7 +146,9 @@ def authenticate(
     discovery_cache: Dict[str, Discovered] = {}
 
     owns_client = client is None
-    client = client or httpx.Client(timeout=15.0, verify=verify_tls, follow_redirects=True)
+    client = client or httpx.Client(
+        verify=verify_tls, follow_redirects=True, **netopts.client_kwargs()
+    )
     try:
         for subject in subjects_with_auth:
             provider = providers.get(subject.auth.provider)
