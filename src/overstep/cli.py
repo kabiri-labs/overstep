@@ -802,7 +802,11 @@ def scaffold(
                     f"server exposes is missing from it"
                 )
         else:
-            url = server_url or "http://localhost:8000/mcp"
+            from overstep.modules.mcp.loader import SERVER_URL_PLACEHOLDER
+
+            # A saved listing does not say where the server is. Without
+            # --server-url the matrix says so too, in a form `validate` refuses.
+            url = server_url or SERVER_URL_PLACEHOLDER
             # A saved listing has nobody to ask, so the default stands unless the
             # user said otherwise. It is still written into the matrix: the file
             # the scaffold produces should mean the same thing next release.

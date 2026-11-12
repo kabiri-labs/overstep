@@ -524,11 +524,19 @@ def _slugify(uri: str) -> str:
     return f"read_{slug}" if slug else "read_resource"
 
 
+# Written where a server's URL goes when the scaffold was not told one: the
+# listing came from a file, which says what a server offers and not where it
+# is. A plausible address in its place is a matrix nobody has edited pointing
+# its requests at whatever happens to be listening there. The scan in
+# :mod:`overstep.placeholders` recognises this exact value.
+SERVER_URL_PLACEHOLDER = "REPLACE_ME_MCP_URL"
+
+
 def scaffold_matrix_from_tools(
     tools: List[Dict[str, Any]],
     *,
     server_name: str = "mcp",
-    server_url: str = "http://localhost:8000/mcp",
+    server_url: str = SERVER_URL_PLACEHOLDER,
     protocol_version: str = DEFAULT_PROTOCOL_VERSION,
     templates: Optional[List[Dict[str, Any]]] = None,
     warn: Optional[Callable[[str], None]] = None,

@@ -56,6 +56,16 @@ _BASE_URL_FIX = (
 )
 
 
+# The MCP scaffold's equivalent, written when it read a saved listing and was
+# given no --server-url.
+_MCP_URL_MARKER = "REPLACE_ME_MCP_URL"
+_MCP_URL_FIX = (
+    "the matrix was scaffolded from a saved listing, which does not say where "
+    "the server is — set it to the server's real URL; nothing is sent until "
+    "you do"
+)
+
+
 class _MarkedStr(str):
     """A string that remembers the line of the file it was parsed from."""
 
@@ -102,6 +112,8 @@ def _walk(node: Any, path: str) -> Iterator[Tuple[str, str, Optional[int]]]:
 def _fix_for(value: str) -> str:
     if value == _BASE_URL_MARKER:
         return _BASE_URL_FIX
+    if value == _MCP_URL_MARKER:
+        return _MCP_URL_FIX
     return _TOKEN_FIX if value.startswith("PASTE_") else _IDENTIFIER_FIX
 
 
