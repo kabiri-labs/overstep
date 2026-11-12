@@ -431,6 +431,8 @@ def test_the_cli_surface_is_unchanged():
         "--allow-inconclusive",
         # 1.9.0: how the run talks to the network.
         "--timeout", "--proxy", "--delay",
+        # 1.9.0: running part of the matrix, and watching it go.
+        "--resource", "--subject", "--verbose",
     }
     assert {"--base", "--out", "--concurrency", "--read-only", "--max-retries",
             "--insecure", "--env-file", "--allow-inconclusive"} <= options("snapshot")

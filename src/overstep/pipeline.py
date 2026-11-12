@@ -25,6 +25,8 @@ from overstep.models import (
     EVIDENCE_BODY_LIMIT,
     Effect,
     Observation,
+    ProbeCoverage,
+    ResourceType,
     RunHealth,
     RunResult,
     Subject,
@@ -43,6 +45,8 @@ AuthenticatorFn = Callable[..., None]
 SetupFn = Callable[..., dict]
 # A callable with the shape of fixtures.run_teardown (returns warning strings).
 TeardownFn = Callable[..., List[str]]
+# Called once per case as its result comes back, phase by phase.
+ObserverFn = Callable[[TestCase, Observation], None]
 
 
 class PipelineError(RuntimeError):
@@ -110,8 +114,56 @@ def phases(cases: Sequence[TestCase]) -> List[List[TestCase]]:
     return [grouped[key] for key in sorted(grouped)]
 
 
+def select(
+    matrix: Matrix,
+    cases: List[TestCase],
+    resources: Sequence[str] = (),
+    subjects: Sequence[str] = (),
+) -> List[TestCase]:
+    """The part of the plan a narrowed run sends.
+
+    A subject narrows by who makes the request, not by whose object it reaches
+    for: `--subject alice` keeps alice's probes against bob's object, since
+    those are the ones that say what alice can do.
+
+    A name the matrix does not declare is refused rather than matched against
+    nothing. A typo would otherwise select no cases — or, beside a valid name,
+    quietly fewer — and a run that sent less than was asked for and found
+    nothing is the shape this tool exists to refuse.
+    """
+    known_resources = {r.name for r in matrix.resources}
+    known_subjects = {s.name for s in matrix.subjects}
+    for kind, asked, known in (
+        ("resource", resources, known_resources),
+        ("subject", subjects, known_subjects),
+    ):
+        unknown = sorted(set(asked) - known)
+        if unknown:
+            raise PipelineError(
+                f"no {kind} named {', '.join(repr(u) for u in unknown)} in the matrix "
+                f"(declared: {', '.join(sorted(known))})"
+            )
+    chosen = [
+        case
+        for case in cases
+        if (not resources or case.resource in resources)
+        and (not subjects or case.subject in subjects)
+    ]
+    if not chosen:
+        raise PipelineError(
+            "the selection matches no test case — the named subjects have no "
+            "case on the named resources"
+        )
+    return chosen
+
+
 def _dispatch_in_phases(
-    executor: ExecutorFn, resolved: str, matrix: Matrix, cases: List[TestCase], **kwargs
+    executor: ExecutorFn,
+    resolved: str,
+    matrix: Matrix,
+    cases: List[TestCase],
+    observer: Optional[ObserverFn] = None,
+    **kwargs,
 ) -> List[Observation]:
     """Send each phase in turn and hand the observations back in plan order.
 
@@ -119,8 +171,14 @@ def _dispatch_in_phases(
     run writes least of all — moves because the schedule did.
     """
     observations: List[Observation] = []
+    by_id = {case.id: case for case in cases}
     for group in phases(cases):
-        observations.extend(executor(resolved, matrix.subjects, group, **kwargs))
+        seen = executor(resolved, matrix.subjects, group, **kwargs)
+        observations.extend(seen)
+        if observer is not None:
+            for obs in seen:
+                if obs.test_id in by_id:
+                    observer(by_id[obs.test_id], obs)
     position = {case.id: index for index, case in enumerate(cases)}
     # Stable, so anything a transport returned beyond the plan keeps its place
     # at the end instead of being dropped.
@@ -141,7 +199,10 @@ def _execute_stages(
     authenticator: AuthenticatorFn,
     setup_runner: SetupFn,
     teardown_runner: TeardownFn,
-) -> Tuple[List[TestCase], List[Observation], List[str]]:
+    only_resources: Sequence[str] = (),
+    only_subjects: Sequence[str] = (),
+    observer: Optional[ObserverFn] = None,
+) -> Tuple[List[TestCase], List[Observation], List[str], int]:
     """The stages shared by ``run`` and ``snapshot``.
 
     Order: authenticate (obtain tokens) → run setup steps (create fixtures,
@@ -149,18 +210,27 @@ def _execute_stages(
     :func:`phases` group at a time. Teardown runs in a
     ``finally`` so any fixtures the setup steps created are cleaned up even when
     planning or dispatch raises or the run is interrupted; a teardown failure only
-    adds a warning and never masks the original error. Returns the planned cases,
-    the observations, and any teardown warnings.
+    adds a warning and never masks the original error. Returns the cases that
+    were sent, the observations, any teardown warnings, and the size of the
+    whole plan — which differs from the first only for a narrowed run.
     """
+    if only_resources or only_subjects:
+        # Asked of the matrix alone, before anything is sent: a mistyped name
+        # must not cost a login and a round of setup fixtures to discover.
+        select(matrix, plan(matrix), only_resources, only_subjects)
     authenticator(matrix, base_url=resolved, verify_tls=verify_tls)
     context = setup_runner(matrix, base_url=resolved, verify_tls=verify_tls)
     try:
         cases = plan(matrix, context)
+        planned = len(cases)
+        if only_resources or only_subjects:
+            cases = select(matrix, cases, only_resources, only_subjects)
         observations = _dispatch_in_phases(
             executor,
             resolved,
             matrix,
             cases,
+            observer,
             concurrency=concurrency,
             verify_tls=verify_tls,
             read_only=read_only,
@@ -171,7 +241,33 @@ def _execute_stages(
         teardown_warnings = teardown_runner(
             matrix, base_url=resolved, verify_tls=verify_tls, context=context
         )
-    return cases, observations, teardown_warnings
+    return cases, observations, teardown_warnings, planned
+
+
+def _coverage_of(
+    matrix: Matrix, cases: List[TestCase], only_resources: Sequence[str]
+) -> ProbeCoverage:
+    """Probe coverage, measured over what the run was asked to look at.
+
+    Measured against the whole matrix, a run narrowed to one resource reports
+    every other object resource as unprobed, and the advice printed beside
+    that — give two subjects different objects — is wrong for all of them:
+    nothing is the matter with the matrix, they were left out on purpose. The
+    run already says it is partial; this keeps the coverage figure about the
+    part it ran.
+    """
+    coverage = assess_coverage(matrix, cases)
+    if not only_resources:
+        return coverage
+    unprobed = [name for name in coverage.unprobed if name in only_resources]
+    declared = sum(
+        1
+        for resource in matrix.resources
+        if resource.type == ResourceType.OBJECT and resource.name in only_resources
+    )
+    return ProbeCoverage(
+        object_resources=declared, probed=declared - len(unprobed), unprobed=unprobed
+    )
 
 
 def run_pipeline(
@@ -190,6 +286,9 @@ def run_pipeline(
     authenticator: AuthenticatorFn = default_authenticator,
     setup_runner: SetupFn = default_setup_runner,
     teardown_runner: TeardownFn = default_teardown_runner,
+    only_resources: Sequence[str] = (),
+    only_subjects: Sequence[str] = (),
+    observer: Optional[ObserverFn] = None,
 ) -> RunResult:
     """Plan, execute, classify and (optionally) diff against a baseline.
 
@@ -204,7 +303,7 @@ def run_pipeline(
     inconclusive run rather than a clean one; see :mod:`overstep.health`.
     """
     resolved = resolve_base_url(matrix, base_url)
-    cases, observations, teardown_warnings = _execute_stages(
+    cases, observations, teardown_warnings, planned = _execute_stages(
         matrix,
         resolved,
         concurrency=concurrency,
@@ -216,7 +315,15 @@ def run_pipeline(
         authenticator=authenticator,
         setup_runner=setup_runner,
         teardown_runner=teardown_runner,
+        only_resources=only_resources,
+        only_subjects=only_subjects,
+        observer=observer,
     )
+    selection = {
+        key: sorted(set(names))
+        for key, names in (("resources", only_resources), ("subjects", only_subjects))
+        if names
+    }
 
     findings = classify(matrix, cases, observations, base_url=resolved)
     if baseline is not None:
@@ -243,8 +350,12 @@ def run_pipeline(
     waived: List = []
     warnings: List[str] = []
     if waivers:
+        # A narrowed run is in the same position as an inconclusive one here:
+        # a waiver with no finding to match may simply be for a case that was
+        # left out, and "this one may be fixed" would be said of something
+        # nobody sent.
         findings, waived, warnings = apply_waivers(
-            findings, waivers, report_unmatched=not health.inconclusive
+            findings, waivers, report_unmatched=not (health.inconclusive or selection)
         )
 
     warnings = warnings + teardown_warnings
@@ -257,8 +368,10 @@ def run_pipeline(
         waived=waived,
         warnings=warnings,
         health=health,
-        coverage=assess_coverage(matrix, cases),
+        coverage=_coverage_of(matrix, cases, only_resources),
         read_only=read_only,
+        selection=selection,
+        planned=planned,
     )
 
 
@@ -298,7 +411,7 @@ def snapshot_pipeline(
     merely mislead once.
     """
     resolved = resolve_base_url(matrix, base_url)
-    cases, observations, teardown_warnings = _execute_stages(
+    cases, observations, teardown_warnings, _planned = _execute_stages(
         matrix,
         resolved,
         concurrency=concurrency,

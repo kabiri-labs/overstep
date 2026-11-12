@@ -18,7 +18,7 @@ Commands:
 from __future__ import annotations
 
 import os
-from typing import Optional
+from typing import List, Optional
 
 import typer
 from rich.console import Console
@@ -259,6 +259,15 @@ def run(
     delay: Optional[float] = typer.Option(
         None, help="Least seconds between the start of one test request and the next."
     ),
+    resource: Optional[List[str]] = typer.Option(
+        None, help="Run only this resource (repeatable). The run is reported as partial."
+    ),
+    subject: Optional[List[str]] = typer.Option(
+        None, help="Run only this subject's requests (repeatable). Reported as partial."
+    ),
+    verbose: bool = typer.Option(
+        False, help="Print one line per request on stderr as its result comes back."
+    ),
     allow_inconclusive: bool = typer.Option(
         False,
         help="Report a run that never reached the target instead of exiting 3.",
@@ -308,9 +317,17 @@ def run(
             verify_tls=not insecure,
             read_only=read_only,
             max_retries=max_retries,
+            only_resources=resource or (),
+            only_subjects=subject or (),
+            observer=_trace if verbose else None,
         )
     except (AuthError, SetupError) as exc:
         console.print(f"[bold red]setup error:[/] {exc}")
+        raise typer.Exit(code=2)
+    except PipelineError as exc:
+        # A --resource or --subject the matrix does not declare. Raised before
+        # anything is sent, and bad input like any other mistyped argument.
+        console.print(f"[bold red]error:[/] {exc}")
         raise typer.Exit(code=2)
 
     # Anchor SARIF findings to the matrix file they came from.
@@ -320,9 +337,10 @@ def run(
         console.print(f"[yellow]warning:[/] {warning}")
 
     console.print(
-        f"[bold]Planned[/] {len(result.cases)} tests "
+        f"[bold]Planned[/] {result.planned_tests} tests "
         f"from {len(spec.subjects)} subjects × {len(spec.resources)} resources"
     )
+    _print_partial(result)
     write_reports(result, out)
     _print_summary(result)
     _print_findings(result)
@@ -886,8 +904,12 @@ def _print_summary(result: RunResult) -> None:
     # mutating case, and one number for both read as if all of them went out.
     planned, skipped = s["total_tests"], s["skipped_tests"]
     table.add_row("Tests run", str(planned - skipped))
-    if skipped:
-        table.add_row("Planned", str(planned))
+    # The whole matrix's plan, whenever fewer than that went out — some skipped
+    # under --read-only, or the rest left out by --resource / --subject.
+    if skipped or result.partial:
+        table.add_row("Planned", str(s["planned_tests"]))
+    if result.partial:
+        table.add_row("[yellow]Partial run[/]", f"{planned} selected")
     # Listing probes are neither controls nor denial checks, so they are named
     # rather than folded into either — otherwise the row stops adding up to the
     # total and the count of real positive controls reads higher than it is.
@@ -913,6 +935,51 @@ def _print_summary(result: RunResult) -> None:
     console.print(table)
     _print_unprobed(result.coverage)
     _print_skipped(result)
+
+
+def _trace(case, observation) -> None:
+    """One line per request, on stderr, as its result comes back.
+
+    Method and path, who sent it, what came back and what the matrix expected.
+    No header and no body is printed, so no credential can be: the token is
+    carried in a header, and the path is the one already shown by `plan`.
+    Printed unwrapped and unhighlighted, for a log somebody will grep.
+    """
+    if observation.skipped:
+        outcome = "skipped"
+    elif observation.status == 0:
+        outcome = f"no response ({observation.error or 'transport error'})"
+    else:
+        outcome = f"{observation.status} {observation.effect.value}"
+    verdict = "" if observation.skipped or observation.effect == case.expected else "  MISMATCH"
+    err_console.print(
+        f"{escape(case.method)} {escape(case.path)}  as {escape(case.subject)}  "
+        f"-> {escape(outcome)}  (expected {case.expected.value}, "
+        f"{observation.latency_ms:g} ms){verdict}",
+        soft_wrap=True,
+        highlight=False,
+    )
+
+
+def _print_partial(result: RunResult) -> None:
+    """Say, before the summary, that this run looked at part of the matrix.
+
+    A narrowed run that finds nothing has found nothing *in what it sent*. Left
+    unsaid, its summary is indistinguishable from a full run's, and a green
+    build on one resource reads as a green build.
+    """
+    if not result.partial:
+        return
+    parts = [
+        f"{kind} {', '.join(names)}"
+        for kind, names in sorted(result.selection.items())
+    ]
+    console.print(
+        f"[bold yellow]partial run[/] — only {escape('; '.join(parts))}: "
+        f"{len(result.cases)} of {result.planned_tests} planned tests. "
+        f"It says nothing about the rest.",
+        soft_wrap=True,
+    )
 
 
 def _print_findings(result: RunResult) -> None:
