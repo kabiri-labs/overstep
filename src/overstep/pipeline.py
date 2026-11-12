@@ -10,6 +10,8 @@ live target.
 from __future__ import annotations
 
 import os
+import time
+from datetime import datetime, timezone
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from overstep.auth import authenticate as default_authenticator
@@ -303,6 +305,8 @@ def run_pipeline(
     inconclusive run rather than a clean one; see :mod:`overstep.health`.
     """
     resolved = resolve_base_url(matrix, base_url)
+    started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    started = time.perf_counter()
     cases, observations, teardown_warnings, planned = _execute_stages(
         matrix,
         resolved,
@@ -319,6 +323,7 @@ def run_pipeline(
         only_subjects=only_subjects,
         observer=observer,
     )
+    duration_s = time.perf_counter() - started
     selection = {
         key: sorted(set(names))
         for key, names in (("resources", only_resources), ("subjects", only_subjects))
@@ -372,6 +377,8 @@ def run_pipeline(
         read_only=read_only,
         selection=selection,
         planned=planned,
+        started_at=started_at,
+        duration_s=round(duration_s, 2),
     )
 
 

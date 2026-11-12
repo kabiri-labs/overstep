@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Sequence
 
-from overstep.models import Effect, Finding, RunResult, Variant, VulnClass
+from overstep.models import Effect, Finding, RunResult, TestCase, Variant, VulnClass
 
 WriteFn = Callable[[RunResult, str], None]
 
@@ -41,7 +41,95 @@ def get_reporter(name: str) -> ReporterSpec:
     return _REGISTRY[name]
 
 
-def defects(findings: List[Finding]) -> List[Dict[str, object]]:
+def run_info(result: RunResult) -> Dict[str, object]:
+    """What a reader needs to know which run a document describes.
+
+    A report used to open on its counts. Nothing in it said what had been
+    tested, when, by which version or from which matrix, so a file passed
+    along in a ticket could not be told from last month's against staging.
+    """
+    from overstep import __version__
+
+    http = any(case.mcp is None for case in result.cases)
+    targets = [result.base_url] if (http and result.base_url) else []
+    for case in result.cases:
+        if case.mcp is None:
+            continue
+        # A stdio server is named by its program alone. The arguments belong to
+        # whoever wrote the matrix and have no business in a shared document.
+        target = case.mcp.url or f"stdio: {(case.mcp.command or ['?'])[0]}"
+        if target not in targets:
+            targets.append(target)
+    return {
+        "overstep_version": __version__,
+        "started_at": result.started_at,
+        "duration_s": result.duration_s,
+        "matrix": result.source,
+        "targets": targets,
+        "read_only": result.read_only,
+        "partial": result.partial,
+        "selection": {key: list(names) for key, names in result.selection.items()},
+    }
+
+
+def case_rows(result: RunResult) -> List[Dict[str, object]]:
+    """Every case the run planned, with what came back and how it was judged.
+
+    Findings are the cases that went wrong. The ones that went right were only
+    in `junit.xml`, so neither the JSON nor the HTML report could answer "was
+    this endpoint tested as this subject, and did it pass?" — which is the
+    question a clean report gets asked.
+
+    Nothing of the request beyond its method and path is carried, and nothing
+    of the response beyond its status: headers hold the credential and bodies
+    hold the target's data, and neither is needed to say a case passed.
+    """
+    observed = {obs.test_id: obs for obs in result.observations}
+
+    def judged(findings: List[Finding]) -> set:
+        # A finding derived from a case is filed under `<case id>::<detail>`.
+        ids = {f.test_id for f in findings}
+        return ids | {i.rsplit("::", 1)[0] for i in ids}
+
+    found, waived = judged(result.findings), judged(result.waived)
+    rows: List[Dict[str, object]] = []
+    for case in result.cases:
+        obs = observed.get(case.id)
+        if obs is None:
+            outcome = "undelivered"
+        elif obs.skipped:
+            outcome = "skipped"
+        elif case.id in found:
+            outcome = "finding"
+        elif case.id in waived:
+            outcome = "waived"
+        elif obs.status == 0:
+            outcome = "undelivered"
+        else:
+            outcome = "passed"
+        rows.append(
+            {
+                "test_id": case.id,
+                "resource": case.resource,
+                "subject": case.subject,
+                "role": case.role,
+                "method": case.method,
+                "path": case.path,
+                "variant": case.variant.value,
+                "victim": case.victim,
+                "expected": case.expected.value,
+                "observed": obs.effect.value if obs is not None and not obs.skipped else None,
+                "status": obs.status if obs is not None and not obs.skipped else None,
+                "outcome": outcome,
+                "latency_ms": obs.latency_ms if obs is not None else 0.0,
+            }
+        )
+    return rows
+
+
+def defects(
+    findings: List[Finding], cases: Sequence[TestCase] = ()
+) -> List[Dict[str, object]]:
     """Roll findings up into the distinct defects behind them.
 
     One missing check is reported once per identity that reaches it, so a single
@@ -53,6 +141,7 @@ def defects(findings: List[Finding]) -> List[Dict[str, object]]:
     grouped: Dict[str, List[Finding]] = {}
     for finding in findings:
         grouped.setdefault(finding.group, []).append(finding)
+    templates = {case.id: case.path_template for case in cases}
 
     rollup: List[Dict[str, object]] = []
     for group, items in grouped.items():
@@ -63,6 +152,10 @@ def defects(findings: List[Finding]) -> List[Dict[str, object]]:
                 "vuln_class": first.vuln_class.value,
                 "resource": first.resource,
                 "method": first.method,
+                # Where the defect is, as the API spells it: the template when
+                # the cases are to hand, since one defect spans several objects,
+                # and otherwise the path of the first probe that found it.
+                "path": templates.get(first.test_id) or first.path,
                 # The worst grade any identity saw: one confirmed leak makes the
                 # defect confirmed even if other probes were only suspected.
                 "severity": min((f.severity for f in items), key=_SEVERITY_ORDER.index),

@@ -1005,22 +1005,13 @@ def _print_findings(result: RunResult) -> None:
         if hidden > 0:
             line(f"  [dim]+{hidden} more in report.html[/]")
 
-    templates = {case.id: case.path_template for case in result.cases}
-    by_group = {}
-    for finding in result.vulnerabilities:
-        by_group.setdefault(finding.group, finding)
-
-    rollup = defects(result.vulnerabilities)
+    rollup = defects(result.vulnerabilities, result.cases)
     if rollup:
         line(f"[bold red]Defects ({len(rollup)})[/] — one line per thing to fix:")
         for defect in rollup[:FINDING_ROWS]:
-            first = by_group[defect["group"]]
-            # A finding derived from a case (`<case id>::<tool>`) has no case of
-            # its own; the path it was observed on is the next best thing.
-            path = templates.get(first.test_id) or first.path
             line(
                 f"  [red]{escape(str(defect['vuln_class']))}[/]  "
-                f"{escape(str(defect['method']))} {escape(path)}  "
+                f"{escape(str(defect['method']))} {escape(str(defect['path']))}  "
                 f"as {escape(', '.join(defect['subjects']))}  "
                 f"[dim]({defect['severity']}, {defect['confidence']})[/]"
             )
