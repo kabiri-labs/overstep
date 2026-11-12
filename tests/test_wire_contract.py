@@ -429,6 +429,8 @@ def test_the_cli_surface_is_unchanged():
         "--base", "--out", "--baseline", "--waivers", "--fail-on", "--concurrency",
         "--read-only", "--max-retries", "--insecure", "--env-file",
         "--allow-inconclusive",
+        # 1.9.0: how the run talks to the network.
+        "--timeout", "--proxy", "--delay",
     }
     assert {"--base", "--out", "--concurrency", "--read-only", "--max-retries",
             "--insecure", "--env-file", "--allow-inconclusive"} <= options("snapshot")
