@@ -232,23 +232,23 @@
                 "text": "open-registration"
               },
               "fullDescription": {
-                "text": "An MCP server's authorization server registered a client for a caller that presented no credential."
+                "text": "An MCP server's authorization server registered a client for a caller that presented no credential. RFC 7591 permits this; it is reported as a property of the deployment, not as a violation, and does not fail a default gate."
               },
-              "helpUri": "https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/",
+              "helpUri": "https://owasp.org/API-Security/editions/2023/en/0xa8-security-misconfiguration/",
               "help": {
-                "text": "An MCP server's authorization server registered a client for a caller that presented no credential.\n\nCWE-862 (Missing Authorization) · API2:2023 Broken Authentication"
+                "text": "An MCP server's authorization server registered a client for a caller that presented no credential. RFC 7591 permits this; it is reported as a property of the deployment, not as a violation, and does not fail a default gate.\n\nCWE-1188 (Insecure Default Initialization of Resource) · API8:2023 Security Misconfiguration"
               },
               "defaultConfiguration": {
-                "level": "error"
+                "level": "note"
               },
               "properties": {
-                "cwe": "CWE-862",
-                "owasp-api": "API2:2023 Broken Authentication",
-                "security-severity": "7.3",
+                "cwe": "CWE-1188",
+                "owasp-api": "API8:2023 Security Misconfiguration",
+                "security-severity": "3.1",
                 "tags": [
                   "security",
-                  "external/cwe/cwe-862",
-                  "API2:2023"
+                  "external/cwe/cwe-1188",
+                  "API8:2023"
                 ]
               }
             },

@@ -165,6 +165,12 @@ def _grade(vuln: VulnClass, case: TestCase, obs: Observation):
     """
     if vuln == VulnClass.TOKEN_AUDIENCE:
         return "high", _audience_confidence(obs)
+    # An open registry is a fact about a deployment, not a broken check: the
+    # specifications permit it, and the caller reached nothing with what it was
+    # given. It is graded low and left out of `RunResult.vulnerabilities`, so it
+    # reports without failing a default gate.
+    if vuln == VulnClass.OPEN_REGISTRATION:
+        return "low", "confirmed"
     if vuln != VulnClass.BOLA:
         return "high", "confirmed"
     if not case.expect_markers:
@@ -216,6 +222,15 @@ def _detail(case: TestCase, obs: Observation, vuln: VulnClass, confidence: str =
             f"credential was issued for '{case.audience}'. A server that honours a "
             f"token minted for somewhere else is a confused deputy: the token is "
             f"replayable at every service trusting the same issuer."
+        )
+    if vuln == VulnClass.OPEN_REGISTRATION:
+        return (
+            f"{case.path} registered a client for a caller presenting no credential, "
+            f"and returned a client id bound to the redirect URI the caller asked "
+            f"for. RFC 7591 permits this, so it is reported as a property of the "
+            f"deployment rather than as a defect: anyone can obtain a client here, "
+            f"which is worth knowing before deciding what a client id is trusted to "
+            f"mean."
         )
     if vuln == VulnClass.SESSION_HIJACK:
         return (
