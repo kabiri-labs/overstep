@@ -15,6 +15,8 @@ from urllib.parse import urljoin
 
 import httpx
 
+from overstep import netopts
+
 from overstep.jsonpath import extract
 from overstep.matrix import Matrix
 from overstep.models import SetupStep, Subject
@@ -98,7 +100,9 @@ def run_setup(
     context: Dict[str, str] = {}
 
     owns_client = client is None
-    client = client or httpx.Client(timeout=15.0, verify=verify_tls, follow_redirects=True)
+    client = client or httpx.Client(
+        verify=verify_tls, follow_redirects=True, **netopts.client_kwargs()
+    )
     try:
         for step in matrix.setup:
             label = _step_label(step)
@@ -173,7 +177,9 @@ def run_teardown(
     warnings: List[str] = []
 
     owns_client = client is None
-    client = client or httpx.Client(timeout=15.0, verify=verify_tls, follow_redirects=True)
+    client = client or httpx.Client(
+        verify=verify_tls, follow_redirects=True, **netopts.client_kwargs()
+    )
     try:
         for step in matrix.teardown:
             label = _step_label(step)

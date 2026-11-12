@@ -16,6 +16,8 @@ from typing import Any, Dict, Optional
 
 import httpx
 
+from overstep import netopts
+
 from overstep.modules.mcp.protocol import CLIENT_INFO, is_stateless, request_meta, routing_headers
 from overstep.models import McpServer, Subject, drop_header
 from overstep.modules.mcp.transport import _parse_message
@@ -48,7 +50,7 @@ def _http_call(
         params["_meta"] = request_meta(server.protocol_version)
         headers.update(routing_headers("tools/call", params))
 
-    with httpx.Client(timeout=timeout, verify=verify) as client:
+    with httpx.Client(verify=verify, **netopts.client_kwargs(timeout)) as client:
         if not stateless:
             init = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
                     "params": {"protocolVersion": server.protocol_version, "capabilities": {},
@@ -128,10 +130,10 @@ def mcp_tool_call(
     tool: str,
     arguments: Dict[str, Any],
     *,
-    timeout: float = 15.0,
+    timeout: Optional[float] = None,
     verify_tls: bool = True,
 ) -> dict:
     """Perform one MCP tool-call synchronously; return the JSON-RPC message."""
     if server.kind == "stdio":
-        return _stdio_call(server, subject, tool, arguments, timeout=timeout)
+        return _stdio_call(server, subject, tool, arguments, timeout=netopts.timeout(timeout))
     return _http_call(server, subject, tool, arguments, timeout=timeout, verify=verify_tls)

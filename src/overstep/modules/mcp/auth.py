@@ -48,6 +48,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
+from overstep import netopts
+
 
 class DiscoveryError(RuntimeError):
     """Raised when an MCP server's OAuth metadata cannot be discovered."""
@@ -329,7 +331,7 @@ def discover_token_endpoint(
     *,
     client: Optional[httpx.Client] = None,
     verify: bool = True,
-    timeout: float = 15.0,
+    timeout: Optional[float] = None,
     expected_issuer: Optional[str] = None,
     expected_resource: Optional[str] = None,
     allow_plaintext: bool = False,
@@ -340,7 +342,9 @@ def discover_token_endpoint(
     is acted on; see the module docstring for the shape of the attack this closes.
     """
     owns = client is None
-    client = client or httpx.Client(timeout=timeout, verify=verify, follow_redirects=True)
+    client = client or httpx.Client(
+        verify=verify, follow_redirects=True, **netopts.client_kwargs(timeout)
+    )
     try:
         found = _get_json(client, _prm_candidates(server_url))
         if not found:
