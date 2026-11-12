@@ -170,16 +170,22 @@ def _starts(monkeypatch, **options):
 
 
 def test_delay_spaces_requests_across_the_whole_pool(monkeypatch):
-    """Five slots and a 50 ms delay is still one request per 50 ms, not five."""
-    starts = _starts(monkeypatch, delay=0.05)
+    """Five slots and a 100 ms delay is still one request per 100 ms, not five.
+
+    Asserted on the whole span and with slack on each gap: a timer on Windows
+    is good to about 16 ms, and the claim is "spaced", not "spaced to the
+    millisecond". Five requests released together would span almost nothing.
+    """
+    starts = _starts(monkeypatch, delay=0.1)
 
     gaps = [b - a for a, b in zip(starts, starts[1:])]
     assert len(starts) == 5
-    assert all(gap >= 0.045 for gap in gaps), gaps
+    assert starts[-1] >= 0.32, starts
+    assert all(gap >= 0.06 for gap in gaps), gaps
 
 
 def test_without_a_delay_the_pool_is_not_slowed(monkeypatch):
     starts = _starts(monkeypatch)
 
     assert len(starts) == 5
-    assert starts[-1] < 0.045
+    assert starts[-1] < 0.2
