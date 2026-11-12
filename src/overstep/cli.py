@@ -93,6 +93,16 @@ def _next_step(command: str, why: str) -> None:
     err_console.print(f"[dim]next: {command} — {why}[/]")
 
 
+def _carrying(command: str, env_file: Optional[str]) -> str:
+    """A suggested command, with the dotenv file this one needed to load.
+
+    A matrix that keeps its credentials out of the file cannot be loaded
+    without it, so a hint that drops the flag names a command that fails on
+    its first line.
+    """
+    return f"{command} --env-file {env_file}" if env_file else command
+
+
 def _apply_env_file(path: Optional[str]) -> None:
     """Load KEY=VALUE lines from a dotenv file into the process environment."""
     if not path:
@@ -386,7 +396,7 @@ def plan_cmd(
     # run, not in the report afterwards.
     _print_unprobed(assess_coverage(spec, cases))
     _next_step(
-        f"overstep run {matrix} --out out",
+        _carrying(f"overstep run {matrix} --out out", env_file),
         "send them and report what got through",
     )
 
@@ -448,11 +458,11 @@ def validate(
         )
     # After the verdict, not before it: the hint is what to do next, which only
     # makes sense once the reader knows where they are.
-    _validate_next_step(matrix, live)
+    _validate_next_step(matrix, live, env_file)
     raise typer.Exit(code=1 if (warnings and strict) else 0)
 
 
-def _validate_next_step(matrix: str, live: bool) -> None:
+def _validate_next_step(matrix: str, live: bool, env_file: Optional[str] = None) -> None:
     """Where to go once the file itself is no longer the problem.
 
     A matrix that lints clean is not yet a matrix that will produce anything:
@@ -461,10 +471,13 @@ def _validate_next_step(matrix: str, live: bool) -> None:
     last thing worth reading before requests go out.
     """
     if live:
-        _next_step(f"overstep plan {matrix}", "read what will be sent before sending it")
+        _next_step(
+            _carrying(f"overstep plan {matrix}", env_file),
+            "read what will be sent before sending it",
+        )
     else:
         _next_step(
-            f"overstep validate {matrix} --live",
+            _carrying(f"overstep validate {matrix} --live", env_file),
             "check the target answers and every credential still works",
         )
 
