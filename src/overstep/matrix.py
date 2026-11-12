@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from difflib import get_close_matches
 from enum import Enum
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional, get_args
 
-from pydantic import BaseModel, ConfigDict, Field
+import yaml
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from overstep.documents import DocumentError, read_yaml
 from overstep.interpolation import InterpolationError, interpolate
@@ -681,8 +684,139 @@ def load_matrix(path: str, env=None) -> Matrix:
     _reject_relocated_keys(path, data)
     try:
         return Matrix(**data)
-    except Exception as exc:  # pydantic ValidationError, etc.
+    except ValidationError as exc:
+        problems = "\n".join(f"  {line}" for line in _explain(exc, path, data))
+        raise MatrixError(f"could not parse matrix '{path}':\n{problems}") from exc
+    except Exception as exc:  # anything a validator raised that is not pydantic's
         raise MatrixError(f"could not parse matrix '{path}': {exc}") from exc
+
+
+# --- saying what is wrong with the file, in the file's own terms -------------
+#
+# pydantic reports `resources.2.forbiden_fields — Extra inputs are not
+# permitted`, followed by a link to its own documentation. Every part of that is
+# true and none of it is where the user is: they have a file open, the mistake
+# is on one line of it, and the thing they need is the spelling they missed.
+
+
+def _models_in(annotation) -> List[type]:
+    """Every pydantic model an annotation can hold, however it is wrapped."""
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return [annotation]
+    found: List[type] = []
+    for arg in get_args(annotation):
+        found.extend(_models_in(arg))
+    return found
+
+
+def _field(model: type, key: str):
+    """A model's field by the name or the alias it is written under."""
+    for name, info in model.model_fields.items():
+        if key in (name, info.alias):
+            return info
+    return None
+
+
+def _keys_of(model: type) -> List[str]:
+    """What may be written at this level, as it is written in a matrix."""
+    return [info.alias or name for name, info in model.model_fields.items()]
+
+
+def _model_at(loc: tuple) -> Optional[type]:
+    """The model whose keys are valid at ``loc``, or None when that is unclear.
+
+    Unclear is an answer: a suggestion drawn from the wrong level would send the
+    user to add a key that is refused in turn, so a union or a free-form mapping
+    on the way down ends the walk rather than being guessed through.
+    """
+    model: type = Matrix
+    for part in loc:
+        if isinstance(part, int):
+            continue
+        info = _field(model, part)
+        if info is None:
+            return None
+        candidates = _models_in(info.annotation)
+        if len(candidates) != 1:
+            return None
+        model = candidates[0]
+    return model
+
+
+def _owner(loc: tuple, data) -> str:
+    """The nearest named entry ``loc`` sits inside — ``resource 'get_order'``."""
+    label, node, collection = "", data, None
+    for part in loc:
+        try:
+            node = node[part]
+        except (KeyError, IndexError, TypeError):
+            break
+        if isinstance(part, str):
+            collection = part
+        elif isinstance(node, dict) and isinstance(node.get("name"), str) and collection:
+            kind = collection[:-1] if collection.endswith("s") else collection
+            label = f"{kind} '{node['name']}'"
+    return label
+
+
+def _line_of(path: str, loc: tuple) -> Optional[int]:
+    """The line of the file ``loc`` is written on, when the file still says.
+
+    Read from the YAML node tree rather than the loaded data, which is the only
+    place positions exist. A location a validator rearranged, or a file that
+    changed underfoot, simply has no line; the message is still right without it.
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            node = yaml.compose(handle, Loader=yaml.SafeLoader)
+    except (OSError, yaml.YAMLError):
+        return None
+    line = None
+    for part in loc:
+        if isinstance(node, yaml.MappingNode) and isinstance(part, str):
+            for key, value in node.value:
+                if getattr(key, "value", None) == part:
+                    line, node = key.start_mark.line + 1, value
+                    break
+            else:
+                return line
+        elif isinstance(node, yaml.SequenceNode) and isinstance(part, int) and part < len(node.value):
+            node = node.value[part]
+            line = node.start_mark.line + 1
+        else:
+            return line
+    return line
+
+
+def _dotted(loc: tuple) -> str:
+    text = ""
+    for part in loc:
+        text += f"[{part}]" if isinstance(part, int) else (f".{part}" if text else str(part))
+    return text
+
+
+def _explain(exc: ValidationError, path: str, data) -> List[str]:
+    """One line per problem pydantic found, each locating itself in the file."""
+    lines: List[str] = []
+    for error in exc.errors(include_url=False):
+        loc = tuple(error.get("loc", ()))
+        line = _line_of(path, loc)
+        prefix = f"line {line}: " if line else ""
+        if error.get("type") == "extra_forbidden" and loc:
+            key, parent = str(loc[-1]), loc[:-1]
+            where = _owner(parent, data) or (_dotted(parent) or "the top level")
+            message = f"{where} has an unknown key '{key}'"
+            model = _model_at(parent)
+            close = get_close_matches(key, _keys_of(model), n=1) if model else []
+            if close:
+                message += f" — did you mean '{close[0]}'?"
+            elif model:
+                message += f" — valid keys here: {', '.join(sorted(_keys_of(model)))}"
+        else:
+            owner = _owner(loc, data)
+            message = f"{_dotted(loc) or 'matrix'}{f' ({owner})' if owner else ''}: {error.get('msg', 'invalid')}"
+        lines.append(prefix + message)
+    return lines
 
 
 def _reject_relocated_keys(path: str, data: dict) -> None:
