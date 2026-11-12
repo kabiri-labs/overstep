@@ -22,10 +22,11 @@ Embedding code sets them the same way the CLI does::
 from __future__ import annotations
 
 import asyncio
+import time
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
-from typing import Any, Dict, Iterator, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 # What every connection waited before any of this was configurable. Kept as the
 # default so a run that sets nothing behaves exactly as it did.
@@ -46,6 +47,15 @@ class NetOptions:
 
 _current: ContextVar[NetOptions] = ContextVar("overstep_netopts", default=NetOptions())
 
+# When the next request may start, as one mutable cell shared by every gate
+# opened inside the same `using` block. A run is not one dispatch: the cases go
+# out phase by phase and transport by transport, each through a gate of its own,
+# and a clock kept on the gate started from zero at every one of those seams —
+# so the first request of a phase left at once, however recently the last
+# request of the previous phase had. The cell is a list so that the copy of the
+# context `asyncio.run` makes still points at the same clock.
+_pace: ContextVar[Optional[List[float]]] = ContextVar("overstep_pace", default=None)
+
 
 def current() -> NetOptions:
     return _current.get()
@@ -60,9 +70,12 @@ def using(**changes: Any) -> Iterator[NetOptions]:
     if options.delay < 0:
         raise ValueError("delay cannot be negative")
     token = _current.set(options)
+    # A clock of its own per block, so one run's pacing never leaks into the next.
+    pace = _pace.set([0.0])
     try:
         yield options
     finally:
+        _pace.reset(pace)
         _current.reset(token)
 
 
@@ -90,28 +103,34 @@ class Gate:
 
     The first half is the semaphore the transports always had. The second is
     the pause: with a delay set, each request waits until at least that long
-    after the previous one *started* — one clock for the whole dispatch, since
-    a per-connection pause multiplied by the concurrency is no limit a target
-    would recognise. Used as ``async with gate:`` exactly like the semaphore it
-    replaces.
+    after the previous one *started* — one clock for the whole run, since a
+    per-connection pause multiplied by the concurrency is no limit a target
+    would recognise, and neither is one that restarts at every phase. Used as
+    ``async with gate:`` exactly like the semaphore it replaces.
+
+    The clock belongs to the surrounding :func:`using` block and is shared by
+    every gate opened inside it. A gate opened outside one keeps its own.
     """
 
     def __init__(self, concurrency: int, delay: Optional[float] = None) -> None:
         self._slots = asyncio.Semaphore(concurrency)
         self._delay = current().delay if delay is None else delay
         self._turn = asyncio.Lock()
-        self._next = 0.0
+        shared = _pace.get()
+        self._clock = shared if shared is not None else [0.0]
 
     async def __aenter__(self) -> "Gate":
         await self._slots.acquire()
         if self._delay > 0:
             try:
                 async with self._turn:
-                    loop = asyncio.get_running_loop()
-                    wait = self._next - loop.time()
+                    # The monotonic clock, not the loop's: each dispatch runs
+                    # in an event loop of its own, and the deadline has to
+                    # mean the same thing in the next one.
+                    wait = self._clock[0] - time.monotonic()
                     if wait > 0:
                         await asyncio.sleep(wait)
-                    self._next = loop.time() + self._delay
+                    self._clock[0] = time.monotonic() + self._delay
             except BaseException:
                 self._slots.release()
                 raise
