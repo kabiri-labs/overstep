@@ -2,7 +2,7 @@
 
 **Authorization testing for REST APIs and MCP servers — one problem class, two surfaces.**
 
-![Version](https://img.shields.io/badge/version-1.8.0-blue)
+![Version](https://img.shields.io/badge/version-1.9.0-blue)
 [![CI](https://github.com/kabiri-labs/overstep/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kabiri-labs/overstep/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -291,7 +291,9 @@ overstep plan examples/rest_api/matrix.yaml
 
 The `other` rows are the object-level probes. They exist only because alice and
 bob hold genuinely *different* objects; give two subjects the same id and the
-cross-owner probe disappears, which is why `validate` warns about it.
+cross-owner probe disappears, which is why `validate` warns about it — both when
+every subject shares one object, and when only some do and are quietly probed
+against a third subject instead of each other.
 
 ```bash
 overstep run examples/rest_api/matrix.yaml --out out
@@ -405,10 +407,19 @@ Reports land in `out/`:
 
 | File | For |
 |---|---|
-| `report.html` | humans — findings with evidence and repro |
-| `findings.json` | scripts and dashboards (CWE + OWASP tagged) |
+| `report.html` | humans — findings with evidence and repro, every case, filters by class, resource and subject |
+| `findings.json` | scripts and dashboards (CWE + OWASP tagged), with every case and its outcome |
 | `overstep.sarif` | GitHub code scanning |
 | `junit.xml` | CI test reporters |
+
+Both documents open by saying which run they describe — the targets, when it
+started and how long it took, the overstep version, the matrix file, and whether
+the run was read-only or narrowed to part of the matrix — and both list every
+case the run planned, not only the ones that went wrong: `cases` in
+`findings.json`, a collapsed table in the page. A case is recorded by its method,
+path, status and outcome (`passed`, `finding`, `waived`, `skipped` or
+`undelivered`); no header and no body, so no credential. The page is one file
+with nothing loaded from anywhere.
 
 `overstep run` exits non-zero on findings, so it fails a pipeline out of the box.
 A stdio variant of the same demo lives at `examples/mcp_api/matrix_stdio.yaml`,
@@ -458,12 +469,14 @@ a matrix with zero negative tests.
 
 The scaffold leaves `PASTE_..._TOKEN` and `REPLACE_ME_1` / `REPLACE_ME_2` where it
 cannot know the answer — and `REPLACE_ME_BASE_URL` when the document names no
-`servers`, rather than guessing an address something else may be listening on.
+`servers`, or `REPLACE_ME_MCP_URL` when an MCP matrix is drafted from a saved
+listing without `--server-url`, rather than guessing an address something else
+may be listening on.
 `validate` reports each one as an error with its line, and `run` and `snapshot`
 send nothing while any remain. An explicit `--base` stands in for the base URL
-placeholder, and for nothing else. Two things to get right: give the two peer subjects
-genuinely **different** objects, and keep secrets out of the file (`${ALICE_TOKEN}`
-from the environment or `--env-file`). Then review the starter policy — it is a
+placeholder, and for nothing else. Two things to get right: give the two peer
+subjects genuinely **different** objects, and keep secrets out of the file
+(`${ALICE_TOKEN}` from the environment or `--env-file`). Then review the starter policy — it is a
 guess, and it is the one part of the file only you can write.
 
 ```bash
@@ -472,6 +485,10 @@ overstep validate matrix.yaml --live   # one expected-allow request per subject
 overstep plan matrix.yaml              # read every request before sending one
 overstep run matrix.yaml --out out --read-only
 ```
+
+A key the matrix format does not have is reported where you are, not where the
+validator is: `line 10: resource 'get_order' has an unknown key
+'forbiden_fields' — did you mean 'forbidden_fields'?`.
 
 `--live` proves each credential is still accepted, which matters because an
 expired token turns every negative test into a pass for the wrong reason. It is
@@ -642,6 +659,22 @@ and reads the token out of the response, `oauth2_password` and
 `oauth2_client_credentials` build the standard token-endpoint form. `{{var}}`
 placeholders are filled per subject from `auth.vars`, so one provider serves many
 identities and secrets never touch the file.
+
+```yaml
+auth:
+  providers:
+    - name: login
+      type: http
+      request:
+        method: POST
+        path: /auth/login
+        body: { email: "{{email}}", password: "{{password}}" }
+      token_path: "$.data.access_token"     # where the token is in the response
+subjects:
+  - name: alice
+    role: user
+    auth: { provider: login, vars: { email: alice@shop.test, password: "${ALICE_PW}" } }
+```
 
 **Real objects.** Meaningful object-level testing needs a real owned object.
 `objects:` maps each subject to the id it owns; `setup:` steps run once before the
@@ -880,10 +913,28 @@ sent to, and `findings.json` records `read_only`, `skipped_tests` and
 still run and still change state, and a mutating operation the matrix declares as
 non-mutating is still sent — the flag reads the declaration, not the target.
 `--max-retries N` (default 2) retries `429`/`503`, honouring `Retry-After`.
-`--concurrency N` bounds in-flight requests. Ready-made artifacts:
+`--concurrency N` bounds in-flight requests, and `--delay SECONDS` sets the least
+time between the start of one test request and the next — across the whole pool,
+so it is a rate a target would recognise rather than a pause multiplied by the
+concurrency. `--timeout SECONDS` (default 15) is how long any connection waits,
+logins and `setup:` steps included. `--proxy URL` sends every request through a
+proxy; without it the usual `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` variables
+are honoured as they always were. Ready-made artifacts:
 [`examples/ci/github-actions.yml`](examples/ci/github-actions.yml),
 [`examples/ci/gitlab-ci.yml`](examples/ci/gitlab-ci.yml), the
 `ghcr.io/kabiri-labs/overstep` image, and an `overstep-validate` pre-commit hook.
+
+**Running part of the matrix.** `--resource NAME` and `--subject NAME` (both
+repeatable) narrow a run to the cases you are working on; a subject narrows by
+who sends the request, so its probes at other subjects' objects stay. Such a run
+is **partial** and says so before the summary, inside it, in `findings.json`
+(`partial`, `selection`, `planned_tests`) and at the top of the HTML report,
+because a clean result for one resource says nothing about the rest. A name the
+matrix does not declare is refused before anything is sent. `snapshot` does not
+take these flags: a baseline of part of the matrix would report the rest as new.
+`--verbose` prints one line per request on `stderr` as results come back —
+method, path, subject, what came back and what was expected — and never a header
+or a body.
 
 **Destructive operations go last.** The plan is not sent as one concurrent pool.
 Requests that change nothing go first; then writes that are not a `DELETE`,
@@ -895,8 +946,9 @@ still target: they come back `404`, which is an unexpected denial on a different
 test each run — and an expected-deny probe that "passes" against an object that
 is no longer there. Ordering makes one run stable; it does not bring the object
 back, so `validate` warns when a `DELETE` the policy allows shares its objects
-with other resources at the same path or beneath it. Create those objects in `setup:` and every run starts with
-its own; objects that are already `{{captures}}` are not warned about.
+with other resources at the same path or beneath it. Create those objects in
+`setup:` and every run starts with its own; objects that are already
+`{{captures}}` are not warned about.
 
 **Reports are cleared before the run, not written after it.** `run` removes the
 documents a previous run left in `--out` before it reads anything, because a run
@@ -976,7 +1028,7 @@ run reports a resource nobody probed instead of counting it as clean.
 | Command | What it does |
 |---|---|
 | `overstep scaffold SPEC` | draft a matrix from a live MCP server, `tools.json`, OpenAPI or HAR |
-| `overstep validate MATRIX` | lint for structural problems and unfilled placeholders (`--live` probes the target; `--strict` fails on warnings) |
+| `overstep validate MATRIX` | lint for structural problems and unfilled placeholders (`--live` probes the target, and takes `--timeout` and `--proxy`; `--strict` fails on warnings) |
 | `overstep plan MATRIX` | print the generated test cases (no network; `--env-file` for a matrix whose credentials are `${VAR}`) |
 | `overstep coverage MATRIX` | report what the matrix covers, vs. `--spec` and vs. its own object surface (no network) |
 | `overstep run MATRIX` | generate, execute and report; non-zero exit on findings |
@@ -993,6 +1045,12 @@ run reports a resource nobody probed instead of counting it as clean.
 | `--read-only` | ✅ | ✅ | skip mutating verbs and tools |
 | `--concurrency N` | ✅ | ✅ | bound in-flight requests |
 | `--max-retries N` | ✅ | ✅ | retry `429`/`503` with backoff |
+| `--timeout SECONDS` | ✅ | ✅ | how long a connection waits (default 15) |
+| `--delay SECONDS` | ✅ | ✅ | least time between request starts |
+| `--proxy URL` | ✅ | ✅ | send every request through a proxy |
+| `--resource NAME` | ✅ | — | run only this resource (repeatable; the run is partial) |
+| `--subject NAME` | ✅ | — | run only this subject's requests (repeatable; the run is partial) |
+| `--verbose` | ✅ | — | one line per request on `stderr` |
 | `--env-file FILE` | ✅ | ✅ | dotenv for `${VAR}` values |
 | `--allow-inconclusive` | ✅ | ✅ | report/write anyway, keeping the old exit code |
 | `--insecure` | ✅ | ✅ | disable TLS verification |

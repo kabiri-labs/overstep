@@ -1,5 +1,103 @@
 # Changelog
 
+## [1.9.0] - 2026-11-12
+
+The rest of what the same hands-on evaluation turned up: the controls a run was
+missing, reports that did not say which run they were, and the messages a
+first-time matrix author meets. Nothing here changes what is tested or how a
+result is judged.
+
+### Added
+
+**`--timeout`, `--proxy` and `--delay` on `run` and `snapshot`; `--timeout` and
+`--proxy` on `validate --live`.** The timeout was `15.0` typed into every
+function that opens a connection, so a target slower than that could not be
+tested at all. `--timeout SECONDS` now reaches both transports, login providers,
+`setup:` and `teardown:` steps, the MCP client and its OAuth discovery; the
+default is still 15. `--delay SECONDS` is the least time between the start of one
+test request and the next, counted across the whole pool — `--concurrency` was
+the only throttle, and a pause per connection multiplied by ten is no limit a
+target would recognise. `--proxy URL` sends every request through a proxy.
+Without it nothing changes: `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` were
+already honoured through httpx and still are, which is now documented.
+
+The three settings live in `overstep.netopts`, and an embedding caller applies
+them with `netopts.using(timeout=..., proxy=..., delay=...)` around
+`run_pipeline`.
+
+**`--resource` and `--subject` on `run`, for sending part of the matrix.** Both
+are repeatable. A subject narrows by who sends the request, so its probes at
+other subjects' objects are kept. A narrowed run that finds nothing has found
+nothing *in what it sent*, so it is reported as **partial** everywhere it
+reports: a line before the summary, a `Partial run` row inside it, `partial`,
+`selection` and `planned_tests` in `findings.json`, and the scope line at the
+top of the HTML report. A name the matrix does not declare is refused with
+exit 2 before login or setup. Probe coverage is measured over the selected
+resources, and a waiver with no matching finding is not reported as possibly
+fixed. `snapshot` does not take these flags: a baseline of part of the matrix
+would report the rest as new on the next run.
+
+**`--verbose` on `run`.** One line per request on `stderr` as each result comes
+back: method, path, subject, what came back, what the matrix expected, and
+`MISMATCH` where the two differ. No header and no body is printed, so no
+credential can be.
+
+**Reports say which run they describe.** `findings.json` gains a `run` block and
+`report.html` a header with the same facts: the targets (base URL and MCP
+servers; a stdio server by its program name only), when the run started and how
+long it took, the overstep version, the matrix path, and whether the run was
+read-only or partial.
+
+**Reports list every case, not only the ones that went wrong.** Passed cases
+appeared in `junit.xml` alone. `findings.json` gains `cases` — every planned
+case with its expectation, what was observed and an `outcome` of `passed`,
+`finding`, `waived`, `skipped` or `undelivered` — and the HTML report gains the
+same list as a collapsed table. A case carries its method, path and status and
+nothing else of the exchange: headers hold the credential and bodies hold the
+target's data.
+
+**The HTML report can be filtered** by class, resource and subject. This is the
+first script in the page: a few inline lines, nothing loaded from anywhere.
+
+**`validate` warns when some subjects share an object and another does not.**
+It warned only when *every* subject resolved to one object. With two peers on
+one id and a third subject on another, the probe between the peers is dropped as
+a repeat of a subject's own request and replaced by a probe at the third's
+object — so the resource counted as probed and the plan looked full, while the
+pair the matrix was written to tell apart never met. Each group of sharers is
+now named.
+
+### Changed
+
+**The serialized documents gained keys; none was removed or renamed.**
+`findings.json`: `run`, `cases`, `defects[].path`, and `partial`, `selection`
+and `planned_tests` under `summary`. `report.html`: the run header, the filter
+bar, the all-cases table, `data-` attributes on rows, and the path template in
+the defects table's Endpoint column where the resource's matrix name used to be
+(the name is kept beneath it). A consumer reading known keys is unaffected; one
+that compares whole documents will see the difference. The golden files were
+regenerated and the diff is exactly this list.
+
+**A mistyped matrix key is reported in the file's terms.** It surfaced as
+`resources.2.forbiden_fields — Extra inputs are not permitted` and a link to
+pydantic's documentation. It now reads `line 10: resource 'get_order' has an
+unknown key 'forbiden_fields' — did you mean 'forbidden_fields'?`. Every
+validation problem is listed with its line, the suggestion is drawn only from
+the keys valid at that level and spelled as a matrix spells them (`as`, not
+`run_as`), and when nothing is close the valid keys are listed instead.
+
+**The MCP scaffold writes `REPLACE_ME_MCP_URL` when it is not told where the
+server is.** Scaffolding from a saved listing without `--server-url` wrote
+`http://localhost:8000/mcp`, the same plausible guess the OpenAPI scaffold lost
+in 1.8.0. `validate` reports the placeholder as an error with its line, and
+`run` sends nothing while it remains.
+
+### Fixed
+
+**The `next:` hint keeps `--env-file`.** After `validate` or `plan` on a matrix
+that reads its credentials from a dotenv file, the suggested command dropped
+the flag and so failed on load.
+
 ## [1.8.0] - 2026-11-11
 
 Three gaps found by using overstep the way a first-time user does — a fresh
