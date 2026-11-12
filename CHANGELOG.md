@@ -25,18 +25,37 @@ why the run stopped. On by default via
 its own: the fetches were happening anyway.
 
 **`open-registration` — will the authorization server register a client for
-anybody?** Opt-in via `modules.mcp.probes.conformance.open_registration`, and
-the only write overstep aims at a third party. It POSTs an RFC 7591 client
-registration carrying no credential to the `registration_endpoint` discovery
-finds, and reports a `client_id` that comes back. `client_id` rather than the
-status code decides: some gateways answer 200 to anything, and reporting that as
-an open registry is the guess-from-status this tool refuses to make elsewhere.
-It requires `modules.mcp.canary.redirect_uri` — an address you control, so a
-minted client is recognisable as the probe's own — and a matrix that switches
-the probe on without one is refused at load rather than running a test that
-could not decide. `--read-only` skips it, and the phased dispatcher sends it
-last with the other writes. A server advertising no registration endpoint is
-recorded as skipped, not as clean.
+anybody?** Opt-in via `modules.mcp.probes.conformance.open_registration`, the
+only write overstep aims at a third party, and the only finding this tool
+reports that is **not a defect**. It POSTs an RFC 7591 client registration
+carrying no credential to the `registration_endpoint` discovery finds, and
+reports a `client_id` that comes back. `client_id` rather than the status code
+decides: some gateways answer 200 to anything, and reporting that as an open
+registry is the guess-from-status this tool refuses to make elsewhere. It
+requires `modules.mcp.canary.redirect_uri` — an address you control, so a minted
+client is recognisable as the probe's own — and a matrix that switches the probe
+on without one is refused at load rather than running a test that could not
+decide. `--read-only` skips it, and the phased dispatcher sends it last with the
+other writes. A server advertising no registration endpoint is recorded as
+skipped, not as clean.
+
+It is scored `low`, mapped to CWE-1188, left out of the vulnerability count and
+fails no default gate. RFC 7591 section 3 says the registration endpoint SHOULD
+allow requests with no authorization; no MCP revision places an authentication
+requirement on it, and `2026-07-28` deprecates the mechanism without ever
+introducing one. A caller that registers gets its own client id bound to its own
+redirect URI and reaches nobody's resources with it. What the finding is for is
+narrower and still worth having: on a server where anyone can hold a client id,
+a client id is evidence of less than it looks like. `--fail-on any` is what
+includes it.
+
+**A credential the run itself caused to exist is removed from the evidence.** A
+registration response may carry a `client_secret` or a registration access
+token. `overstep.repro` masks the values the matrix declared, and these did not
+exist when the run started, so the response is redacted where it is read: the
+client id stays as the proof, the secrets are replaced, and a body that did not
+parse as JSON is recorded by its length rather than kept — an unrecognised shape
+cannot be shown to carry no secret.
 
 **A surface can contribute cases the planner could not have written.** A
 transport may now register `plan_cases`. Everything the planner generates comes
@@ -60,9 +79,11 @@ declared, a token path that extracted nothing — raises exactly as before, and
 `snapshot` still refuses to write a baseline from a run that never
 authenticated.
 
-**`metadata-spoof` and `open-registration` count as vulnerabilities.** Both are
-in `RunResult.vulnerabilities`, so they are counted in the summary and gate a
-run through `--fail-on` like the other access classes.
+**`metadata-spoof` counts as a vulnerability.** It is in
+`RunResult.vulnerabilities`, so it is counted in the summary and gates a run
+through `--fail-on` like the other access classes. RFC 8414 section 3.3 is a
+MUST and a credential was about to travel, which is the line between it and the
+registration probe beside it.
 
 **Two finding classes and two test-id variants were added; none was renamed.**
 `vuln_class` gained `metadata-spoof` and `open-registration`, and the third

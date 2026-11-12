@@ -455,3 +455,170 @@ def test_the_registration_body_asks_for_nothing_extra(backend_factory):
         "client_name", "redirect_uris", "grant_types",
         "response_types", "token_endpoint_auth_method",
     }
+
+
+# --- what the review of this change turned up ---------------------------------
+
+
+def test_a_minted_client_secret_never_reaches_a_finding(backend_factory):
+    """The one credential `overstep.repro` cannot mask: this probe created it.
+
+    Sanitization is given the values the matrix declared, and a secret the
+    authorization server issued during the run is not among them. The response
+    is therefore redacted where it is read, not where it is written — the whole
+    serialized finding is searched here, because the body travels into
+    `findings.json`, the HTML page and the SARIF evidence alike.
+    """
+    import json
+
+    from overstep.classifier import classify
+
+    backend_factory(
+        registration_body={
+            "client_id": "minted-by-anyone",
+            "client_secret": "s3cr3t-minted-during-the-run",
+            "registration_access_token": "rat-also-secret",
+        }
+    )
+    matrix = _registration_matrix()
+    cases, observations = _run_registration(matrix)
+
+    finding = classify(matrix, cases, observations, base_url="https://mcp.test")[0]
+    serialized = json.dumps(finding.model_dump(mode="json"))
+
+    assert "s3cr3t-minted-during-the-run" not in serialized
+    assert "rat-also-secret" not in serialized
+    # The client id is the proof and stays.
+    assert "minted-by-anyone" in serialized
+    assert finding.evidence.matched_markers == ["minted-by-anyone"]
+
+
+def test_a_body_that_is_not_json_is_not_kept_at_all(backend_factory):
+    """A shape nobody recognises cannot be shown to carry no secret."""
+    backend_factory(registration_status=200, registration_body=None)
+    matrix = _registration_matrix()
+
+    _, observations = _run_registration(matrix)
+
+    assert "non-JSON registration response" in observations[0].body_snippet
+
+
+ELSEWHERE = "https://elsewhere.test/mcp"
+
+
+def _pinned_matrix(**provider_extra) -> Matrix:
+    """A matrix whose provider declares what this server is legitimately called."""
+    provider = {
+        "name": "idp",
+        "type": "oauth2_client_credentials",
+        "discover_from": "docs",
+        "client_id": "overstep",
+        "client_secret": "s3cr3t-do-not-leak",
+    }
+    provider.update(provider_extra)
+    return Matrix(
+        modules={
+            "rest": {"base_url": "https://mcp.test"},
+            "mcp": {
+                "servers": [{"name": "docs", "url": MCP}],
+                "probes": {"conformance": {"open_registration": True}},
+                "canary": {"redirect_uri": CANARY},
+            },
+        },
+        roles=["user"],
+        auth={"providers": [provider]},
+        subjects=[{"name": "alice", "role": "user", "auth": {"provider": "idp"}}],
+        resources=[{
+            "name": "read_doc",
+            "call": {"server": "docs", "tool": "read_doc"},
+            "type": "function",
+        }],
+        policy={"read_doc": {"allow": [{"role": "user"}]}},
+    )
+
+
+def test_a_server_known_by_another_identifier_is_still_probed(backend_factory):
+    """A deployment the operator already described must not be refused twice.
+
+    `resource:` on the provider is how an operator says this server is
+    legitimately known by another name, and authentication honours it. The probe
+    resolves its own endpoint — planning touches no network — so without the
+    same pin it would refuse what the run had already accepted, and report an
+    endpoint it never contacted as unprobeable.
+    """
+    backend = backend_factory(claimed_resource=ELSEWHERE)
+    matrix = _pinned_matrix(resource=ELSEWHERE)
+
+    authenticate(matrix, base_url="https://mcp.test", verify_tls=True)
+    _, observations = _run_registration(matrix)
+
+    assert len(backend.registrations) == 1
+    assert observations[0].skipped is False
+    assert observations[0].effect == Effect.ALLOW
+
+
+def test_an_insecure_run_probes_the_plaintext_endpoint_it_accepted(backend_factory):
+    """`--insecure` is one decision about transport, not one per stage."""
+    backend = backend_factory(token_endpoint="http://honest.test/token")
+    matrix = _pinned_matrix()
+    cases = conformance.plan_cases(matrix, {})
+
+    observations = conformance.execute(
+        "https://mcp.test", matrix.subjects, cases, verify_tls=False
+    )
+
+    assert len(backend.registrations) == 1
+    assert observations[0].skipped is False
+
+
+def test_a_pin_the_matrix_did_not_declare_is_still_refused(backend_factory):
+    """Carrying the operator's pins is not the same as dropping the checks."""
+    backend = backend_factory(claimed_issuer=ATTACKER)
+    matrix = _pinned_matrix()
+
+    _, observations = _run_registration(matrix)
+
+    assert backend.registrations == []
+    assert observations[0].skipped is True
+    assert "issuer" in observations[0].error
+
+
+def test_an_open_registry_does_not_fail_a_default_gate(backend_factory):
+    """RFC 7591 section 3 permits it, so overstep reports it and moves on.
+
+    The endpoint SHOULD allow unauthenticated registration, and no MCP revision
+    asks for a credential on it. A caller who registers gets its own client id
+    and reaches nobody's resources with it, so treating it as a high-severity
+    vulnerability would fail builds over a deployment doing what the
+    specification suggests.
+    """
+    from overstep.classifier import classify
+    from overstep.models import RunResult
+
+    backend_factory()
+    matrix = _registration_matrix()
+    cases, observations = _run_registration(matrix)
+
+    findings = classify(matrix, cases, observations, base_url="https://mcp.test")
+    result = RunResult(base_url="https://mcp.test", findings=findings)
+
+    assert findings[0].vuln_class == VulnClass.OPEN_REGISTRATION
+    assert findings[0].severity == "low"
+    assert result.vulnerabilities == []
+
+
+def test_a_spoofed_identifier_does_still_fail_a_gate(backend_factory):
+    """The other half of the same judgement, so neither drifts alone.
+
+    RFC 8414 section 3.3 is a MUST and the credential was about to travel, so
+    unlike an open registry this one is a defect and gates.
+    """
+    from overstep.models import RunResult
+
+    backend_factory(claimed_issuer=ATTACKER)
+
+    result = run_pipeline(_matrix())
+
+    assert RunResult(
+        base_url="x", findings=result.findings
+    ).vulnerabilities[0].vuln_class == VulnClass.METADATA_SPOOF

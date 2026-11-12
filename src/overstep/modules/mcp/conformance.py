@@ -63,6 +63,16 @@ CLIENT_NAME = "overstep-conformance-probe"
 ANONYMOUS_SUBJECT = "(unauthenticated)"
 ANONYMOUS_ROLE = "(none)"
 
+# Fields a registration response carries that are credentials in their own
+# right. RFC 7591 section 3.2.1 names the first; the second is what lets its
+# holder read, edit or delete the registration afterwards.
+SECRET_REGISTRATION_FIELDS = frozenset({
+    "client_secret",
+    "registration_access_token",
+})
+
+REDACTED = "<redacted by overstep>"
+
 
 def plan_cases(matrix: Any, context: Dict[str, str]) -> List[TestCase]:
     """One unauthenticated client registration per Streamable HTTP server.
@@ -93,6 +103,7 @@ def plan_cases(matrix: Any, context: Dict[str, str]) -> List[TestCase]:
             # stdio has no OAuth metadata and nothing to register against.
             continue
         resource = f"mcp:{server.name}"
+        pins = _declared_pins(matrix, server)
         cases.append(
             TestCase(
                 id=make_test_id(resource, ANONYMOUS_SUBJECT, Variant.REGISTER),
@@ -107,24 +118,60 @@ def plan_cases(matrix: Any, context: Dict[str, str]) -> List[TestCase]:
                 expected=Effect.DENY,
                 resource_type=ResourceType.FUNCTION,
                 body=registration_body(redirect_uri),
+                discovery_pins=pins,
             )
         )
     return cases
 
 
-def _registration_endpoint(server_url: str, *, verify_tls: bool) -> tuple:
+def _declared_pins(matrix: Any, server: Any) -> Optional[Dict[str, str]]:
+    """What the matrix already said about this server's authorization server.
+
+    An operator whose server is legitimately known by another identifier says so
+    once, with `resource:` on the auth provider, and authentication honours it.
+    A probe resolving the same metadata by stricter rules would refuse what the
+    run has already accepted and report the endpoint as unprobeable — a
+    supported deployment that can never be tested, and a skip message blaming
+    the target for something the matrix had answered.
+    """
+    for provider in matrix.auth.providers:
+        if provider.discover_from not in (server.name, server.url):
+            continue
+        pins = {}
+        if provider.issuer:
+            pins["issuer"] = provider.issuer
+        if provider.resource:
+            pins["resource"] = provider.resource
+        return pins or None
+    return None
+
+
+def _registration_endpoint(case: TestCase, *, verify_tls: bool) -> tuple:
     """Where this server's authorization server accepts registrations.
 
     Re-runs discovery rather than reading what authentication already resolved.
     The cost is two metadata fetches per server on an opt-in probe, and the
     alternative is carrying discovery state from the auth stage through the
     planner into a transport — which would couple three stages together to save
-    two requests that the target serves from a well-known URL anyway.
+    two requests the target serves from a well-known URL anyway.
+
+    It is run under the same terms authentication ran under: the pins the matrix
+    declared, and the plaintext allowance a `--insecure` run already chose. The
+    identity checks still apply, so a server that names somebody else's issuer
+    is refused here exactly as it is there — this is not a relaxation, it is the
+    same rules reading the same configuration.
     """
     from overstep.modules.mcp.auth import DiscoveryError, discover_token_endpoint
 
+    pins = case.discovery_pins or {}
     try:
-        found = discover_token_endpoint(server_url, verify=verify_tls)
+        found = discover_token_endpoint(
+            case.path_template,
+            verify=verify_tls,
+            expected_issuer=pins.get("issuer"),
+            expected_resource=pins.get("resource"),
+            allow_plaintext=not verify_tls,
+        )
     except DiscoveryError as exc:
         return None, f"discovery failed: {exc}"
     if not found.registration_endpoint:
@@ -150,6 +197,29 @@ def registration_body(redirect_uri: str) -> Dict[str, Any]:
         "response_types": ["code"],
         "token_endpoint_auth_method": "none",
     }
+
+
+def redact(value: Any) -> Any:
+    """A registration response with the credentials it just minted taken out.
+
+    This probe is the one place overstep handles a credential that did not exist
+    when the run started, which is exactly the one `overstep.repro` cannot mask:
+    that machinery is given the values the matrix declared, and a secret the
+    authorization server issued thirty milliseconds ago is not among them. So
+    the response is never stored as it arrived. A client id is an identifier,
+    and it is the proof, so it stays; a client secret, and the token that would
+    let its holder edit the registration, do not. Applied by key at every depth,
+    because a server is free to nest its answer and a report is not the place to
+    find out that one did.
+    """
+    if isinstance(value, dict):
+        return {
+            key: REDACTED if key in SECRET_REGISTRATION_FIELDS else redact(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [redact(item) for item in value]
+    return value
 
 
 def minted_client_id(payload: Any) -> Optional[str]:
@@ -193,7 +263,14 @@ def _probe(case: TestCase, *, verify_tls: bool) -> Observation:
         payload = None
 
     client_id = minted_client_id(payload) if resp.status_code < 400 else None
-    snippet = resp.text[:512]
+    # Never `resp.text`. A body that did not parse as JSON cannot be shown to
+    # carry no secret, so nothing of it is kept beyond its length — a truncated
+    # unknown is still an unknown, and this response is the one most likely to
+    # hold a credential overstep itself caused to exist.
+    if isinstance(payload, (dict, list)):
+        snippet = json.dumps(redact(payload), separators=(",", ":"))[:512]
+    else:
+        snippet = f"<non-JSON registration response, {len(resp.content)} bytes>"
     if client_id is None:
         return Observation(
             test_id=case.id,
@@ -262,9 +339,7 @@ def execute(
             )
             continue
 
-        endpoint, problem = _registration_endpoint(
-            case.path_template, verify_tls=verify_tls
-        )
+        endpoint, problem = _registration_endpoint(case, verify_tls=verify_tls)
         if endpoint is None:
             # Not a finding and not a failure: there was no endpoint to ask. It
             # is recorded as skipped so the run counts it among what it did not

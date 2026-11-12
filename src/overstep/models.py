@@ -110,9 +110,12 @@ class VulnClass(str, Enum):
     # issuer, and the credential is what travels next.
     METADATA_SPOOF = "metadata-spoof"
     # An authorization server minted a client for a caller that presented no
-    # credential at all. Anyone can obtain a client id bound to a redirect URI
-    # of their choosing, which is the starting position for the
-    # authorization-code interception the redirect registry exists to prevent.
+    # credential at all. Reported, deliberately, as an observation rather than a
+    # defect: RFC 7591 section 3 says the endpoint SHOULD allow registration
+    # with no authorization, and no MCP revision places an authentication
+    # requirement on it. A caller who registers gets its own client id bound to
+    # its own redirect URI and reaches nobody's resources with it. Worth knowing
+    # about a deployment, and not something to fail a build over.
     OPEN_REGISTRATION = "open-registration"
     AUTHORIZATION_DRIFT = "authorization-drift"
     UNEXPECTED_DENY = "unexpected-deny"
@@ -807,6 +810,13 @@ class TestCase(BaseModel):
     # the case exactly as `audience` does. None on every other case.
     defect_kind: Optional[str] = None
     defect_detail: Optional[str] = None
+    # For a REGISTER-variant probe: the discovery pins the matrix's auth
+    # provider declared for this server. The probe has to resolve its own
+    # endpoint — planning touches no network, so it cannot be known earlier —
+    # and without these it would resolve it by different rules than the ones
+    # authentication succeeded under, refusing a deployment the operator had
+    # already described. None on every other case.
+    discovery_pins: Optional[Dict[str, str]] = None
 
     @property
     def is_negative(self) -> bool:
@@ -1097,7 +1107,6 @@ class RunResult(BaseModel):
             VulnClass.SESSION_HIJACK,
             VulnClass.TOOL_ENUMERATION,
             VulnClass.METADATA_SPOOF,
-            VulnClass.OPEN_REGISTRATION,
         }
         return [f for f in self.findings if f.vuln_class in vuln]
 

@@ -82,7 +82,7 @@ The vocabulary is the standard one, and it is transport-independent:
 | **Multi-tenancy isolation** | does the tenant boundary hold when the caller is authenticated but foreign? | REST, MCP |
 | **Credential audience binding** | does the callee check who the credential was issued *for*? | MCP |
 | **Session binding** | can a connection identifier stand in for a credential? | MCP |
-| **Server conformance** | does the server meet the requirements the protocol places on it — metadata that names itself, a registry that asks who is calling? | MCP |
+| **Server metadata identity** | do the OAuth documents a server serves name that server? | MCP |
 | **Authorization drift** | did any of the above answers change since the last release? | REST, MCP |
 
 ### The shared core
@@ -169,7 +169,7 @@ misbehaves, which is not something a demo you are invited to run should ship.
 | Session-binding probe | n/a | **implemented** (Streamable HTTP, stateful revisions; not applicable on `2026-07-28`) |
 | Tool-enumeration probe | n/a | **implemented**, opt-in |
 | Metadata-identity conformance probe | n/a | **implemented** (Streamable HTTP, where a provider discovers its token endpoint) |
-| Open-registration conformance probe | n/a | **implemented**, opt-in — writes to the target's authorization server |
+| Open-registration conformance probe | n/a | **implemented**, opt-in — writes to the target's authorization server, and reports without gating |
 | Transport | **implemented** (HTTP/HTTPS) | **implemented** (Streamable HTTP and stdio) |
 | Matrix scaffolding | **partial** — OpenAPI drafts a full matrix with `--with-policy`; a HAR capture drafts resources only, with no policy | **implemented** — a live server or a saved listing drafts a full matrix |
 | Credential acquisition | **implemented** (arbitrary login request, OAuth 2.1 password and client-credentials grants) | **partial** — the same, plus RFC 9728/8414/8707 discovery; the interactive authorization-code flow is not supported |
@@ -720,7 +720,7 @@ rather than anything travelling on a connection.
 | Session binding | on | can a session id stand in for a credential? |
 | Tool enumeration | off | is the privileged half of the catalogue advertised to everyone? |
 | Metadata identity | on | does the server's OAuth metadata name the server? |
-| Open registration | off | will its authorization server register a client for anyone? |
+| Open registration | off | will its authorization server register a client for anyone? (reported, never gating) |
 
 **Credential audience.** The MCP authorization spec is unambiguous: a server must
 not accept a token that was not issued for it. A server that skips the check is a
@@ -806,12 +806,26 @@ next thing to travel that way is a client secret — and now also produces a
 console line and no documents. Such a run is reported as inconclusive: one
 finding about the metadata is not a tested authorization surface.
 
-*Open registration* is opt-in, and the one write overstep aims at a third party.
-It POSTs an RFC 7591 client registration — carrying no credential — to the
-authorization server the target named, and reports `open-registration` when a
-`client_id` comes back. It needs a redirect URI you control, so that what it
-minted is recognisable as its own; `--read-only` skips it, and the phased
-dispatcher sends it last with the other writes.
+*Open registration* is opt-in, the one write overstep aims at a third party,
+and the only finding in this tool that is **not a defect**. It POSTs an RFC 7591
+client registration — carrying no credential — to the authorization server the
+target named, and reports `open-registration` when a `client_id` comes back. It
+needs a redirect URI you control, so that what it minted is recognisable as its
+own; `--read-only` skips it, and the phased dispatcher sends it last with the
+other writes. Whatever the response holds, a `client_secret` or a registration
+access token it just issued is removed before the evidence is stored: those are
+credentials this run caused to exist, so the masking that covers the ones your
+matrix declared cannot know about them.
+
+Read the result as a property of the deployment, not as a hole. RFC 7591 §3 says
+the endpoint **SHOULD** allow registration with no authorization, and no MCP
+revision places an authentication requirement on it, so a server that registers
+anonymously is doing what the specifications suggest. A caller that registers
+gets its own client id bound to its own redirect URI and reaches nobody's
+resources with it. overstep therefore scores it `low`, leaves it out of the
+vulnerability count and fails no default gate on it — `--fail-on any` is what
+includes it. What it is worth knowing for: it decides how much a client id is
+evidence of, on a server where anyone can have one.
 
 ```yaml
 modules:
@@ -824,9 +838,10 @@ modules:
       redirect_uri: https://canary.example/cb
 ```
 
-On revision `2026-07-28` Dynamic Client Registration is deprecated in favour of
-Client ID Metadata Documents, so an open registry there is a finding about a
-mechanism already on its way out.
+On revision `2026-07-28` Dynamic Client Registration is marked deprecated — new
+implementations should use Client ID Metadata Documents — but it is retained as
+a `MAY` for backwards compatibility, with no removal date and still no
+authentication requirement on the endpoint.
 
 #### MCP protocol revisions
 
@@ -1138,7 +1153,7 @@ SARIF rules (with a `security-severity` score) and on every JSON finding.
 | session-hijack | CWE-287 | API2:2023 | MCP |
 | tool-enumeration | CWE-200 | API5:2023 | MCP |
 | metadata-spoof | CWE-346 | API2:2023 | MCP |
-| open-registration | CWE-862 | API2:2023 | MCP |
+| open-registration | CWE-1188 | API8:2023 | MCP |
 
 ## What overstep does not do
 
@@ -1153,11 +1168,12 @@ Knowing the edges is part of deciding whether this fits.
   fixation are out of scope: overstep tests what an *already authenticated*
   identity is permitted to do. The exceptions are admitted by one rule and no
   other: the MCP specification places the requirement on the server under test.
-  Four qualify today — credential audience validation, session binding, metadata
-  identity and open client registration. A requirement the spec places on the
-  *client* or on the authorization server is not overstep's to check, which is
-  why PKCE downgrade, `state` handling and redirect-URI matching are absent
-  however often they appear in MCP flaw counts.
+  Three qualify today — credential audience validation, session binding and
+  metadata identity. A requirement the spec places on the *client* or on the
+  authorization server is not overstep's to check, which is why PKCE downgrade,
+  `state` handling and redirect-URI matching are absent however often they
+  appear in MCP flaw counts. The open-registration probe is not a fourth: it
+  reports a permitted behaviour, which is why it never gates.
 - **It does not test the delegation chain.** overstep authenticates as a subject
   and tests the enforcement of the callee it talks to. It does not verify that
   authority was correctly **attenuated** across hops, that an on-behalf-of token

@@ -12,6 +12,11 @@ from overstep.taxonomy import TAXONOMY, sarif_tags
 
 _LEVEL = {"high": "error", "medium": "warning", "low": "note"}
 
+# The classes that are reported and never fail a default gate: an unexpected
+# denial is usually the matrix being wrong rather than the target, and an open
+# client registry is a deployment choice RFC 7591 section 3 permits.
+_NON_GATING = frozenset({VulnClass.UNEXPECTED_DENY, VulnClass.OPEN_REGISTRATION})
+
 _RULE_HELP = {
     VulnClass.BOLA: "Broken Object Level Authorization: a subject accessed an object it does not own.",
     VulnClass.BFLA: "Broken Function Level Authorization: a subject invoked a function it is not permitted to.",
@@ -54,8 +59,13 @@ def _rules() -> List[dict]:
                 "fullDescription": {"text": help_text},
                 "helpUri": tax.help_uri,
                 "help": {"text": f"{help_text}\n\n{tax.cwe} ({tax.cwe_name}) · {tax.owasp_api}"},
+                # A rule's default level stands in only for a result that
+                # carries none, and every result this writes carries its own.
+                # It is kept truthful anyway: a rule advertising itself as an
+                # error while every finding under it is a note is a
+                # contradiction the reader of the document has to resolve.
                 "defaultConfiguration": {
-                    "level": "error" if vc != VulnClass.UNEXPECTED_DENY else "note"
+                    "level": "note" if vc in _NON_GATING else "error"
                 },
                 "properties": {
                     "cwe": tax.cwe,

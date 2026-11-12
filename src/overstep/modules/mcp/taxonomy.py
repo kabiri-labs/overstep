@@ -63,19 +63,23 @@ TAXONOMY = {
         security_severity="7.5",
         help_uri="https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/",
     ),
-    # Registration without a credential is a missing authorization check on a
-    # write — CWE-862 — and the thing written is a client id bound to a redirect
-    # URI the caller chose. Scored below METADATA_SPOOF because it is one step
-    # further from a credential: an open registry is the position an attacker
-    # starts from, not the moment a token changes hands. It sits above
-    # TOOL_ENUMERATION at 5.3 because enumeration discloses and this one
-    # creates.
+    # The lowest score in this table, and the only class here that is not a
+    # rule anybody broke. RFC 7591 section 3 says the registration endpoint
+    # SHOULD allow requests with no authorization, and no MCP revision asks for
+    # a credential on it — 2026-07-28 deprecates the mechanism without ever
+    # requiring one. So the finding is not "this server is wrong", it is "anyone
+    # can obtain a client id here", which changes what a client id is worth as
+    # evidence of anything and is why it is reported at all. CWE-1188 rather
+    # than a missing-authorization CWE for the same reason: the default is
+    # permissive by design, and whether that suits the deployment is the
+    # operator's call. Scored beneath TOOL_ENUMERATION at 5.3, which at least
+    # discloses something the policy said to withhold.
     VulnClass.OPEN_REGISTRATION: Taxon(
-        cwe="CWE-862",
-        cwe_name="Missing Authorization",
-        owasp_api="API2:2023 Broken Authentication",
-        security_severity="7.3",
-        help_uri="https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/",
+        cwe="CWE-1188",
+        cwe_name="Insecure Default Initialization of Resource",
+        owasp_api="API8:2023 Security Misconfiguration",
+        security_severity="3.1",
+        help_uri="https://owasp.org/API-Security/editions/2023/en/0xa8-security-misconfiguration/",
     ),
 }
 
@@ -93,7 +97,9 @@ HELP = {
         "requested.",
     VulnClass.OPEN_REGISTRATION:
         "An MCP server's authorization server registered a client for a caller "
-        "that presented no credential.",
+        "that presented no credential. RFC 7591 permits this; it is reported as "
+        "a property of the deployment, not as a violation, and does not fail a "
+        "default gate.",
 }
 
 
