@@ -343,7 +343,12 @@ class Matrix(BaseModel):
             return tuple(values)
 
         if injections:
-            resolved = [v for v in map(_object_values, self.subjects) if v is not None]
+            holders: Dict[tuple, List[str]] = {}
+            for subject in self.subjects:
+                values = _object_values(subject)
+                if values is not None:
+                    holders.setdefault(values, []).append(subject.name)
+            resolved = [values for values, names in holders.items() for _ in names]
             if not resolved:
                 attrs = sorted({inj.owner_attr or res.owner_attr for inj in injections})
                 problems.append(Problem(
@@ -363,6 +368,26 @@ class Matrix(BaseModel):
                     f"can be generated; give at least two subjects distinct objects",
                     Severity.WARNING,
                 ))
+            else:
+                # Some subjects share an object and at least one other does
+                # not. The planner drops the probe between the sharers — it
+                # would repeat a subject's own request — and each of them is
+                # pointed at the differing subject's object instead. The
+                # resource is still probed, so nothing else reports this: the
+                # coverage figure is complete and the plan looks full, while
+                # the pair the author most likely meant to test against each
+                # other never meet.
+                for values, names in holders.items():
+                    if len(names) < 2:
+                        continue
+                    problems.append(Problem(
+                        f"object resource '{res.name}': {', '.join(names)} resolve to "
+                        f"the same object ({', '.join(values)}), so none of them is "
+                        f"probed against another — each one's cross-owner probe goes "
+                        f"to a different subject's object instead; give them distinct "
+                        f"objects if they are meant to be tested against each other",
+                        Severity.WARNING,
+                    ))
         return problems
 
 
