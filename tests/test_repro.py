@@ -6,11 +6,13 @@ detail that produced it, with secrets masked so a report can be shared safely.
 import os
 import shlex
 
+import pytest
+
 from overstep.classifier import classify
 from overstep.matrix import Matrix
 from overstep.models import Effect, Observation, Subject, VulnClass
 from overstep.planner import plan
-from overstep.repro import credential_values, mask_headers, redact, to_curl
+from overstep.repro import credential_values, mask_headers, redact, safe_url, to_curl
 
 
 def _matrix() -> Matrix:
@@ -363,3 +365,31 @@ def test_a_drift_finding_carries_sanitized_evidence():
     assert drift, "the fixture must produce drift findings to inspect"
     for finding in result.findings:
         assert "supersecret" not in finding.model_dump_json()
+
+
+# --- URLs that carry their own credentials -----------------------------------
+
+
+@pytest.mark.parametrize("url,expected", [
+    # The case this was written for: a proxy with basic auth.
+    ("http://ci-user:sup3rs3cret@proxy.internal:8080", "http://***@proxy.internal:8080"),
+    # A username with no password still identifies somebody.
+    ("http://ci-user@proxy.internal:8080", "http://***@proxy.internal:8080"),
+    # A declared target can carry one just as easily.
+    ("https://u:p@api.example/mcp?x=1", "https://***@api.example/mcp?x=1"),
+])
+def test_a_url_keeps_its_host_and_loses_its_credentials(url, expected):
+    assert safe_url(url) == expected
+
+
+@pytest.mark.parametrize("url", [
+    "http://proxy.internal:8080",
+    "https://api.example/mcp",
+    "stdio: ./server.py",
+    "",
+    # Not a URL at all. Returned as given: it was never credential-bearing, and
+    # mangling it would cost the operator the typo they need to see.
+    "not a url @ all",
+])
+def test_a_url_with_nothing_to_hide_is_returned_as_given(url):
+    assert safe_url(url) == url

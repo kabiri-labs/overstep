@@ -48,6 +48,7 @@ from overstep.pipeline import (
 )
 from overstep.planner import plan
 from overstep.report import summarize
+from overstep.repro import safe_url
 from overstep.report.base import defects
 from overstep.waivers import WaiverError, load_waivers
 
@@ -1079,7 +1080,9 @@ def _setting_rows(
     if net.delay:
         rows.append(("delay", f"{net.delay:g}s"))
     if net.proxy:
-        rows.append(("proxy", net.proxy))
+        # A proxy URL may carry credentials in its userinfo, and this block is
+        # the one people copy into tickets. The host is what a reader needs.
+        rows.append(("proxy", safe_url(net.proxy)))
     if max_retries:
         rows.append(("max-retries", str(max_retries)))
     if insecure:
@@ -1126,7 +1129,10 @@ def _print_configuration(result: RunResult, spec, settings: List[Tuple[str, str]
     rows: List[Tuple[str, str]] = [
         ("overstep", str(info["overstep_version"])),
         ("matrix", str(info["matrix"] or "-")),
-        ("targets", ", ".join(str(t) for t in info["targets"]) or "-"),
+        # Same treatment as the proxy: a declared server URL may carry
+        # credentials too, and nothing recognises them as secrets because they
+        # arrived inside a URL rather than as a `token:`.
+        ("targets", ", ".join(safe_url(str(t)) for t in info["targets"]) or "-"),
         ("started", str(info["started_at"])),
     ]
     if info["read_only"]:
