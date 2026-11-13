@@ -57,12 +57,24 @@ the payload with the standard library; no dependency was added, and nothing here
 verifies a signature or implies that it does. Claims are evidence for the
 attribution note and never decide an access finding.
 
-**`validate` lints the chain.** An unknown delegator or actor, a delegation of a
-subject to itself, a grant provider that does not exist or is not a token
-exchange, an actor that also declares its own credential, and a `denied`
-resource that does not exist are each errors. A chain with nothing denied is a
-warning: legitimate if you only want the actor claim checked, and worth knowing
-it tests no boundary.
+**`validate` lints the chain, and the lint is where this change spent its
+review.** Errors: an unknown delegator or actor; a subject delegated to itself;
+a grant provider that does not exist or is not a token exchange; a `denied`
+resource that does not exist; a chain with nothing denied, because the probes
+*are* the resources it names and one naming none sends nothing; an actor that
+also carries a credential of its own; and two chains delegating to the same
+actor.
+
+The last two are the ones worth reading twice. A credential lives in three
+places and the check first looked at two: an `Authorization` the subject set
+takes precedence over its token at request time, so an actor with one would have
+had its exchange succeed, its probe go out carrying the *original* credential,
+and the finding reported against the delegated one — wrong in both directions.
+It is checked against `SECRET_HEADERS` now rather than a hand-written list,
+because `x-api-key` is the same hole. And two chains naming one actor passed
+every other check and then overwrote each other's token, so every probe went out
+with whichever was minted last while still reporting under its own chain's
+name — attributing one delegation's access to another.
 
 ### Changed
 
