@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.13.2] - 2026-11-13
+
+The second half of the positioning change. The README led with MCP from 1.12.0;
+the places a project is actually found still led with REST.
+
+### Changed
+
+**One canonical sentence, and it opens with MCP.** `pyproject.toml`'s
+`description`, the `Dockerfile`'s OCI image description and the repo-description
+copy in `ABOUT.md` carry it verbatim, as they always have — the point of pinning
+them to each other is that a PyPI page and an `overstep --help` cannot describe
+two different tools, which they once did. `tests/test_positioning.py`'s
+`CANONICAL` moved with them, which is the deliberate edit that test's docstring
+asks for.
+
+**The short forms lead with MCP and still name REST.** The CLI's `--help` and
+the package docstring now read "authorization testing for MCP servers, and the
+REST API behind one". Naming both is not a nicety: `test_positioning` requires
+every short-form surface to name both surfaces, because a description that names
+one tells half its readers the tool is not for them — and REST is load-bearing
+for a real MCP engagement, not a legacy row.
+
+**PyPI keywords lead with MCP.** `mcp`, `model-context-protocol`,
+`mcp-security` and `mcp-server` come first; `rest`, `dast` and the class names
+follow. PyPI search is where most people meet a project, so the order is part of
+the claim. `mcp` and `model-context-protocol` were already at the end of the
+list and are no longer there twice.
+
+Nothing about what is tested or how a result is judged changed, so this is a
+patch release.
 ## [1.13.1] - 2026-11-13
 
 A guard over the documents themselves, and the fifth leak it found on the way in.

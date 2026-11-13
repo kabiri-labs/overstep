@@ -4,17 +4,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "overstep"
-version = "1.13.1"
-description = "Authorization testing for REST APIs and MCP servers. Declare who may do what as a matrix, and overstep turns it into positive and negative tests that catch BOLA, BFLA, BOPLA and privilege escalation — with drift baselines, confidence grading and CWE/OWASP-tagged SARIF for CI."
+version = "1.13.2"
+description = "Authorization testing for MCP servers. Declare who may invoke which tool and reach which object, and overstep turns it into positive and negative tests that catch BOLA, BFLA and privilege escalation — including the REST API behind the server, with drift baselines and CWE/OWASP-tagged SARIF for CI."
 authors = [{name = "Ahmad Kabiri"}]
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
 keywords = [
+    "mcp", "model-context-protocol", "mcp-security", "mcp-server",
     "security", "appsec", "devsecops", "authorization", "authorization-testing",
     "access-control", "broken-access-control", "api-security", "rest", "dast",
     "bola", "idor", "bfla", "bopla", "privilege-escalation",
-    "mcp", "model-context-protocol", "owasp", "sarif", "ci",
+    "owasp", "sarif", "ci",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
