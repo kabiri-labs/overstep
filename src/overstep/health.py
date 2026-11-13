@@ -176,18 +176,26 @@ def _unanswered_passthrough(
 ) -> List[str]:
     """Passthrough probes that were sent and could not decide anything.
 
-    This probe answers only when the canary's echo comes back through the tool
-    result. Three ways it does not: the call was refused, so the server never
-    reached the canary; it was allowed but returned no body to search; or the
-    body came back without the credential *and* without any sign the canary was
-    reached at all. The first two are silence, and silence here reads exactly
-    like a server that behaved correctly — which is the one thing a probe about
-    credential handling must never be mistaken for.
+    This probe answers only when the canary's own echo comes back through the
+    tool result. Three ways it does not, and all three are silence:
 
-    The third is not reported, deliberately. A body that came back and did not
-    contain the caller's credential is the specification being obeyed, and
-    calling that inconclusive would make the probe useless on every sound
-    server. The reason is raised only where nothing could have been seen.
+    * the call was refused, so the server never reached the canary — whatever
+      its error text happens to quote, and some quote the credential they could
+      not parse;
+    * it was allowed but returned no content at all, so there was nothing to
+      read;
+    * it was allowed and returned content that does not carry the canary's
+      marker, so whatever came back was not the canary's echo and says nothing
+      about what the server sent onward.
+
+    Silence here reads exactly like a server that behaved correctly, which is
+    the one thing a probe about credential handling must never be mistaken for.
+
+    What is *not* reported is the fourth outcome: the canary's marker came back
+    and the caller's credential did not. That is the specification being obeyed
+    — a server using a separate upstream token of its own — and calling it
+    inconclusive would make the probe useless against every target worth
+    keeping.
     """
     sent = {o.test_id: o for o in observations if not o.skipped}
     blind: List[str] = []
@@ -197,17 +205,24 @@ def _unanswered_passthrough(
         obs = sent.get(case.id)
         if obs is None or _never_delivered(obs):
             continue  # a delivery failure is already reported as one
+        lead = f"the token-passthrough probe for '{case.subject}'"
         if obs.effect == Effect.DENY:
             blind.append(
-                f"the token-passthrough probe for '{case.subject}' was refused by "
-                f"{case.resource} (status {obs.status}), so the server never called "
-                f"the canary and nothing was learned about what it forwards"
+                f"{lead} was refused by {case.resource} (status {obs.status}), so the "
+                f"server never called the canary and nothing was learned about what it "
+                f"forwards"
             )
         elif not (obs.full_body or obs.body_snippet):
             blind.append(
-                f"the token-passthrough probe for '{case.subject}' was allowed by "
-                f"{case.resource} but returned no content, so the canary's echo could "
-                f"not be read and nothing was learned about what it forwards"
+                f"{lead} was allowed by {case.resource} but returned no content, so the "
+                f"canary's echo could not be read and nothing was learned about what it "
+                f"forwards"
+            )
+        elif case.canary_marker and case.canary_marker not in obs.matched_markers:
+            blind.append(
+                f"{lead} was allowed by {case.resource} but the canary's marker was not "
+                f"in the result, so the server did not reach the canary and nothing was "
+                f"learned about what it forwards"
             )
     return blind
 

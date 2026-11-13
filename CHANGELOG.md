@@ -21,23 +21,35 @@ those apart rather than to flag every server that talks to an API, and there is
 a test for each direction.
 
 Nothing in the protocol reports what a server sent onward, so the matrix
-supplies the observation point. `modules.mcp.canary.upstream` takes three
-values and the probe refuses to run without all of them: a `url` you host which
-echoes back the request it received, the `resource` whose tool takes a URL, and
-the `argument` to put it in. The echo returns as the tool's result and the
-credential is found in it. A matrix that switches the probe on without the
-canary is refused at load; one pointing at a resource that is not a tool call,
-or at no resource at all, is an error from `validate`; one naming an argument
-the tool does not declare is a warning, because that is usually a typo and a
-probe that reaches no canary reports nothing.
+supplies the observation point. `modules.mcp.canary.upstream` takes four values
+and the probe refuses to run without all of them: a `url` you host which echoes
+back the request it received, the `resource` whose tool takes a URL, the
+`argument` to put it in, and a `marker` your canary includes in what it echoes.
+A matrix that switches the probe on without them is refused at load; one
+pointing at a resource that is not a tool call, or at no resource at all, is an
+error from `validate`; one naming an argument the tool does not declare is a
+warning, because that is usually a typo and a probe that reaches no canary
+reports nothing.
 
-A refused call, and one allowed but returning no content, are reported as
-**inconclusive** with the reason rather than as clean. The server never reached
-the canary in the first case and there was no echo to read in the second, and
-silence about credential handling must not read like a server that behaved. A
-body that came back *without* the credential in it is not inconclusive — that is
-the sound server, and saying otherwise would make the probe useless on every
-target worth keeping.
+Three things have to hold before it is a finding: the call was allowed, the
+canary's marker came back, and the caller's credential came back with it. The
+marker is what makes it a confirmation rather than a guess — a tool that
+reflects its arguments and headers to the caller returns the credential having
+called nothing, and some servers quote the credential they refused in their
+error text. Neither carries the marker.
+
+The other three outcomes are each something else. A refusal, an allowed call
+with no content, and an allowed call whose result does not carry the marker are
+reported as **inconclusive** with the reason, because silence about credential
+handling must not read like a server that behaved. The marker coming back
+*without* the credential is the sound server — a separate upstream token of its
+own — and is a clean pass; calling that inconclusive would make the probe
+useless on every target worth keeping.
+
+The probe also reaches for the caller's **own object**, so a canary pointed at
+an object-level tool is actually callable: built without that, it sent the
+template's empty owner argument and was refused before the server called
+anything, while the matrix held the caller's object id the whole time.
 
 Scored 8.7 and mapped to CWE-522, the highest in the MCP table and the only
 entry above the audience probe at 8.6. The comparison is the argument: an

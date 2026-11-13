@@ -292,12 +292,29 @@ def classify(
 
         if case.variant == Variant.PASSTHROUGH:
             # Like the enumeration probe, this one reports on what came back
-            # rather than on whether the call was permitted. A refusal teaches
-            # nothing — the server never got as far as calling upstream — and an
-            # allowed call that forwarded a credential of its own rather than
-            # the caller's is the specification being obeyed. Only the caller's
-            # own credential, found in the canary's echo, is the defect.
-            if not obs.matched_markers:
+            # rather than on whether the call was permitted. Three things have
+            # to hold before it is a finding, and each of the other outcomes is
+            # something else entirely:
+            #
+            # * the call was allowed. A refusal means the server never got as
+            #   far as calling upstream, whatever its error text happens to
+            #   quote — and some quote the credential they could not parse.
+            # * the canary's own marker came back. Without it the echo is not
+            #   the canary's, and a tool that reflects its own request would
+            #   otherwise read as a server forwarding a credential it never
+            #   sent anywhere.
+            # * and the caller's credential came back with it. A canary echo
+            #   carrying the server's own upstream token instead is the
+            #   specification being obeyed.
+            #
+            # The first two are reported as inconclusive by `overstep.health`,
+            # which is where "nothing was learned" belongs; the third is a clean
+            # pass. None of them is this finding.
+            if obs.effect != Effect.ALLOW:
+                continue
+            if case.canary_marker and case.canary_marker not in obs.matched_markers:
+                continue
+            if not [m for m in obs.matched_markers if m != case.canary_marker]:
                 continue
             findings.append(
                 Finding(
