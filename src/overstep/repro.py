@@ -15,7 +15,7 @@ import json
 import re
 import shlex
 from typing import Any, Dict, Iterable, Optional, Set
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode, urljoin, urlsplit, urlunsplit
 
 from overstep.models import SECRET_HEADERS as _SECRET_HEADERS
 from overstep.models import Observation, Subject, TestCase, drop_header
@@ -118,6 +118,35 @@ def credential_values(
                 add(value)
 
     return {v for v in values if len(v) >= _MIN_REDACTABLE}
+
+
+def safe_url(url: str) -> str:
+    """A URL with any credentials in its userinfo taken out.
+
+    `http://user:password@proxy:8080` is a legal proxy URL and httpx accepts it,
+    so an operator may well have one. It does not belong anywhere a URL gets
+    displayed: a CI log is retained, and the configuration block it appears in
+    exists to be copied into tickets.
+
+    Unlike :func:`redact` this needs no list of known secrets. The password is
+    not a value the run was told about — it arrived inside a URL — so nothing
+    could have recognised it, which is exactly why it has to be removed
+    structurally rather than matched.
+
+    The host and port survive, because which proxy was in the way is the part a
+    reader needs. A URL that does not parse comes back untouched: it was never a
+    credential-bearing URL in the first place, and mangling it would lose the
+    operator the typo they need to see.
+    """
+    if not url or "@" not in url:
+        return url
+    parts = urlsplit(url)
+    if not parts.username:
+        return url
+    host = parts.hostname or ""
+    if parts.port:
+        host = f"{host}:{parts.port}"
+    return urlunsplit((parts.scheme, f"{_MASK}@{host}", parts.path, parts.query, parts.fragment))
 
 
 def redact(text: str, secrets: Iterable[str]) -> str:

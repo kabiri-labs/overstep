@@ -190,3 +190,40 @@ def test_nothing_in_the_output_has_trailing_whitespace(mcp_run):
     ]
 
     assert offenders == [], offenders
+
+
+# --- what the review of this change turned up --------------------------------
+
+
+def test_a_proxy_credential_is_not_printed(tmp_path):
+    """`http://user:password@proxy:8080` is a legal proxy URL and httpx takes one.
+
+    The configuration block exists to be copied into tickets and it lands in
+    retained CI logs, so a password in it is a password published. Nothing could
+    have caught this by matching known secrets either: the value arrived inside
+    a URL, so the run was never told it was a credential.
+    """
+    out = tmp_path / "out"
+    with _Demo("rest") as demo:
+        output = demo.invoke(
+            "run", demo.matrix, "--out", str(out),
+            "--proxy", "http://ci-user:sup3rs3cret@proxy.internal:8080",
+        ).output
+
+    assert "sup3rs3cret" not in output
+    assert "ci-user" not in output
+    # The host survives: which proxy was in the way is what a reader needs.
+    assert "proxy.internal:8080" in _config(output)["proxy"]
+
+
+def test_a_credential_in_a_target_url_is_not_printed(tmp_path):
+    """The same hole one field over, and the same reason nothing caught it."""
+    out = tmp_path / "out"
+    with _Demo("rest") as demo:
+        output = demo.invoke(
+            "run", demo.matrix, "--out", str(out),
+            "--base", "http://u:p4ssw0rd@127.0.0.1:8000",
+        ).output
+
+    assert "p4ssw0rd" not in output
+    assert "127.0.0.1:8000" in _config(output)["targets"]

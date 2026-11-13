@@ -51,6 +51,18 @@ trusting, whichever way the verdict fell.
 the report path moved under Artifacts. Both are wording changes to terminal
 output; no exit code, document or key changed.
 
+### Fixed
+
+**A credential inside a URL is no longer printed.** `--proxy` accepts
+`http://user:password@proxy:8080` — httpx does, so an operator may well have
+one — and the configuration block printed it whole, into retained CI logs and
+into the one block the output invites people to copy into tickets. The same
+applies to a declared target: a `base_url` or server `url` may carry userinfo
+too. `overstep.repro.safe_url` removes it structurally and keeps the host,
+which is the part a reader needs. Note why matching could not have caught this:
+the password arrived inside a URL, so it was never a value the run was told was
+a credential, and `credential_values` had nothing to recognise.
+
 ## [1.11.0] - 2026-11-13
 
 The one conformance question the MCP authorization specification answers with a
