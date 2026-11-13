@@ -124,3 +124,44 @@ def test_the_readme_does_not_claim_delegation_chain_testing():
         )
         assert entry, f"'{term}' is not listed on the roadmap"
         assert "**planned**" in entry, f"'{term}' is on the roadmap without a planned marker"
+
+
+def test_the_readme_does_not_claim_upstream_credential_forwarding():
+    """The overclaim this test was written for, in the shape it arrived in.
+
+    The section explaining why an MCP engagement needs the API behind the server
+    was lifted from a change proposal, where its second item referred *forward*
+    to a probe that had not been built. Moved into the README, that forward
+    reference became a present-tense claim: that the conformance probes ask
+    whether the server leaks the caller's credential upstream. Nothing overstep
+    ships observes the server's outbound requests — `conformance.py` checks
+    metadata identity and anonymous registration, and the audience probe asks
+    whether *another* server accepts a credential, not whether this one forwards
+    it — so a server that does leak passes every check there is. The maturity
+    table could not catch it, because the claim was in prose.
+
+    Two halves, because either one alone rots. The capability stays on the
+    roadmap, and the paragraph that would otherwise imply coverage keeps saying
+    it has none.
+    """
+    text = _readme()
+    roadmap = text.split("## Roadmap", 1)
+    assert len(roadmap) == 2, "the README has no Roadmap section"
+
+    entry = next(
+        (
+            line
+            for line in roadmap[1].splitlines()
+            if line.startswith("| Token-passthrough detection")
+        ),
+        None,
+    )
+    assert entry, "token-passthrough detection is not listed on the roadmap"
+    assert "**planned**" in entry, (
+        "token-passthrough detection is on the roadmap without a planned marker"
+    )
+
+    assert "observes the server's outbound requests" in text, (
+        "the blast-radius paragraph no longer says overstep cannot see what the "
+        "server sends upstream; restore the disclaimer or implement the probe"
+    )
