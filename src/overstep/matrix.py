@@ -15,7 +15,14 @@ from typing import Dict, List, Literal, Optional, get_args
 
 import yaml
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    ValidationError,
+    model_validator,
+)
 
 from overstep.documents import DocumentError, read_yaml
 from overstep.interpolation import InterpolationError, interpolate
@@ -122,6 +129,79 @@ class McpConformance(BaseModel):
     open_registration: bool = False
 
 
+class DelegationGrant(BaseModel):
+    """How the delegated credential is obtained.
+
+    ``provider`` names an auth provider of type ``oauth2_token_exchange``.
+    ``scopes`` is what the delegation is *meant* to convey and goes out as the
+    RFC 8693 ``scope`` parameter — a request, not a guarantee: the RFC calls it
+    "desired" and places no obligation on the authorization server to grant it.
+    What it does require (section 2.2.1) is that the response carry ``scope``
+    whenever the issued scope differs from the requested one, which is how a run
+    can tell it was declined rather than honoured.
+
+    ``introspection`` is an RFC 7662 endpoint, used only to describe an opaque
+    credential in a finding. It never decides one: the response's ``scope`` is
+    optional, and an authorization server may limit which scopes it reports to
+    each caller, so what comes back is a description and not the token.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str
+    scopes: List[str] = Field(default_factory=list)
+    introspection: Optional[str] = None
+
+
+class DelegationExpect(BaseModel):
+    """What the operator says this delegation must not be able to do.
+
+    ``denied`` names resources, because that is a thing the matrix can evaluate.
+    The alternative — deriving the probe from scopes — needs a mapping from
+    OAuth scope to resource that this matrix does not have and that would make
+    the author restate in scope terms what the policy already says in role
+    terms. Naming them is also honest about where the finding's authority comes
+    from: RFC 8693 requires no attenuation at all, so the boundary being tested
+    is one the operator drew.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    denied: List[str] = Field(default_factory=list)
+    # Report when the delegated credential carries no RFC 8693 `act` claim.
+    # Off by default because its absence breaks no rule — issuing the claim is
+    # at the authorization server's discretion.
+    actor_claim: Literal["required", "ignored"] = "ignored"
+
+
+class Delegation(BaseModel):
+    """One user-to-agent delegation, and what it must not convey.
+
+    The run obtains the delegator's credential as it would for any subject, then
+    exchanges it for the actor's and writes that onto the actor subject. So the
+    actor's own `token`/`auth` is not used, and declaring one is refused: two
+    sources for one identity's credential is the kind of ambiguity that makes a
+    finding unattributable.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    delegator: str
+    actor: str
+    grant: DelegationGrant
+    expect: DelegationExpect = Field(default_factory=DelegationExpect)
+
+    # What the exchange actually granted, and whether the credential carried an
+    # actor claim. Private attributes rather than fields: they are filled by
+    # `overstep.auth` at run time from the authorization server's answer, and a
+    # declared field would make them keys somebody could write in a matrix and
+    # have silently overwritten.
+    _granted_scopes: List[str] = PrivateAttr(default_factory=list)
+    _scope_was_declined: bool = PrivateAttr(default=False)
+    _actor_claim_present: bool = PrivateAttr(default=False)
+
+
 class McpCanaryUpstream(BaseModel):
     """Where the token-passthrough probe can watch what the server sends on.
 
@@ -224,6 +304,7 @@ class McpModule(BaseModel):
     access: McpMatcher = Field(default_factory=McpMatcher)
     probes: McpProbes = Field(default_factory=McpProbes)
     canary: McpCanary = Field(default_factory=McpCanary)
+    delegation: List[Delegation] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _registration_probe_needs_a_canary(self) -> "McpModule":
@@ -740,6 +821,52 @@ class Matrix(BaseModel):
                     error(
                         f"policy for '{name}' allows unknown role '{rule.role}'"
                     )
+
+        # A wrong delegation block produces wrong results exactly as a wrong
+        # policy does, so every name in it is checked against what exists.
+        subject_names = {s.name for s in self.subjects}
+        resource_names = set(self.resource_map())
+        provider_types = {p.name: p.type for p in self.auth.providers}
+        for chain in self.modules.mcp.delegation:
+            where = f"modules.mcp.delegation '{chain.name}'"
+            for role, who in (("delegator", chain.delegator), ("actor", chain.actor)):
+                if who not in subject_names:
+                    error(f"{where} names unknown {role} subject '{who}'")
+            if chain.delegator == chain.actor:
+                error(
+                    f"{where} delegates '{chain.delegator}' to itself, so there is no "
+                    f"authority boundary to test"
+                )
+            if chain.grant.provider not in provider_types:
+                error(
+                    f"{where} grant references unknown auth provider "
+                    f"'{chain.grant.provider}'"
+                )
+            elif provider_types[chain.grant.provider] != "oauth2_token_exchange":
+                error(
+                    f"{where} grant provider '{chain.grant.provider}' is type "
+                    f"'{provider_types[chain.grant.provider]}'; a delegation needs "
+                    f"'oauth2_token_exchange', which is the grant that takes somebody "
+                    f"else's credential as its subject_token"
+                )
+            actor = next((s for s in self.subjects if s.name == chain.actor), None)
+            if actor is not None and (actor.token or actor.auth):
+                error(
+                    f"{where} makes '{chain.actor}' a delegated identity, but that "
+                    f"subject also declares its own token or auth provider — one "
+                    f"identity cannot have two credentials, and a finding against it "
+                    f"would not say which one reached the target"
+                )
+            for name in chain.expect.denied:
+                if name not in resource_names:
+                    error(f"{where} expect.denied names unknown resource '{name}'")
+            if not chain.expect.denied:
+                # Not an error: a chain declared only to check the actor claim is
+                # legitimate. But a reader should know it tests no boundary.
+                warn(
+                    f"{where} declares no expect.denied, so nothing about what the "
+                    f"delegation may reach is tested — only the actor claim, if asked"
+                )
 
         upstream = self.modules.mcp.canary.upstream
         if self.modules.mcp.probes.conformance.token_passthrough and upstream.complete:

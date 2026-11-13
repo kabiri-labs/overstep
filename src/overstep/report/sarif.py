@@ -15,7 +15,11 @@ _LEVEL = {"high": "error", "medium": "warning", "low": "note"}
 # The classes that are reported and never fail a default gate: an unexpected
 # denial is usually the matrix being wrong rather than the target, and an open
 # client registry is a deployment choice RFC 7591 section 3 permits.
-_NON_GATING = frozenset({VulnClass.UNEXPECTED_DENY, VulnClass.OPEN_REGISTRATION})
+_NON_GATING = frozenset({
+    VulnClass.UNEXPECTED_DENY,
+    VulnClass.OPEN_REGISTRATION,
+    VulnClass.DELEGATION_OPACITY,
+})
 
 _RULE_HELP = {
     VulnClass.BOLA: "Broken Object Level Authorization: a subject accessed an object it does not own.",

@@ -1,5 +1,84 @@
 # Changelog
 
+## [1.13.0] - 2026-11-13
+
+The last of the three delegation classes on the roadmap, and the two that
+needed saying plainly where their authority comes from. Read the
+specifications first this time: RFC 8693 does not require what the roadmap
+entry assumed it did.
+
+### Added
+
+**`delegation:` — a declared chain, and what it must not reach.** A user
+delegates to an agent; the question is whether the agent's authority shrank to
+what the delegation was meant to convey. Declare the delegator, the actor, a
+`grant` through an `oauth2_token_exchange` provider and an `expect.denied` list
+of resources, and overstep exchanges the delegator's credential for the actor's
+and probes each named resource as the actor. An object resource is probed at the
+*delegator's* object, because that is the interesting reach, and the delegator's
+`marker:` confirms a real read rather than a 200 with nothing in it. Reached is
+`scope-escalation`; refused is the pass.
+
+**`expect.denied` names resources rather than deriving them from scopes, and
+the reason is in the taxonomy comment.** RFC 8693 places no attenuation
+requirement on a token exchange: the word does not appear in it, and the `scope`
+parameter it defines is called a suggested mitigation in its security
+considerations. So the boundary this class tests is the operator's, not the
+specification's — which is what the finding's own detail sentence says. Deriving
+the probe from scopes would additionally have needed a scope-to-resource mapping
+this matrix does not have, and would have made an author restate in scope terms
+what their policy already says in role terms.
+
+**The exchange response is the oracle, not the request.** RFC 8693 section 2.2.1
+requires the response to carry `scope` whenever the issued scope differs from
+the requested one. An absent `scope` therefore means the request was honoured,
+and a present one is the authorization server saying what it actually granted —
+so the run reasons from what was issued. Where they differ the run reports it:
+the probes still mean something, but the chain they tested is narrower than the
+one written down, and a clean result would otherwise read as if the declared
+chain had been exercised.
+
+**`delegation-opacity` — nobody can say which agent acted.** Opt-in via
+`expect.actor_claim: required`, reported when the delegated credential carries
+no RFC 8693 `act` claim. Scored 3.1, written into SARIF as a note, left out of
+`RunResult.vulnerabilities` and failing no default gate, because issuing that
+claim is at the authorization server's discretion and its absence breaks no
+rule. The help text says it is an attribution defect rather than an exploit,
+because a reader meeting it in a report deserves to know which of the two they
+are looking at. Reported once per chain: it is a property of the credential, not
+of each probe.
+
+**`oauth2_token_exchange` provider type.** Sends `grant_type`, `subject_token`
+and `subject_token_type` per RFC 8693 section 2.1, with the delegation's
+`scopes` as the requested scope. It sends no `actor_token`, and therefore no
+`actor_token_type` — the RFC makes the type REQUIRED when the token is present
+and says it MUST NOT be included otherwise. The `act` claim is read by decoding
+the payload with the standard library; no dependency was added, and nothing here
+verifies a signature or implies that it does. Claims are evidence for the
+attribution note and never decide an access finding.
+
+**`validate` lints the chain.** An unknown delegator or actor, a delegation of a
+subject to itself, a grant provider that does not exist or is not a token
+exchange, an actor that also declares its own credential, and a `denied`
+resource that does not exist are each errors. A chain with nothing denied is a
+warning: legitimate if you only want the actor claim checked, and worth knowing
+it tests no boundary.
+
+### Changed
+
+**Two finding classes and one test-id variant were added; none was renamed.**
+`vuln_class` gained `scope-escalation` and `delegation-opacity`, and the third
+segment of a test id gained `delegated`. The golden diff is two new rules in
+each SARIF document and nothing else. `scope-escalation` gates like the access
+classes; `delegation-opacity` does not.
+
+**Delegation testing left the roadmap for the maturity table**, and the test
+that held it on the roadmap was inverted rather than deleted — as the
+token-passthrough one was before it. What is still missing is on the roadmap in
+its own words: re-checking a delegated credential at a *downstream* hop rather
+than at the callee overstep talks to. The non-goal now says one hop is tested
+and the other is not, instead of saying neither is.
+
 ## [1.12.0] - 2026-11-13
 
 What a run prints. The numbers were right and the output around them was not

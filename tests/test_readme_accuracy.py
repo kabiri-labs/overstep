@@ -56,6 +56,7 @@ IMPLEMENTED_CAPABILITIES = {
     "metadata-identity conformance probe": "metadata_identity",
     "open-registration conformance probe": "open_registration",
     "token-passthrough conformance probe": "token_passthrough",
+    "delegation-chain and scope-attenuation testing": "expect.denied",
     "stdio transport": "stdio",
     "OAuth discovery": "discover_from",
 }

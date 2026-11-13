@@ -63,6 +63,39 @@ TAXONOMY = {
         security_severity="7.5",
         help_uri="https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/",
     ),
+    # A delegated credential that reached further than the delegation declared.
+    # CWE-269 because the defect is a privilege that was supposed to shrink and
+    # did not. Scored level with BOLA's band rather than above it: what was
+    # reached is one resource, and the reach is bounded by whatever the
+    # delegator could do in the first place — unlike a leaked credential, this
+    # one buys no new issuer-wide replay. The authority for the finding is the
+    # operator's declaration and the comment says so twice on purpose: RFC 8693
+    # places no attenuation requirement on a token exchange, the word does not
+    # appear in it, and its `scope` parameter is a "suggested" mitigation in the
+    # security considerations. That makes this a policy-conformance class, like
+    # BOLA, and it gates for the same reason BOLA does.
+    VulnClass.SCOPE_ESCALATION: Taxon(
+        cwe="CWE-269",
+        cwe_name="Improper Privilege Management",
+        owasp_api="API5:2023 Broken Function Level Authorization",
+        security_severity="8.4",
+        help_uri="https://owasp.org/API-Security/editions/2023/en/0xa5-broken-function-level-authorization/",
+    ),
+    # Nobody can say which agent acted. CWE-778 rather than an access CWE
+    # because nothing was reached: this is the record, not the door. The lowest
+    # score here alongside the open registry, and it never gates — RFC 8693
+    # defines the `act` claim and leaves issuing it to the authorization
+    # server's discretion, so its absence breaks no rule. It is reported only
+    # when the matrix asks for it, and the help text says plainly that it is an
+    # attribution defect rather than an exploit, because a reader who meets it
+    # in a report deserves to know which of the two they are looking at.
+    VulnClass.DELEGATION_OPACITY: Taxon(
+        cwe="CWE-778",
+        cwe_name="Insufficient Logging",
+        owasp_api="API8:2023 Security Misconfiguration",
+        security_severity="3.1",
+        help_uri="https://owasp.org/API-Security/editions/2023/en/0xa8-security-misconfiguration/",
+    ),
     # The highest score in this table, and the only one above TOKEN_AUDIENCE at
     # 8.6. The two are close relatives and the comparison is the whole argument:
     # an audience failure means the server accepted a credential it should have
@@ -111,6 +144,14 @@ HELP = {
         "An MCP server served OAuth metadata naming an identifier that was not "
         "its own, so the discovery chain was refused before any credential was "
         "requested.",
+    VulnClass.SCOPE_ESCALATION:
+        "A credential obtained by delegation reached something the delegation "
+        "declared it must not. RFC 8693 requires no attenuation of an exchanged "
+        "token, so the boundary is the one the matrix drew.",
+    VulnClass.DELEGATION_OPACITY:
+        "A delegated credential carries no actor claim, so a record of the call "
+        "cannot say which agent made it. An attribution defect, not an exploit; "
+        "it does not fail a default gate.",
     VulnClass.TOKEN_PASSTHROUGH:
         "An MCP server forwarded the caller's own credential to an upstream API. "
         "The authorization specification requires it to use a separate token of "
