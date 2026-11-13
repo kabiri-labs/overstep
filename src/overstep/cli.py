@@ -62,7 +62,7 @@ FAIL_ON_CHOICES = ("vuln", "drift", "vuln-or-drift", "any", "never")
 EXIT_INCONCLUSIVE = 3
 
 app = typer.Typer(
-    help="overstep — authorization testing for REST APIs and MCP servers.",
+    help="overstep — authorization testing for MCP servers, and the REST API behind one.",
     add_completion=False,
 )
 console = Console()

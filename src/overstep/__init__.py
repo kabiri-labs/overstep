@@ -1,4 +1,4 @@
-"""overstep — authorization testing for REST APIs and MCP servers.
+"""overstep — authorization testing for MCP servers, and the REST API behind one.
 
 Authorization is one problem class: does the callee verify that this caller may
 perform this action on this object? REST and MCP are two surfaces on which it
@@ -22,7 +22,7 @@ The public API mirrors the pipeline stages, so an embedding application can do::
         raise SystemExit(1)
 """
 
-__version__ = "1.13.1"
+__version__ = "1.13.2"
 
 from overstep.auth import authenticate
 from overstep.matrix import Matrix, Problem, Severity, load_matrix

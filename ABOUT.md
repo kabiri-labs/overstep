@@ -7,10 +7,10 @@ running target, reporting every one that should have been refused and wasn't.
 REST APIs and MCP servers are two surfaces it covers through the same matrix.
 
 **About (repo description):**
-Authorization testing for REST APIs and MCP servers. Declare who may do what as a
-matrix, and overstep turns it into positive and negative tests that catch BOLA,
-BFLA, BOPLA and privilege escalation — with drift baselines, confidence grading
-and CWE/OWASP-tagged SARIF for CI.
+Authorization testing for MCP servers. Declare who may invoke which tool and
+reach which object, and overstep turns it into positive and negative tests that
+catch BOLA, BFLA and privilege escalation — including the REST API behind the
+server, with drift baselines and CWE/OWASP-tagged SARIF for CI.
 
 **Short description:**
 Authorization is the check a callee makes before it acts: *may this caller

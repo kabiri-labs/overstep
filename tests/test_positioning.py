@@ -33,10 +33,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # one of them, so that changing it is a deliberate edit to a test and not a
 # silent drift in whichever file happened to be touched first.
 CANONICAL = (
-    "Authorization testing for REST APIs and MCP servers. Declare who may do "
-    "what as a matrix, and overstep turns it into positive and negative tests "
-    "that catch BOLA, BFLA, BOPLA and privilege escalation — with drift "
-    "baselines, confidence grading and CWE/OWASP-tagged SARIF for CI."
+    "Authorization testing for MCP servers. Declare who may invoke which tool "
+    "and reach which object, and overstep turns it into positive and negative "
+    "tests that catch BOLA, BFLA and privilege escalation — including the REST "
+    "API behind the server, with drift baselines and CWE/OWASP-tagged SARIF "
+    "for CI."
 )
 
 # GitHub truncates a repository description past this, and the PyPI summary is a
