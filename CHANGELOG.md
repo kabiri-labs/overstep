@@ -51,6 +51,18 @@ trusting, whichever way the verdict fell.
 the report path moved under Artifacts. Both are wording changes to terminal
 output; no exit code, document or key changed.
 
+**The README leads with how to use the tool.** It had grown to 1407 lines in
+release order, and the reader met four sections of argument before `Install`:
+there was no quick start anywhere in it. It is 704 lines now and opens on five
+commands from nothing to a result, then the matrix, then a recipe per common
+scenario — an OAuth-protected remote server, a local stdio server, one matrix
+across MCP and the API behind it, gating a pull request, running part of the
+matrix. Reading the output comes next, then the probes, then reference tables,
+and the arguments for why any of this works the way it does moved to the end,
+cut to their conclusions. Nothing testable was dropped: the maturity table, the
+command and flag references, the finding taxonomy and every fail-open caveat are
+intact, and the five test modules that hold the document to the code still do.
+
 ### Fixed
 
 **A credential that arrived inside a URL no longer reaches any output.**
