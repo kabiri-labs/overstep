@@ -259,3 +259,55 @@ def test_one_positive_control_is_what_restores_the_credential_check():
 
     assert health.inconclusive
     assert any("expected-allow" in reason for reason in health.reasons)
+
+
+def test_the_readme_states_what_read_only_does_not_skip():
+    """The qualification a "make it shorter" pass takes with it.
+
+    `--read-only` reaches test dispatch and nothing else:
+    `pipeline._execute_stages` calls the setup and teardown runners without it,
+    and `fixtures.run_setup` / `run_teardown` have no such parameter to honour.
+    So a matrix with mutating `setup:` steps still writes under the flag. The
+    README said so, the 1.12.0 rewrite compressed it out, and review caught it —
+    which is the fourth safety caveat in that document to go missing in a
+    shortening pass and the third to be restored because a test like this one
+    failed.
+
+    It matters more than the wording suggests: somebody following the
+    narrowed-run recipe against a deployment they care about reads "skips every
+    mutating operation" and believes nothing writes.
+    """
+    # Unwrapped first: the document is hard-wrapped, so any phrase long enough
+    # to be worth asserting on has a newline somewhere in the middle of it.
+    text = " ".join(_read("README.md").split())
+
+    match = re.search(
+        r"does \*\*not\*\* skip `setup:` and `teardown:` steps(.{0,160})", text
+    )
+    assert match, (
+        "the README no longer says --read-only leaves setup and teardown running"
+    )
+    assert "change state" in match.group(1)
+
+    assert "reads the declaration, not the target" in text, (
+        "the README no longer says a tool declared non-mutating is sent anyway"
+    )
+
+
+def test_read_only_really_does_not_reach_the_fixture_runners():
+    """And the claim is checked against the code, not just present in prose.
+
+    Asserted on the signatures rather than by running a matrix: a runner that
+    cannot accept the flag cannot be honouring it, whatever the call site looks
+    like. If either grows a `read_only` parameter, this fails and the README
+    paragraph above is the thing to revisit.
+    """
+    import inspect
+
+    from overstep.fixtures import run_setup, run_teardown
+
+    for runner in (run_setup, run_teardown):
+        assert "read_only" not in inspect.signature(runner).parameters, (
+            f"{runner.__name__} now takes read_only; the README says it does not "
+            f"honour the flag"
+        )
