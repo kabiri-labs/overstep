@@ -2,7 +2,7 @@
 
 **Authorization testing for MCP servers. Declare who may invoke which tool and reach which object, and overstep proves whether the server enforces it — including the REST API behind the server, in the same run.**
 
-![Version](https://img.shields.io/badge/version-1.11.0-blue)
+![Version](https://img.shields.io/badge/version-1.12.0-blue)
 [![CI](https://github.com/kabiri-labs/overstep/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kabiri-labs/overstep/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -353,22 +353,49 @@ overstep run examples/mcp_api/matrix.yaml --out out
 ```
 
 ```
- Tests run                            27
- Positive / negative   8 / 15 (+4 listing)
- Vulnerabilities           16 (7 defects)
-   BOLA                                4
-   privilege-escalation                5
-   session-hijack                      3
-   tool-enumeration                    4
- Object resources probed             2/2
-Defects (7) — one line per thing to fix:
-  privilege-escalation  tools/call list_all_users  as alice, anon, bob  (high, confirmed)
-  session-hijack  tools/list docs  as alice, bob, root  (high, confirmed)
-  BOLA  resources/read doc://acme/{doc_id}  as alice, bob  (high, confirmed)
-  BOLA  tools/call read_document  as alice, bob  (high, confirmed)
-  privilege-escalation  resources/read doc://acme/{doc_id}  as anon  (high, confirmed)
-  privilege-escalation  tools/call read_document  as anon  (high, confirmed)
-  tool-enumeration  tools/list docs  as alice, bob  (medium, confirmed)
+overstep 1.12.0
+authorization testing for MCP servers
+
+Configuration ──────────────────────────────────────────────────
+  overstep     1.12.0
+  matrix       examples/mcp_api/matrix.yaml
+  targets      http://127.0.0.1:9000/mcp
+  started      2026-11-13T07:12:47+00:00
+  fail-on      vuln
+  concurrency  10
+  timeout      15s
+  max-retries  2
+  probes       token-audience, session-binding, tool-enumeration,
+               metadata-identity
+
+Warnings ───────────────────────────────────────────────────────
+  none
+
+Results ────────────────────────────────────────────────────────
+  planned  27 tests from 4 subjects × 4 resources
+   Tests run                            27
+   Positive / negative   8 / 15 (+4 listing)
+   Vulnerabilities           16 (7 defects)
+     BOLA                                4
+     privilege-escalation                5
+     session-hijack                      3
+     tool-enumeration                    4
+   Object resources probed             2/2
+  Defects (7) — one line per thing to fix:
+    privilege-escalation  tools/call list_all_users  as alice, anon, bob  (high, confirmed)
+    session-hijack  tools/list docs  as alice, bob, root  (high, confirmed)
+    BOLA  resources/read doc://acme/{doc_id}  as alice, bob  (high, confirmed)
+    BOLA  tools/call read_document  as alice, bob  (high, confirmed)
+    privilege-escalation  resources/read doc://acme/{doc_id}  as anon  (high, confirmed)
+    privilege-escalation  tools/call read_document  as anon  (high, confirmed)
+    tool-enumeration  tools/list docs  as alice, bob  (medium, confirmed)
+
+Health ─────────────────────────────────────────────────────────
+  conclusive — the run was in a position to see findings
+  27 requests sent, 0 never delivered; 8/8 expected-allow allowed
+
+Artifacts ──────────────────────────────────────────────────────
+  reports  out/
 ```
 
 Its matrix is the one above with a second door added — the resource URI — so the
@@ -412,6 +439,21 @@ rows appear in `plan` alongside the declared ones:
 │ deny  │ function │ tools/list docs │ alice (user) │ session   │
 │ allow │ function │ tools/list docs │ alice (user) │ enumerate │
 ```
+
+Every run prints the same five sections in the same order, because the reader is
+usually somebody scrolling a CI log days later with one of five questions:
+
+| Section | Answers |
+|---|---|
+| Configuration | what ran — version, matrix, targets, and every setting that could change the numbers, including which optional probes were on |
+| Warnings | what the matrix itself complained about, and anything teardown had to report |
+| Results | what was found: the counts, then one line per thing to fix |
+| Health | whether the run is worth believing, with the request and credential counts behind the verdict — printed whichever way it goes |
+| Artifacts | where the documents went |
+
+The Configuration block reads the same metadata the documents open with, so a
+pasted terminal log and a `findings.json` cannot disagree about what was tested.
+`NO_COLOR` is honoured and nothing is drawn in colour alone.
 
 Reports land in `out/`:
 
@@ -494,16 +536,18 @@ overstep run examples/rest_api/matrix.yaml --out out
 ```
 
 ```
- Tests run                            18
- Positive / negative               7 / 11
- Vulnerabilities            8 (3 defects)
-   BOLA                                2
-   privilege-escalation                6
- Object resources probed             2/2
-Defects (3) — one line per thing to fix:
-  privilege-escalation  DELETE /users/{id}  as alice, bob  (high, confirmed)
-  privilege-escalation  GET /admin/users  as alice, bob  (high, confirmed)
-  BOLA  GET /users/{id}  as alice, bob  (high, unverified)
+Results ────────────────────────────────────────────────────────
+  planned  18 tests from 4 subjects × 3 resources
+   Tests run                            18
+   Positive / negative               7 / 11
+   Vulnerabilities            8 (3 defects)
+     BOLA                                2
+     privilege-escalation                6
+   Object resources probed             2/2
+  Defects (3) — one line per thing to fix:
+    privilege-escalation  DELETE /users/{id}  as alice, bob  (high, confirmed)
+    privilege-escalation  GET /admin/users  as alice, bob  (high, confirmed)
+    BOLA  GET /users/{id}  as alice, bob  (high, unverified)
 ```
 
 Eight probes got through, tracing back to **three** distinct defects — one line per

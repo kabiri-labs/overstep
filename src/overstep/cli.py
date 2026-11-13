@@ -18,11 +18,12 @@ Commands:
 from __future__ import annotations
 
 import os
-from typing import List, Optional
+from typing import List, Optional, Sequence, Tuple
 
 import typer
 from rich.console import Console
 from rich.markup import escape
+from rich.padding import Padding
 from rich.table import Table
 
 from overstep import __version__, netopts
@@ -148,7 +149,9 @@ def _diagnose(matrix_path: str, spec: Matrix, base: Optional[str] = None) -> lis
     return scan_placeholders(matrix_path, ignore=ignore) + spec.diagnose()
 
 
-def _report_problems(problems: list[Problem]) -> list[str]:
+def _report_problems(
+    problems: list[Problem], *, defer_warnings: Optional[list[str]] = None
+) -> list[str]:
     """Print every diagnostic and return the error-level ones as strings.
 
     The return value is what reaches the health verdict, so the split matters.
@@ -156,13 +159,24 @@ def _report_problems(problems: list[Problem]) -> list[str]:
     legitimate file with a gap worth knowing about — while an error describes
     one that cannot answer the question it was written to ask. Only the second
     voids the run, and the strings are what :mod:`overstep.health` quotes back.
+
+    ``defer_warnings`` collects the warnings instead of printing them, for a
+    caller that has a Warnings section to put them in. An error is still printed
+    where it is found, because it stops the run then and there and there will be
+    no sections. Without this, `run` printed its matrix warnings above the
+    banner and then headed an empty Warnings section with "none" — the warnings
+    were in the output twice as far as the reader was concerned, which is to say
+    nowhere they would look.
     """
     errors: list[str] = []
     for problem in problems:
-        level = "bold red" if problem.severity is Severity.ERROR else "yellow"
-        console.print(f"[{level}]{problem.severity.value}:[/] {problem}")
         if problem.severity is Severity.ERROR:
+            console.print(f"[bold red]{problem.severity.value}:[/] {problem}")
             errors.append(str(problem))
+        elif defer_warnings is not None:
+            defer_warnings.append(str(problem))
+        else:
+            console.print(f"[yellow]{problem.severity.value}:[/] {problem}")
     return errors
 
 
@@ -274,6 +288,7 @@ def run(
     ),
 ):
     """Run the matrix against a live target and write reports."""
+    _banner()
     _validate_fail_on(fail_on)
     _network(ctx, timeout, proxy, delay)
 
@@ -295,8 +310,15 @@ def run(
     spec = _load(matrix, env_file)
     # Said, and acted on, before the first request goes out: the file is the
     # only place that says which line to edit, and a matrix with an error in it
-    # sends nothing at all.
-    _refuse_on_errors(_report_problems(_diagnose(matrix, spec, base)), "not run")
+    # sends nothing at all. Warnings are held back for the Warnings section —
+    # they do not stop anything, and one place for them is the point.
+    matrix_warnings: List[str] = []
+    _refuse_on_errors(
+        _report_problems(
+            _diagnose(matrix, spec, base), defer_warnings=matrix_warnings
+        ),
+        "not run",
+    )
 
     base_url = _resolve(spec, base)
 
@@ -333,28 +355,48 @@ def run(
     # Anchor SARIF findings to the matrix file they came from.
     result.source = matrix
 
-    for warning in result.warnings:
-        console.print(f"[yellow]warning:[/] {warning}")
+    _section("Configuration")
+    _print_configuration(result, spec, _setting_rows(
+        spec,
+        fail_on=fail_on,
+        concurrency=concurrency,
+        max_retries=max_retries,
+        insecure=insecure,
+        baseline=baseline,
+        waivers=waivers,
+    ))
 
+    _section("Warnings")
+    _print_warnings(matrix_warnings, result.warnings)
+
+    _section("Results")
     console.print(
-        f"[bold]Planned[/] {result.planned_tests} tests "
+        f"  [dim]planned[/]  {result.planned_tests} tests "
         f"from {len(spec.subjects)} subjects × {len(spec.resources)} resources"
     )
     _print_partial(result)
     write_reports(result, out)
     _print_summary(result)
     _print_findings(result)
-    # Never wrapped: rich breaks a long line at the terminal width, which lands
-    # in the middle of a path and leaves nothing a reader can copy.
-    console.print(f"Reports written to [bold]{escape(out)}/[/]", soft_wrap=True)
 
+    _section("Health")
     # An inconclusive run has no findings for the wrong reason, so its exit code
     # must not depend on --fail-on: reporting "clean" here is exactly the
-    # fail-open a security gate cannot afford.
+    # fail-open a security gate cannot afford. The verdict is printed in this
+    # section whichever way it goes, because "this run is worth believing" is a
+    # result and an empty space is not.
     if result.health.inconclusive:
         _print_inconclusive(result.health)
-        if not allow_inconclusive:
-            raise typer.Exit(code=EXIT_INCONCLUSIVE)
+    else:
+        _print_conclusive(result.health)
+
+    _section("Artifacts")
+    # Never wrapped: rich breaks a long line at the terminal width, which lands
+    # in the middle of a path and leaves nothing a reader can copy.
+    console.print(f"  reports  [bold]{escape(out)}/[/]", soft_wrap=True)
+
+    if result.health.inconclusive and not allow_inconclusive:
+        raise typer.Exit(code=EXIT_INCONCLUSIVE)
 
     raise typer.Exit(code=_exit_code(result, fail_on))
 
@@ -389,6 +431,7 @@ def snapshot(
     Uses the same orchestration as ``run`` (transport dispatch + teardown), so
     HTTP, MCP and mixed matrices all snapshot correctly.
     """
+    _banner()
     _network(ctx, timeout, proxy, delay)
     spec = _load(matrix, env_file)
     # A baseline is what every later run is measured against, so a matrix with
@@ -936,7 +979,13 @@ def _print_summary(result: RunResult) -> None:
     _add_coverage_row(table, result.coverage)
     _add_delivery_row(table, result.health)
     _add_skipped_row(table, result)
-    console.print(table)
+    # Padded to the section's indent. The table is the one piece of
+    # box-drawing in the output and it has to look placed rather than
+    # dropped in.
+    # `expand=False` so the padding does not stretch the table to the terminal
+    # width: expanded, every row picks up trailing spaces, and trailing spaces
+    # in a CI log are noise in every diff that log ever appears in.
+    console.print(Padding(table, (0, 0, 0, 2), expand=False))
     _print_unprobed(result.coverage)
     _print_skipped(result)
 
@@ -963,6 +1012,158 @@ def _trace(case, observation) -> None:
         soft_wrap=True,
         highlight=False,
     )
+
+
+# --- the shape of a run's output ---------------------------------------------
+#
+# Five sections, always in this order, always under these names. The first
+# reader of most of this output is somebody scrolling a CI log days later with
+# one of five questions: what ran, what the matrix complained about, what was
+# found, whether the run is worth believing, and where the documents went.
+#
+# Before this they were interleaved. Warnings came out before anything that gave
+# them context, "Reports written to" sat between the findings and the verdict on
+# whether the findings meant anything, and nothing anywhere said which version
+# or which settings had produced any of it — so a pasted log could not be
+# reproduced, and a reader could not tell a full run from one narrowed to a
+# single resource with `--read-only` on.
+#
+# Configuration is deliberately `key: value` lines rather than a table. Somebody
+# will grep it, and the run metadata half of it is the same dict the documents
+# record, so the terminal and `findings.json` cannot drift apart about what was
+# tested.
+
+SECTION_ORDER = ("Configuration", "Warnings", "Results", "Health", "Artifacts")
+
+
+def _banner() -> None:
+    """The first line of every run, naming what produced the rest of it.
+
+    Deliberately two lines and no artwork. The thing a reader of a pasted log
+    needs from a banner is the version, and the thing a CI log does not need is
+    twelve lines of it. Printed to stdout with the rest so a redirected run
+    keeps its own provenance.
+    """
+    console.print(f"[bold]overstep[/] {__version__}")
+    console.print("[dim]authorization testing for MCP servers[/]")
+
+
+def _section(title: str) -> None:
+    """One section heading, and the only decoration in the output."""
+    console.print()
+    console.rule(f"[bold]{title}[/]", align="left", style="dim")
+
+
+def _setting_rows(
+    spec,
+    *,
+    fail_on: str,
+    concurrency: int,
+    max_retries: int,
+    insecure: bool,
+    baseline: Optional[str],
+    waivers: Optional[str],
+) -> List[Tuple[str, str]]:
+    """The settings that change what was tested or how it was judged.
+
+    Only those. A flag that cannot change the result does not earn a line here,
+    because the value of this block is that every line in it is a reason the
+    numbers below could have come out differently.
+    """
+    net = netopts.current()
+    rows = [
+        ("fail-on", fail_on),
+        ("concurrency", str(concurrency)),
+        ("timeout", f"{netopts.timeout():g}s"),
+    ]
+    if net.delay:
+        rows.append(("delay", f"{net.delay:g}s"))
+    if net.proxy:
+        rows.append(("proxy", net.proxy))
+    if max_retries:
+        rows.append(("max-retries", str(max_retries)))
+    if insecure:
+        rows.append(("tls-verification", "disabled (--insecure)"))
+    if baseline:
+        rows.append(("baseline", baseline))
+    if waivers:
+        rows.append(("waivers", waivers))
+    probes = _enabled_probes(spec)
+    if probes:
+        rows.append(("probes", ", ".join(probes)))
+    return rows
+
+
+def _enabled_probes(spec) -> List[str]:
+    """Which optional probes this matrix switched on.
+
+    Named because their absence is the common reason a run finds less than the
+    reader expected, and nothing in the output used to say which were on.
+    """
+    mcp = spec.modules.mcp
+    conformance = mcp.probes.conformance
+    flags = (
+        ("token-audience", mcp.probes.token_audience),
+        ("session-binding", mcp.probes.session_binding),
+        ("tool-enumeration", mcp.probes.tool_enumeration),
+        ("metadata-identity", conformance.metadata_identity),
+        ("open-registration", conformance.open_registration),
+        ("token-passthrough", conformance.token_passthrough),
+    )
+    return [name for name, on in flags if on]
+
+
+def _print_configuration(result: RunResult, spec, settings: List[Tuple[str, str]]) -> None:
+    """What produced the numbers below, in the terms the documents use.
+
+    The run half comes from `report.run_info`, which is what `findings.json` and
+    the HTML page open with: one source, so the terminal and the documents
+    cannot disagree about which version ran against what.
+    """
+    from overstep.report.base import run_info
+
+    info = run_info(result)
+    rows: List[Tuple[str, str]] = [
+        ("overstep", str(info["overstep_version"])),
+        ("matrix", str(info["matrix"] or "-")),
+        ("targets", ", ".join(str(t) for t in info["targets"]) or "-"),
+        ("started", str(info["started_at"])),
+    ]
+    if info["read_only"]:
+        rows.append(("read-only", "yes — mutating operations were not sent"))
+    if info["partial"]:
+        selection = info["selection"] or {}
+        narrowed = "; ".join(
+            f"{kind} {', '.join(names)}" for kind, names in sorted(selection.items())
+        )
+        rows.append(("partial", narrowed or "yes"))
+    rows.extend(settings)
+
+    width = max(len(key) for key, _ in rows)
+    for key, value in rows:
+        # Padded rather than tabulated: a table draws borders through values a
+        # reader wants to copy, and this block exists to be copied.
+        console.print(f"  [dim]{key.ljust(width)}[/]  {escape(value)}", soft_wrap=True)
+
+
+def _print_warnings(*groups: Sequence[str]) -> None:
+    """Everything the run wants to say before its results, in one place.
+
+    Two sources reach here and they used to print in two different places at
+    two different times: the matrix's own diagnostics, which are known before
+    anything is sent, and whatever teardown had to report afterwards. A reader
+    looking for "what should I worry about" has one place to look.
+    """
+    said = [w for group in groups for w in group]
+    if not said:
+        # Said rather than left blank: an empty space under a heading reads as
+        # output that got truncated.
+        console.print("  [dim]none[/]")
+        return
+    for warning in said:
+        # Wrapped, unlike the report path: these are sentences, and a sentence
+        # running off the right edge of the terminal is worse than a wrapped one.
+        console.print(f"  [yellow]warning[/] {warning}")
 
 
 def _print_partial(result: RunResult) -> None:
@@ -1003,7 +1204,9 @@ def _print_findings(result: RunResult) -> None:
     path cannot be copied.
     """
     def line(text: str) -> None:
-        console.print(text, soft_wrap=True, highlight=False)
+        # Two spaces, like every other line a section prints: a block starting
+        # at column zero under an indented heading reads as a different section.
+        console.print(f"  {text}", soft_wrap=True, highlight=False)
 
     def more(hidden: int) -> None:
         if hidden > 0:
@@ -1122,14 +1325,37 @@ def _print_unprobed(coverage: ProbeCoverage) -> None:
 def _print_inconclusive(health: RunHealth) -> None:
     """Explain why a run proved nothing, so "0 vulnerabilities" is not believed."""
     console.print(
-        "[bold red]inconclusive run[/] — a clean result here would be meaningless:"
+        "  [bold red]inconclusive[/] — a clean result here would be meaningless:"
     )
     for reason in health.reasons:
-        console.print(f"  [red]•[/] {reason}")
-    console.print(
-        f"  [dim]{health.executed} requests sent, {health.transport_errors} never delivered; "
-        f"{health.positive_allowed}/{health.positive_tests} expected-allow tests were allowed[/]"
+        console.print(f"    [red]•[/] {reason}")
+    console.print(f"  [dim]{_delivery_line(health)}[/]")
+
+
+def _print_conclusive(health: RunHealth) -> None:
+    """Say so when the run *is* worth believing.
+
+    The counts behind the verdict were printed only when it went the other way,
+    which left the reader of a clean run with the one thing they most need to
+    check — did the requests arrive, were the credentials accepted — nowhere in
+    the output. A clean result that cannot be audited is the shape of a result
+    nobody should trust, whichever way the verdict fell.
+    """
+    console.print("  [bold green]conclusive[/] — the run was in a position to see findings")
+    console.print(f"  [dim]{_delivery_line(health)}[/]")
+    for surface in health.untested_surfaces:
+        console.print(f"    [yellow]•[/] '{surface}' was not exercised")
+
+
+def _delivery_line(health: RunHealth) -> str:
+    """The three numbers a reader checks before believing any verdict."""
+    line = (
+        f"{health.executed} requests sent, {health.transport_errors} never delivered; "
+        f"{health.positive_allowed}/{health.positive_tests} expected-allow tests were allowed"
     )
+    if health.skipped:
+        line += f"; {health.skipped} not sent"
+    return line
 
 
 def _validate_fail_on(fail_on: str) -> None:

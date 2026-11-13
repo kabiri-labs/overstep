@@ -130,7 +130,7 @@ def test_run_against_a_dead_target_exits_inconclusive(matrix_file, tmp_path):
     )
 
     assert result.exit_code == EXIT_INCONCLUSIVE
-    assert "inconclusive run" in result.stdout
+    assert "inconclusive" in result.stdout
 
 
 def test_inconclusive_beats_fail_on_never(matrix_file, tmp_path):
@@ -153,7 +153,7 @@ def test_allow_inconclusive_restores_the_old_exit_code(matrix_file, tmp_path):
 
     assert result.exit_code == 0
     # Still reported, so the escape hatch does not hide the problem.
-    assert "inconclusive run" in result.stdout
+    assert "inconclusive" in result.stdout
 
 
 def test_inconclusive_verdict_reaches_the_json_report(matrix_file, tmp_path):

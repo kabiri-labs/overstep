@@ -1,5 +1,56 @@
 # Changelog
 
+## [1.12.0] - 2026-11-13
+
+What a run prints. The numbers were right and the output around them was not
+organised: a reader could not tell from it which version or which settings had
+produced the numbers, and the warnings arrived before anything that gave them
+context.
+
+### Changed
+
+**A run prints five named sections, always in this order: Configuration,
+Warnings, Results, Health, Artifacts.** The first reader of most of this output
+is somebody scrolling a CI log days later with one of five questions — what ran,
+what the matrix complained about, what was found, whether the run is worth
+believing, and where the documents went — and the output answered them in no
+particular order. The report path sat between the findings and the verdict on
+whether the findings meant anything; the matrix's own warnings printed above
+everything, before the reader knew what was being run at all.
+
+**Configuration says what produced the numbers.** The version, the matrix, the
+targets, when it started, and every setting that could have changed the result:
+the gate, concurrency, timeout, delay, proxy, retries, TLS verification,
+baseline, waivers, and which optional probes were on — the last being the
+commonest reason a run finds less than its reader expected, and something the
+output never used to say. The run half of the block reads
+`overstep.report.base.run_info`, which is what `findings.json` and the HTML page
+open with, so the terminal and the documents cannot drift apart about what was
+tested. Printed as `key: value` lines rather than a table, because this is the
+block people copy into tickets and grep in logs.
+
+**A banner names the version.** Two lines, no artwork: the thing a banner owes
+the reader of a pasted log is which build produced it.
+
+**Warnings print once, in their own section.** The matrix's diagnostics were
+printed where they were found, which was before the banner, and the teardown
+warnings separately — so the Warnings section would have headed an empty space
+with "none" while a warning sat further up the screen. Errors still print where
+they are found, because they stop the run and there will be no sections. A
+section with nothing in it says "none" rather than being left blank, since an
+empty space under a heading reads as output that got truncated.
+
+**Health reports a conclusive run too.** The request and credential counts
+behind the verdict — how many arrived, how many never did, how many
+expected-allow tests were allowed — used to print only when the verdict went
+badly. That left the reader of a *clean* run without the one thing they most
+need in order to believe it. A clean result that cannot be audited is not worth
+trusting, whichever way the verdict fell.
+
+**`inconclusive run` now reads `inconclusive`** inside the Health section, and
+the report path moved under Artifacts. Both are wording changes to terminal
+output; no exit code, document or key changed.
+
 ## [1.11.0] - 2026-11-13
 
 The one conformance question the MCP authorization specification answers with a
