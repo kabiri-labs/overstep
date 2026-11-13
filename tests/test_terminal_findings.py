@@ -140,11 +140,19 @@ def test_a_path_that_looks_like_markup_is_printed_as_written(monkeypatch):
 
 
 def test_the_report_path_is_printed_on_one_line(tmp_path):
+    """A path broken across two lines is a path nobody can copy.
+
+    rich wraps at the terminal width, which lands mid-path. The Artifacts
+    section prints it `soft_wrap`ped for that reason, and this is what holds it
+    there however long the directory name gets.
+    """
     out = tmp_path / ("a-long-directory-name-" * 6) / "out"
     with _Demo("rest") as d:
         result = d.invoke("run", d.matrix, "--out", str(out))
 
-    assert f"Reports written to {out}/" in result.output
+    assert f"{out}/" in result.output
+    path_lines = [line for line in result.output.splitlines() if f"{out}/" in line]
+    assert len(path_lines) == 1, path_lines
 
 
 def _summary_row(output: str, label: str):
