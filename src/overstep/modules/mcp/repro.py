@@ -28,7 +28,14 @@ from overstep.modules.mcp.protocol import (
 )
 from overstep.models import SECRET_HEADERS as _SECRET_HEADERS
 from overstep.models import Subject, TestCase, drop_header
-from overstep.repro import _VAR_PREFIX, _mask_env, _shell_arg, credential_var, mask_headers
+from overstep.repro import (
+    _VAR_PREFIX,
+    _mask_env,
+    _shell_arg,
+    credential_var,
+    mask_headers,
+    safe_url,
+)
 
 
 def _mcp_headers(case: TestCase, subject: Subject) -> Dict[str, str]:
@@ -100,6 +107,9 @@ def _mcp_payload(case: TestCase) -> Dict[str, Any]:
 
 
 def _curl(headers: Dict[str, str], payload: Dict[str, Any], url: str, *, head: bool = False) -> str:
+    # A server `url` may carry credentials in its userinfo the same way a REST
+    # base URL may. Runnable here, so they become an expandable variable.
+    url = safe_url(url, runnable=True)
     parts = ["curl", "-sS"]
     if head:
         parts += ["-D", "-", "-o", "/dev/null"]
@@ -107,7 +117,7 @@ def _curl(headers: Dict[str, str], payload: Dict[str, Any], url: str, *, head: b
     for key, value in headers.items():
         parts += ["-H", _shell_arg(f"{key}: {value}")]
     parts += ["--data", shlex.quote(json.dumps(payload))]
-    parts.append(shlex.quote(url))
+    parts.append(_shell_arg(url))
     return " ".join(parts)
 
 def _session_repro(subject: Subject, case: TestCase) -> str:
@@ -156,7 +166,9 @@ def build_record(base_url: str, subject: Subject, case: TestCase) -> Dict[str, A
         }
     record: Dict[str, Any] = {
         "method": inv.method,
-        "url": inv.url,
+        # Bare mask, not a variable: a structured record has no shell to expand
+        # one in.
+        "url": safe_url(inv.url or ""),
         "tool": inv.tool,
         "arguments": inv.arguments,
         "uri": inv.uri,

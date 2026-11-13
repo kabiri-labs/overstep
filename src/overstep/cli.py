@@ -1129,10 +1129,10 @@ def _print_configuration(result: RunResult, spec, settings: List[Tuple[str, str]
     rows: List[Tuple[str, str]] = [
         ("overstep", str(info["overstep_version"])),
         ("matrix", str(info["matrix"] or "-")),
-        # Same treatment as the proxy: a declared server URL may carry
-        # credentials too, and nothing recognises them as secrets because they
-        # arrived inside a URL rather than as a `token:`.
-        ("targets", ", ".join(safe_url(str(t)) for t in info["targets"]) or "-"),
+        # Already masked: `run_info` strips userinfo from every URL it names,
+        # so the terminal and the documents say the same thing and only one
+        # place has to remember why.
+        ("targets", ", ".join(str(t) for t in info["targets"]) or "-"),
         ("started", str(info["started_at"])),
     ]
     if info["read_only"]:

@@ -393,3 +393,89 @@ def test_a_url_keeps_its_host_and_loses_its_credentials(url, expected):
 ])
 def test_a_url_with_nothing_to_hide_is_returned_as_given(url):
     assert safe_url(url) == url
+
+
+# --- a credential that arrived inside a URL ----------------------------------
+#
+# `https://user:password@api.example` is a legal base URL and httpx accepts one,
+# so an operator may well have it in a matrix. It reaches four output surfaces
+# and none of the existing masking could see it: `credential_values` collects
+# the values the matrix *declared*, and this password was never declared as a
+# value — it arrived inside a URL. So it has to come out structurally, at each
+# of the four places a URL becomes output.
+
+CREDENTIALLED = "https://u:p4ssw0rd@api.example"
+
+
+def _http_case():
+    from overstep.models import ResourceType, TestCase, Variant
+
+    return TestCase(
+        id="r::alice::na", resource="r", subject="alice", role="user", method="GET",
+        path_template="/x", path="/x", variant=Variant.NA, expected=Effect.ALLOW,
+        resource_type=ResourceType.FUNCTION, transport="http",
+    )
+
+
+def test_the_reproduction_keeps_the_host_and_stays_runnable():
+    """A repro has to still work once the operator sets the variable.
+
+    Same bargain the credential header already strikes: an expandable variable
+    rather than a bare mask — and double-quoted, because `shlex.quote` would
+    single-quote it and stop the shell expanding it.
+    """
+    from overstep.repro import URL_CREDENTIALS_VAR, to_curl
+
+    curl = to_curl(CREDENTIALLED, Subject(name="alice", role="user", token="t0k"), _http_case())
+
+    assert "p4ssw0rd" not in curl
+    assert f"${URL_CREDENTIALS_VAR}" in curl
+    assert "api.example/x" in curl
+    assert f"'https://${URL_CREDENTIALS_VAR}" not in curl, "single quotes would not expand"
+
+
+def test_the_structured_record_masks_it_outright():
+    """Nothing expands a variable in a JSON document, so it is a bare mask."""
+    from overstep.repro import request_record
+
+    record = request_record(
+        CREDENTIALLED, Subject(name="alice", role="user", token="t0k"), _http_case()
+    )
+
+    assert "p4ssw0rd" not in record["url"]
+    assert "api.example/x" in record["url"]
+
+
+def test_the_run_metadata_masks_it():
+    from overstep.models import RunResult
+    from overstep.report.base import run_info
+
+    info = run_info(RunResult(base_url=CREDENTIALLED, cases=[_http_case()]))
+
+    assert "p4ssw0rd" not in str(info)
+    assert "api.example" in str(info["targets"])
+
+
+def test_no_document_a_run_writes_carries_it(tmp_path):
+    """The one that matters, because these are the files people share.
+
+    Asserted over the whole directory rather than per key: the leak was in four
+    places and the point is that none of them is left.
+    """
+    from overstep.models import Observation, RunResult
+    from overstep.pipeline import write_reports
+
+    case = _http_case()
+    result = RunResult(
+        base_url=CREDENTIALLED,
+        source="matrix.yaml",
+        cases=[case],
+        observations=[Observation(test_id=case.id, status=200, effect=Effect.ALLOW)],
+    )
+    out = tmp_path / "out"
+    write_reports(result, str(out))
+
+    written = sorted(p for p in out.iterdir() if p.is_file())
+    assert written, "no documents were written"
+    for path in written:
+        assert "p4ssw0rd" not in path.read_text(encoding="utf-8"), path.name

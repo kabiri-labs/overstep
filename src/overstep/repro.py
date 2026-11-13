@@ -120,7 +120,10 @@ def credential_values(
     return {v for v in values if len(v) >= _MIN_REDACTABLE}
 
 
-def safe_url(url: str) -> str:
+URL_CREDENTIALS_VAR = "OVERSTEP_URL_CREDENTIALS"
+
+
+def safe_url(url: str, *, runnable: bool = False) -> str:
     """A URL with any credentials in its userinfo taken out.
 
     `http://user:password@proxy:8080` is a legal proxy URL and httpx accepts it,
@@ -137,6 +140,12 @@ def safe_url(url: str) -> str:
     reader needs. A URL that does not parse comes back untouched: it was never a
     credential-bearing URL in the first place, and mangling it would lose the
     operator the typo they need to see.
+
+    ``runnable`` picks the same bargain :func:`mask_headers` and :func:`_mask_env`
+    already strike. A reproduction has to still work once the operator sets the
+    variable, so there the userinfo becomes an expandable shell variable; a
+    structured record has no shell to expand it, so there it becomes a bare
+    mask. Either way the secret is not in the document.
     """
     if not url or "@" not in url:
         return url
@@ -146,7 +155,10 @@ def safe_url(url: str) -> str:
     host = parts.hostname or ""
     if parts.port:
         host = f"{host}:{parts.port}"
-    return urlunsplit((parts.scheme, f"{_MASK}@{host}", parts.path, parts.query, parts.fragment))
+    stand_in = f"${URL_CREDENTIALS_VAR}" if runnable else _MASK
+    return urlunsplit(
+        (parts.scheme, f"{stand_in}@{host}", parts.path, parts.query, parts.fragment)
+    )
 
 
 def redact(text: str, secrets: Iterable[str]) -> str:
@@ -230,11 +242,20 @@ def _shell_arg(text: str) -> str:
     return '"' + "".join(out) + '"'
 
 
-def _full_url(base_url: str, path: str, query: Dict[str, Any]) -> str:
+def _full_url(
+    base_url: str, path: str, query: Dict[str, Any], *, runnable: bool = False
+) -> str:
+    """The URL a case was sent to, with any credentials in it stood in for.
+
+    A base URL may carry userinfo, and both of this function's callers write
+    their result into a document: the curl line and the structured request
+    record on every finding. So the masking happens here rather than at each
+    caller — there is one place a URL becomes output and this is it.
+    """
     url = urljoin(base_url if base_url.endswith("/") else base_url + "/", path.lstrip("/"))
     if query:
         url = f"{url}?{urlencode({k: str(v) for k, v in query.items()})}"
-    return url
+    return safe_url(url, runnable=runnable)
 
 
 

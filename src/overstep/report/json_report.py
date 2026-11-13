@@ -6,6 +6,7 @@ import os
 
 from overstep.models import Finding, RunResult
 from overstep.report.base import case_rows, defects, register, run_info, summarize
+from overstep.repro import safe_url
 from overstep.taxonomy import TAXONOMY
 
 
@@ -21,7 +22,10 @@ def _dump(f: Finding) -> dict:
 def write(result: RunResult, path: str) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     payload = {
-        "base_url": result.base_url,
+        # Masked for the reason `run_info` masks its targets: a base URL may
+        # carry credentials in its userinfo, and this document is written to be
+        # shared.
+        "base_url": safe_url(result.base_url),
         # Which run this is: target, time, version, matrix and how it was scoped.
         "run": run_info(result),
         "summary": summarize(result),

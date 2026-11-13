@@ -53,15 +53,33 @@ output; no exit code, document or key changed.
 
 ### Fixed
 
-**A credential inside a URL is no longer printed.** `--proxy` accepts
-`http://user:password@proxy:8080` — httpx does, so an operator may well have
-one — and the configuration block printed it whole, into retained CI logs and
-into the one block the output invites people to copy into tickets. The same
-applies to a declared target: a `base_url` or server `url` may carry userinfo
-too. `overstep.repro.safe_url` removes it structurally and keeps the host,
-which is the part a reader needs. Note why matching could not have caught this:
-the password arrived inside a URL, so it was never a value the run was told was
-a credential, and `credential_values` had nothing to recognise.
+**A credential that arrived inside a URL no longer reaches any output.**
+`https://user:password@api.example` is a legal base URL and
+`http://user:password@proxy:8080` a legal proxy URL; httpx accepts both, so an
+operator may well have one. The password reached **four** surfaces: the new
+configuration block, `run.targets` and `base_url` in `findings.json` and the
+HTML page's Target row, the `curl` line on every finding, and the structured
+`request.url` beside it.
+
+None of the existing masking could have caught it, and the reason is the useful
+part. `credential_values` collects the values the matrix *declared* and
+`sanitize_evidence` replaces those wherever they appear — which is how every
+other credential here stays out of a report, and is what caught the minted
+`client_secret` in 1.10.0. This one was never declared as a value: it arrived
+inside a URL, so there was nothing to recognise and no list it could have been
+on. It has to come out structurally, at each place a URL becomes output.
+
+`overstep.repro.safe_url` does that, keeping the scheme, host and port, which is
+the part that says which run this was. It takes the same `runnable` bargain
+`mask_headers` and the stdio environment masking already take: in a `curl` line
+the userinfo becomes `$OVERSTEP_URL_CREDENTIALS`, so the reproduction still
+works once the operator sets it, and in a structured record — which has no shell
+to expand a variable — it becomes a plain mask. A URL that does not parse is
+returned untouched: it was never credential-bearing, and mangling it would cost
+the operator the typo they need to see.
+
+No document a run writes changes for a matrix without credentials in its URLs,
+so the golden files are unmoved.
 
 ## [1.11.0] - 2026-11-13
 
