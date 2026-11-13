@@ -401,7 +401,9 @@ def run_pipeline(
     # exactly as the target wrote it, credentials and all. Doing it once over
     # the whole list means a future third source of findings is covered without
     # anyone having to remember. Sanitizing twice is the same as once.
-    secrets = credential_values(matrix.subjects, cases)
+    from overstep.classifier import _declared_urls
+
+    secrets = credential_values(matrix.subjects, cases, _declared_urls(matrix))
     for finding in findings:
         finding.evidence = sanitize_evidence(
             finding.evidence, secrets, EVIDENCE_BODY_LIMIT
