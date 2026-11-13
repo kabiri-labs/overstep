@@ -126,42 +126,47 @@ def test_the_readme_does_not_claim_delegation_chain_testing():
         assert "**planned**" in entry, f"'{term}' is on the roadmap without a planned marker"
 
 
-def test_the_readme_does_not_claim_upstream_credential_forwarding():
-    """The overclaim this test was written for, in the shape it arrived in.
+def test_the_readme_describes_upstream_credential_forwarding_accurately():
+    """A claim that was once an overclaim, now held to the other direction.
 
     The section explaining why an MCP engagement needs the API behind the server
     was lifted from a change proposal, where its second item referred *forward*
     to a probe that had not been built. Moved into the README, that forward
     reference became a present-tense claim: that the conformance probes ask
-    whether the server leaks the caller's credential upstream. Nothing overstep
-    ships observes the server's outbound requests — `conformance.py` checks
-    metadata identity and anonymous registration, and the audience probe asks
-    whether *another* server accepts a credential, not whether this one forwards
-    it — so a server that does leak passes every check there is. The maturity
-    table could not catch it, because the claim was in prose.
+    whether the server leaks the caller's credential upstream. Nothing did, so a
+    server that leaked passed every check there was, and the maturity table
+    could not catch it because the claim was in prose.
 
-    Two halves, because either one alone rots. The capability stays on the
-    roadmap, and the paragraph that would otherwise imply coverage keeps saying
-    it has none.
+    The probe exists now, which is why this test is inverted rather than
+    deleted. The capability is off the roadmap and in the maturity table, and
+    the paragraph points at the probe instead of disclaiming it. What is being
+    guarded has not changed: what the document says about upstream forwarding
+    has to match what the code does, in whichever direction that currently cuts.
     """
     text = _readme()
     roadmap = text.split("## Roadmap", 1)
     assert len(roadmap) == 2, "the README has no Roadmap section"
 
-    entry = next(
+    assert "Token-passthrough" not in roadmap[1], (
+        "token passthrough is implemented but still listed on the roadmap"
+    )
+
+    row = next(
         (
             line
-            for line in roadmap[1].splitlines()
-            if line.startswith("| Token-passthrough detection")
+            for line in text.splitlines()
+            if line.startswith("| Token-passthrough conformance probe")
         ),
         None,
     )
-    assert entry, "token-passthrough detection is not listed on the roadmap"
-    assert "**planned**" in entry, (
-        "token-passthrough detection is on the roadmap without a planned marker"
+    assert row, "the maturity table does not list the token-passthrough probe"
+    assert "**implemented**" in row, (
+        "the token-passthrough probe is in the table without an implemented marker"
+    )
+    assert "canary" in row, (
+        "the row does not state the limit: the probe needs an endpoint you run"
     )
 
-    assert "observes the server's outbound requests" in text, (
-        "the blast-radius paragraph no longer says overstep cannot see what the "
-        "server sends upstream; restore the disclaimer or implement the probe"
+    assert "token-passthrough probe](#the-mcp-protocol-probes)" in text, (
+        "the blast-radius paragraph no longer points at the probe that answers it"
     )

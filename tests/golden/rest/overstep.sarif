@@ -226,6 +226,33 @@
               }
             },
             {
+              "id": "token-passthrough",
+              "name": "TOKEN_PASSTHROUGH",
+              "shortDescription": {
+                "text": "token-passthrough"
+              },
+              "fullDescription": {
+                "text": "An MCP server forwarded the caller's own credential to an upstream API. The authorization specification requires it to use a separate token of its own instead."
+              },
+              "helpUri": "https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/",
+              "help": {
+                "text": "An MCP server forwarded the caller's own credential to an upstream API. The authorization specification requires it to use a separate token of its own instead.\n\nCWE-522 (Insufficiently Protected Credentials) · API2:2023 Broken Authentication"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "cwe": "CWE-522",
+                "owasp-api": "API2:2023 Broken Authentication",
+                "security-severity": "8.7",
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-522",
+                  "API2:2023"
+                ]
+              }
+            },
+            {
               "id": "open-registration",
               "name": "OPEN_REGISTRATION",
               "shortDescription": {

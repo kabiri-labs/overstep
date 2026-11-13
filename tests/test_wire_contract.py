@@ -324,6 +324,7 @@ VULN_CLASS_WIRE_VALUES = {
     "SESSION_HIJACK": "session-hijack",
     "TOOL_ENUMERATION": "tool-enumeration",
     "METADATA_SPOOF": "metadata-spoof",
+    "TOKEN_PASSTHROUGH": "token-passthrough",
     "OPEN_REGISTRATION": "open-registration",
     "AUTHORIZATION_DRIFT": "authorization-drift",
     "UNEXPECTED_DENY": "unexpected-deny",
@@ -340,6 +341,7 @@ VARIANT_WIRE_VALUES = {
     "ENUMERATE": "enumerate",
     "METADATA": "metadata",
     "REGISTER": "register",
+    "PASSTHROUGH": "passthrough",
 }
 
 

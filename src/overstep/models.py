@@ -82,6 +82,9 @@ class Variant(str, Enum):
     # An unauthenticated client registration (RFC 7591) at the authorization
     # server the target named.
     REGISTER = "register"
+    # A tool call aimed at an address the operator watches, to see whether the
+    # server forwards the caller's own credential to it.
+    PASSTHROUGH = "passthrough"
 
 
 class VulnClass(str, Enum):
@@ -109,6 +112,14 @@ class VulnClass(str, Enum):
     # example is a document served from attacker.example claiming an honest
     # issuer, and the credential is what travels next.
     METADATA_SPOOF = "metadata-spoof"
+    # An MCP server handed the caller's own credential to an upstream API. The
+    # authorization specification is a flat MUST NOT on this in both revisions
+    # that have one, and it says what the server should do instead: act as an
+    # OAuth client to that API and use a separate token of its own. So the
+    # defect is narrow — a credential the *caller* presented, arriving at a host
+    # the caller never authorized, replayable at every service trusting its
+    # issuer. A separate upstream token the server minted itself is not this.
+    TOKEN_PASSTHROUGH = "token-passthrough"
     # An authorization server minted a client for a caller that presented no
     # credential at all. Reported, deliberately, as an observation rather than a
     # defect: RFC 7591 section 3 says the endpoint SHOULD allow registration
@@ -855,7 +866,15 @@ class TestCase(BaseModel):
         a conclusive ``Vulnerabilities 0``. That is precisely the fail-open the
         check exists to catch.
         """
-        return self.expected == Effect.ALLOW and self.variant != Variant.ENUMERATE
+        # A passthrough probe is excluded for the same reason, and it is not a
+        # hypothetical one: the probe is pointed at whichever declared tool
+        # happens to take a URL, and that tool may well be one the policy lets
+        # anybody call. A probe that might answer without a credential must not
+        # be the thing that vouches for credentials.
+        return self.expected == Effect.ALLOW and self.variant not in (
+            Variant.ENUMERATE,
+            Variant.PASSTHROUGH,
+        )
 
     @property
     def retains_body(self) -> bool:
@@ -1107,6 +1126,7 @@ class RunResult(BaseModel):
             VulnClass.SESSION_HIJACK,
             VulnClass.TOOL_ENUMERATION,
             VulnClass.METADATA_SPOOF,
+            VulnClass.TOKEN_PASSTHROUGH,
         }
         return [f for f in self.findings if f.vuln_class in vuln]
 

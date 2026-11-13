@@ -1,5 +1,70 @@
 # Changelog
 
+## [1.11.0] - 2026-11-13
+
+The one conformance question the MCP authorization specification answers with a
+flat MUST NOT, and the only one of the three delegation classes on the roadmap
+that turned out to have a specification behind it at all.
+
+### Added
+
+**`token-passthrough` — does the server hand the caller's own credential to an
+upstream API?** The specification is unambiguous in both revisions that have
+one: "The MCP server MUST NOT pass through the token it received from the MCP
+client", and it says what to do instead — act as an OAuth client to the upstream
+API with a separate token of its own. So the defect is narrow and the probe is
+narrow with it. What is reported is a credential the *caller* presented arriving
+somewhere the caller never authorized, from where it is replayable at every
+service trusting the same issuer. A separate upstream token the server minted is
+the specification being obeyed and produces nothing; the probe is built to tell
+those apart rather than to flag every server that talks to an API, and there is
+a test for each direction.
+
+Nothing in the protocol reports what a server sent onward, so the matrix
+supplies the observation point. `modules.mcp.canary.upstream` takes three
+values and the probe refuses to run without all of them: a `url` you host which
+echoes back the request it received, the `resource` whose tool takes a URL, and
+the `argument` to put it in. The echo returns as the tool's result and the
+credential is found in it. A matrix that switches the probe on without the
+canary is refused at load; one pointing at a resource that is not a tool call,
+or at no resource at all, is an error from `validate`; one naming an argument
+the tool does not declare is a warning, because that is usually a typo and a
+probe that reaches no canary reports nothing.
+
+A refused call, and one allowed but returning no content, are reported as
+**inconclusive** with the reason rather than as clean. The server never reached
+the canary in the first case and there was no echo to read in the second, and
+silence about credential handling must not read like a server that behaved. A
+body that came back *without* the credential in it is not inconclusive — that is
+the sound server, and saying otherwise would make the probe useless on every
+target worth keeping.
+
+Scored 8.7 and mapped to CWE-522, the highest in the MCP table and the only
+entry above the audience probe at 8.6. The comparison is the argument: an
+audience failure means the server accepted a credential it should have refused,
+and whoever replayed it already had it. Passthrough *creates* that position, and
+the credential's owner has no way to know.
+
+### Changed
+
+**A credential is masked in `matched_markers` as well.** `sanitize_evidence`
+covered the body, the headers and the error string, which was every field a
+target writes — but the marker that *confirmed* a finding is written by the run,
+and for this probe that marker is the caller's credential, because it is the
+thing the probe went looking for. It would have sat in the clear beside a
+redacted body. Masking is applied there too, which for every other class is a
+no-op: only values the run holds as credentials are ever replaced, and a
+victim's marker is not one.
+
+**One finding class and one test-id variant were added; none was renamed.**
+`vuln_class` gained `token-passthrough` and the third segment of a test id
+gained `passthrough`. The golden diff is one new rule in each SARIF document's
+`rules` table and nothing else.
+
+**The token-passthrough row left the roadmap for the maturity table**, and the
+test that held it on the roadmap was inverted rather than deleted: what the
+README says about upstream forwarding still has to match what the code does.
+
 ## [1.10.0] - 2026-11-12
 
 The first of the server-side conformance work: two requirements the MCP
