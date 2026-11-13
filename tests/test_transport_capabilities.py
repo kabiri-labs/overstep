@@ -227,7 +227,7 @@ CORE_CLASSES = {
 }
 MCP_CLASSES = {
     "token-audience", "session-hijack", "tool-enumeration",
-    "metadata-spoof", "open-registration",
+    "metadata-spoof", "open-registration", "token-passthrough",
 }
 
 
@@ -236,9 +236,10 @@ def test_the_mcp_surface_contributes_its_own_finding_classes():
 
     Credential audience and session binding are requirements the MCP
     authorization spec places on the server itself; tool enumeration asks about
-    a catalogue nothing else has. Metadata identity and open registration are
-    two more of the same kind, about the OAuth documents and endpoints around
-    the server rather than the server's own JSON-RPC. They sat in the shared
+    a catalogue nothing else has. Metadata identity, open registration and token
+    passthrough are three more of the same kind, about the OAuth documents and
+    endpoints around the server, and what it does with a credential once it has
+    one, rather than about the server's own JSON-RPC. They sat in the shared
     taxonomy beside BOLA, which made the table every surface reads describe one
     surface's protocol — down to SARIF help text starting "An MCP server...".
     """

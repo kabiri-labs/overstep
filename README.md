@@ -2,7 +2,7 @@
 
 **Authorization testing for MCP servers. Declare who may invoke which tool and reach which object, and overstep proves whether the server enforces it — including the REST API behind the server, in the same run.**
 
-![Version](https://img.shields.io/badge/version-1.10.0-blue)
+![Version](https://img.shields.io/badge/version-1.11.0-blue)
 [![CI](https://github.com/kabiri-labs/overstep/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kabiri-labs/overstep/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -132,10 +132,11 @@ same objects.
 service credential reach? Point the REST module at the backing API with that
 credential and the answer is a list rather than a guess: this is what an
 attacker who owns the MCP server gets, and it is the question a reviewer asks
-before approving a deployment. Note what it does *not* answer — whether the
-server forwards *your* credential to an upstream API. Nothing overstep ships
-observes the server's outbound requests, so that one is [roadmap](#roadmap)
-rather than a feature, and a clean run here says nothing about it.
+before approving a deployment. The companion question — whether the server
+forwards *your* credential to an upstream API rather than using a token of its
+own — is what the [token-passthrough probe](#the-mcp-protocol-probes) answers,
+and it needs a canary you run, because nothing in the protocol reports what a
+server sent onward.
 
 **3. Drift between two doors to the same object.** The same object is exposed as
 an MCP tool and as a REST endpoint. A policy fix lands on one and not the other.
@@ -236,6 +237,7 @@ misbehaves, which is not something a demo you are invited to run should ship.
 | Tool-enumeration probe | **implemented**, opt-in | n/a |
 | Metadata-identity conformance probe | **implemented** (Streamable HTTP, where a provider discovers its token endpoint) | n/a |
 | Open-registration conformance probe | **implemented**, opt-in — writes to the target's authorization server, and reports without gating | n/a |
+| Token-passthrough conformance probe | **implemented**, opt-in — needs a canary endpoint you run | n/a |
 | Transport | **implemented** (Streamable HTTP and stdio) | **implemented** (HTTP/HTTPS) |
 | Matrix scaffolding | **implemented** — a live server or a saved listing drafts a full matrix | **partial** — OpenAPI drafts a full matrix with `--with-policy`; a HAR capture drafts resources only, with no policy |
 | Credential acquisition | **partial** — everything REST does, plus RFC 9728/8414/8707 discovery; the interactive authorization-code flow is not supported | **implemented** (arbitrary login request, OAuth 2.1 password and client-credentials grants) |
@@ -786,12 +788,12 @@ resources:
 
 ### The MCP protocol probes
 
-Five checks run against every Streamable HTTP server beyond what the matrix
+Six checks run against every Streamable HTTP server beyond what the matrix
 declares. The first three ask about the **credential** and the **connection**
-rather than about any one operation; the last two ask whether the server meets a
-requirement the specification places on it, whoever is asking. None is available
-on stdio, where identity is an environment variable the server itself named
-rather than anything travelling on a connection.
+rather than about any one operation; the last three ask whether the server meets
+a requirement the specification places on it, whoever is asking. None is
+available on stdio, where identity is an environment variable the server itself
+named rather than anything travelling on a connection.
 
 | Probe | Default | Asks |
 |---|---|---|
@@ -800,6 +802,7 @@ rather than anything travelling on a connection.
 | Tool enumeration | off | is the privileged half of the catalogue advertised to everyone? |
 | Metadata identity | on | does the server's OAuth metadata name the server? |
 | Open registration | off | will its authorization server register a client for anyone? (reported, never gating) |
+| Token passthrough | off | does the server forward *your* credential to an upstream API? |
 
 **Credential audience.** The MCP authorization spec is unambiguous: a server must
 not accept a token that was not issued for it. A server that skips the check is a
@@ -916,6 +919,41 @@ modules:
     canary:
       redirect_uri: https://canary.example/cb
 ```
+
+*Token passthrough* is opt-in and is the one probe here whose question the
+protocol answers with a flat **MUST NOT**: the server must not pass through the
+token it received from the client, and if it calls an upstream API it acts as an
+OAuth client to that API with a separate token of its own. A credential forwarded
+instead reaches a host its owner never authorized and is replayable at every
+service trusting the same issuer, which is why it scores above the audience
+probe.
+
+Nothing in the protocol reports what a server sent onward, so the matrix
+supplies the observation point: a canary URL you run which echoes back the
+request it received, a declared tool that takes a URL, and which argument to put
+it in. The echo returns as the tool's result and the credential is found in it.
+A server using its own upstream token echoes something else and reports
+nothing — that is the specification being obeyed, and the probe is built to tell
+the two apart rather than to flag every server that talks to an API.
+
+```yaml
+modules:
+  mcp:
+    probes:
+      conformance:
+        token_passthrough: true
+    canary:
+      upstream:
+        url: https://canary.example/echo   # your endpoint; it echoes the request
+        resource: fetch_page               # a declared resource whose tool takes a URL
+        argument: url                      # which argument
+```
+
+A refused call, or one that returns no content, is reported as **inconclusive**
+rather than clean: the server never reached the canary, or there was no echo to
+read, and silence here must not be mistaken for a server that behaved. The
+credential the probe recovers is masked everywhere a report could carry it — the
+body, the headers and the matched marker that confirmed the finding.
 
 On revision `2026-07-28` Dynamic Client Registration is marked deprecated — new
 implementations should use Client ID Metadata Documents — but it is retained as
@@ -1232,6 +1270,7 @@ SARIF rules (with a `security-severity` score) and on every JSON finding.
 | session-hijack | CWE-287 | API2:2023 | MCP |
 | tool-enumeration | CWE-200 | API5:2023 | MCP |
 | metadata-spoof | CWE-346 | API2:2023 | MCP |
+| token-passthrough | CWE-522 | API2:2023 | MCP |
 | open-registration | CWE-1188 | API8:2023 | MCP |
 
 ## What overstep does not do
@@ -1281,7 +1320,6 @@ Short and honest. Nothing here is scheduled.
 | MCP and REST modules as described above | **implemented** |
 | Policy inference when scaffolding from a HAR capture (today: resources only) | **planned** |
 | Interactive OAuth authorization-code flow for subjects that cannot use a machine grant | **planned** |
-| Token-passthrough detection: whether an MCP server forwards the caller's credential to an upstream API | **planned** |
 | Delegation-chain testing: on-behalf-of token shape, actor claims, re-checking at each hop | **planned** |
 | Scope-attenuation checks: proving a delegated credential carries strictly fewer privileges than the one it was derived from | **planned** |
 | Further surfaces | **planned**, unscheduled — `rest` and `mcp` are the two modules that exist. A third is a package under `overstep/modules/`, an executor, a body shape and a config block; the registries carry the rest |

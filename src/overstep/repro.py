@@ -163,6 +163,13 @@ def sanitize_evidence(
         "body_snippet": redact(obs.body_snippet, secrets),
         "error": redact(obs.error, secrets) if obs.error else obs.error,
         "headers": {k: redact(v, secrets) for k, v in obs.headers.items()},
+        # Markers are usually a victim's own data, where this is a no-op — only
+        # values the run holds as credentials are ever replaced. The exception is
+        # the token-passthrough probe, whose marker *is* the caller's credential,
+        # because that is the thing it went looking for. Redacting here rather
+        # than at that probe means the next one to confirm a finding with a
+        # secret is covered without anybody having to remember.
+        "matched_markers": [redact(m, secrets) for m in obs.matched_markers],
     }
     if all(getattr(obs, field) == value for field, value in update.items()):
         return obs

@@ -109,12 +109,47 @@ class McpConformance(BaseModel):
     # run stopping at a failed check now leaves a report behind saying why,
     # instead of a console message and no documents at all.
     metadata_identity: bool = True
+    # Does the server hand the caller's own credential to an upstream API? The
+    # specification's wording is a flat MUST NOT in both revisions that have
+    # one. Off by default because it cannot run without a canary the operator
+    # stands up, and because it makes the target talk to that canary.
+    token_passthrough: bool = False
     # Ask the authorization server the target named to register a client for a
     # caller presenting no credential. Off by default and deliberately: it is
     # the only probe overstep ships that creates state on somebody else's
     # system. It also needs `canary.redirect_uri`, so that what a minted client
     # points at is an address the operator owns, and `--read-only` skips it.
     open_registration: bool = False
+
+
+class McpCanaryUpstream(BaseModel):
+    """Where the token-passthrough probe can watch what the server sends on.
+
+    Nothing in the protocol reports what a server passed upstream, so the only
+    way to answer the question behaviourally is to give it somewhere to send the
+    credential that the operator can see. Three facts, and the probe does not
+    run without all three: a URL that echoes back the request it received, the
+    declared resource whose tool takes a URL, and which of that tool's arguments
+    to put the URL in.
+
+    The echo is the whole mechanism. A server that passes the caller's token
+    through puts it in the request the canary receives, the canary reflects it,
+    the tool returns that reflection as its result, and the credential is found
+    in a body the run already knows how to search. A server that mints its own
+    upstream token — which is what the specification asks for — reflects
+    something else, and the probe reports nothing.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    url: Optional[str] = None
+    resource: Optional[str] = None
+    argument: Optional[str] = None
+
+    @property
+    def complete(self) -> bool:
+        """Whether the probe has everything it needs to decide anything."""
+        return bool(self.url and self.resource and self.argument)
 
 
 class McpCanary(BaseModel):
@@ -129,6 +164,7 @@ class McpCanary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     redirect_uri: Optional[str] = None
+    upstream: McpCanaryUpstream = Field(default_factory=McpCanaryUpstream)
 
 
 class McpProbes(BaseModel):
@@ -197,6 +233,14 @@ class McpModule(BaseModel):
                 "modules.mcp.canary.redirect_uri is not set — the probe registers a "
                 "client and needs a callback address you control to confirm what it "
                 "minted. Set the canary, or turn the probe off."
+            )
+        if self.probes.conformance.token_passthrough and not self.canary.upstream.complete:
+            raise ValueError(
+                "modules.mcp.probes.conformance.token_passthrough is on but "
+                "modules.mcp.canary.upstream needs all three of 'url', 'resource' and "
+                "'argument' — nothing in the protocol says what a server sent upstream, "
+                "so the probe needs a tool that will call an address you can watch. "
+                "Set them, or turn the probe off."
             )
         return self
 
@@ -686,6 +730,30 @@ class Matrix(BaseModel):
                     error(
                         f"policy for '{name}' allows unknown role '{rule.role}'"
                     )
+
+        upstream = self.modules.mcp.canary.upstream
+        if self.modules.mcp.probes.conformance.token_passthrough and upstream.complete:
+            probe_resource = self.resource_map().get(upstream.resource)
+            if probe_resource is None:
+                error(
+                    f"modules.mcp.canary.upstream.resource references unknown resource "
+                    f"'{upstream.resource}'"
+                )
+            elif probe_resource.call is None:
+                error(
+                    f"modules.mcp.canary.upstream.resource '{upstream.resource}' is not "
+                    f"an MCP tool call, so there is no argument to put a URL in"
+                )
+            elif upstream.argument not in probe_resource.call.arguments:
+                # Not fatal in itself — a tool may take an argument the template
+                # leaves out — but far more often it is a typo, and a probe
+                # pointed at an argument the tool ignores reaches no canary and
+                # reports nothing. Worth saying out loud either way.
+                warn(
+                    f"modules.mcp.canary.upstream.argument '{upstream.argument}' is not "
+                    f"among the declared arguments of '{upstream.resource}'; the probe "
+                    f"will send it anyway, but check the name"
+                )
 
         provider_names = {p.name for p in self.auth.providers}
         for provider in self.auth.providers:

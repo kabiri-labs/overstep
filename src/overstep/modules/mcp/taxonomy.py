@@ -63,6 +63,22 @@ TAXONOMY = {
         security_severity="7.5",
         help_uri="https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/",
     ),
+    # The highest score in this table, and the only one above TOKEN_AUDIENCE at
+    # 8.6. The two are close relatives and the comparison is the whole argument:
+    # an audience failure means the server accepted a credential it should have
+    # refused, and the credential was already in the hands of whoever replayed
+    # it. Passthrough *creates* that position — the caller's credential is
+    # delivered to a third party the caller never authorized, from where it is
+    # replayable at every service trusting the same issuer, and the caller has
+    # no way to know it happened. CWE-522 rather than CWE-863 for that reason:
+    # the defect is the credential's exposure, not the decision about it.
+    VulnClass.TOKEN_PASSTHROUGH: Taxon(
+        cwe="CWE-522",
+        cwe_name="Insufficiently Protected Credentials",
+        owasp_api="API2:2023 Broken Authentication",
+        security_severity="8.7",
+        help_uri="https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/",
+    ),
     # The lowest score in this table, and the only class here that is not a
     # rule anybody broke. RFC 7591 section 3 says the registration endpoint
     # SHOULD allow requests with no authorization, and no MCP revision asks for
@@ -95,6 +111,10 @@ HELP = {
         "An MCP server served OAuth metadata naming an identifier that was not "
         "its own, so the discovery chain was refused before any credential was "
         "requested.",
+    VulnClass.TOKEN_PASSTHROUGH:
+        "An MCP server forwarded the caller's own credential to an upstream API. "
+        "The authorization specification requires it to use a separate token of "
+        "its own instead.",
     VulnClass.OPEN_REGISTRATION:
         "An MCP server's authorization server registered a client for a caller "
         "that presented no credential. RFC 7591 permits this; it is reported as "

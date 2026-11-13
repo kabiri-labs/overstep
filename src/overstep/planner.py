@@ -610,6 +610,69 @@ def _enumeration_cases(matrix: Matrix, context: Dict[str, str]) -> List[TestCase
     return cases
 
 
+def _passthrough_cases(matrix: Matrix, context: Dict[str, str]) -> List[TestCase]:
+    """Does the server hand the caller's own credential to an upstream API?
+
+    The authorization specification is a flat MUST NOT on this in both revisions
+    that have one, and it says what the server should do instead: if it calls an
+    upstream API it acts as an OAuth client to that API, with a separate token
+    of its own. So the defect is narrow and the probe is narrow with it. What is
+    reported is a credential the *caller* presented, arriving somewhere the
+    caller never authorized. A separate token the server minted is the behaviour
+    the specification asks for and must produce nothing.
+
+    Nothing in the protocol reports what a server sent upstream, so the matrix
+    supplies the observation point: a declared tool that takes a URL, and a
+    canary at that URL which echoes the request it received. The echo comes back
+    as the tool's result, and the credential is found in a body the run already
+    knows how to search.
+
+    The oracle is the one the object-level probes use. ``expect_markers`` carries
+    this subject's own credential instead of a victim's marker, the transport
+    reports which of them appeared, and :func:`overstep.repro.sanitize_evidence`
+    masks them on the way into a report — the values are ones the run holds, so
+    the finding keeps its proof while the report carries no credential.
+
+    One case per subject that has one. Restricted to Streamable HTTP: over stdio
+    the identity is an environment variable the server itself named, so there is
+    no inbound header for it to pass on.
+    """
+    upstream = matrix.modules.mcp.canary.upstream
+    if not matrix.modules.mcp.probes.conformance.token_passthrough:
+        return []
+    if not upstream.complete:
+        # The matrix model refuses this combination; the planner never assumes
+        # it, because generating a probe that cannot decide is worse than none.
+        return []
+    resource = matrix.resource_map().get(upstream.resource)
+    if resource is None or resource.call is None:
+        return []
+
+    from overstep.repro import credential_values
+
+    server = matrix.server_map().get(resource.call.server)
+    if server is None or server.kind != "http":
+        return []
+
+    cases: List[TestCase] = []
+    for subject in matrix.subjects:
+        if not has_credential(subject):
+            continue
+        inv = _build_mcp_invocation(matrix, resource, subject, Variant.NA, None, context)
+        inv.arguments = {**inv.arguments, upstream.argument: upstream.url}
+        cases.append(
+            _protocol_case(
+                server, subject, Variant.PASSTHROUGH, inv,
+                # The call itself is meant to succeed: the question is not
+                # whether this subject may invoke the tool but what the server
+                # does with the credential while invoking it.
+                expected=Effect.ALLOW,
+                expect_markers=sorted(credential_values([subject])),
+            )
+        )
+    return cases
+
+
 def _surface_cases(matrix: Matrix, context: Dict[str, str]) -> List[TestCase]:
     """Cases a surface contributes that no declared resource could produce.
 
@@ -759,5 +822,6 @@ def plan(matrix: Matrix, context: Optional[Dict[str, str]] = None) -> List[TestC
     cases.extend(_audience_cases(matrix, context))
     cases.extend(_session_cases(matrix, context))
     cases.extend(_enumeration_cases(matrix, context))
+    cases.extend(_passthrough_cases(matrix, context))
     cases.extend(_surface_cases(matrix, context))
     return cases

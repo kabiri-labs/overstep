@@ -55,6 +55,7 @@ IMPLEMENTED_CAPABILITIES = {
     "tool-enumeration probe": "tool_enumeration",
     "metadata-identity conformance probe": "metadata_identity",
     "open-registration conformance probe": "open_registration",
+    "token-passthrough conformance probe": "token_passthrough",
     "stdio transport": "stdio",
     "OAuth discovery": "discover_from",
 }

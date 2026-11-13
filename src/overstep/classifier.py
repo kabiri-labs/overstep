@@ -232,6 +232,16 @@ def _detail(case: TestCase, obs: Observation, vuln: VulnClass, confidence: str =
             f"which is worth knowing before deciding what a client id is trusted to "
             f"mean."
         )
+    if vuln == VulnClass.TOKEN_PASSTHROUGH:
+        target = case.mcp.url if case.mcp else case.resource
+        return (
+            f"{target} forwarded {case.subject}'s own credential to the upstream "
+            f"address the probe pointed it at, where the canary reflected it back. "
+            f"The authorization specification requires the server to use a separate "
+            f"token of its own instead: a credential passed on this way reaches a "
+            f"host its owner never authorized and is replayable at every service "
+            f"trusting the same issuer."
+        )
     if vuln == VulnClass.SESSION_HIJACK:
         return (
             f"a request carrying {case.subject}'s session id and no credential of its "
@@ -278,6 +288,36 @@ def classify(
             continue
         # A deliberately skipped request (read-only) is not evidence either way.
         if obs.skipped:
+            continue
+
+        if case.variant == Variant.PASSTHROUGH:
+            # Like the enumeration probe, this one reports on what came back
+            # rather than on whether the call was permitted. A refusal teaches
+            # nothing — the server never got as far as calling upstream — and an
+            # allowed call that forwarded a credential of its own rather than
+            # the caller's is the specification being obeyed. Only the caller's
+            # own credential, found in the canary's echo, is the defect.
+            if not obs.matched_markers:
+                continue
+            findings.append(
+                Finding(
+                    test_id=case.id,
+                    vuln_class=VulnClass.TOKEN_PASSTHROUGH,
+                    severity="high",
+                    resource=case.resource,
+                    subject=case.subject,
+                    role=case.role,
+                    method=case.method,
+                    path=case.path,
+                    expected=Effect.DENY,
+                    observed=Effect.ALLOW,
+                    status=obs.status,
+                    variant=case.variant,
+                    detail=_detail(case, obs, VulnClass.TOKEN_PASSTHROUGH),
+                    evidence=sanitize_evidence(obs, secrets, EVIDENCE_BODY_LIMIT),
+                    confidence="confirmed",
+                )
+            )
             continue
 
         if case.variant == Variant.ENUMERATE:

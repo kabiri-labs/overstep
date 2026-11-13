@@ -38,7 +38,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Sequence, Set, Tuple
 
-from overstep.models import Effect, Observation, RunHealth, TestCase
+from overstep.models import Effect, Observation, RunHealth, TestCase, Variant
 from overstep.transports.base import DEFAULT_TRANSPORT
 
 # The share of a target's requests that must fail at the transport layer before
@@ -171,6 +171,47 @@ def _skipped_surfaces(
     )
 
 
+def _unanswered_passthrough(
+    cases: Sequence[TestCase], observations: Sequence[Observation]
+) -> List[str]:
+    """Passthrough probes that were sent and could not decide anything.
+
+    This probe answers only when the canary's echo comes back through the tool
+    result. Three ways it does not: the call was refused, so the server never
+    reached the canary; it was allowed but returned no body to search; or the
+    body came back without the credential *and* without any sign the canary was
+    reached at all. The first two are silence, and silence here reads exactly
+    like a server that behaved correctly — which is the one thing a probe about
+    credential handling must never be mistaken for.
+
+    The third is not reported, deliberately. A body that came back and did not
+    contain the caller's credential is the specification being obeyed, and
+    calling that inconclusive would make the probe useless on every sound
+    server. The reason is raised only where nothing could have been seen.
+    """
+    sent = {o.test_id: o for o in observations if not o.skipped}
+    blind: List[str] = []
+    for case in cases:
+        if case.variant != Variant.PASSTHROUGH:
+            continue
+        obs = sent.get(case.id)
+        if obs is None or _never_delivered(obs):
+            continue  # a delivery failure is already reported as one
+        if obs.effect == Effect.DENY:
+            blind.append(
+                f"the token-passthrough probe for '{case.subject}' was refused by "
+                f"{case.resource} (status {obs.status}), so the server never called "
+                f"the canary and nothing was learned about what it forwards"
+            )
+        elif not (obs.full_body or obs.body_snippet):
+            blind.append(
+                f"the token-passthrough probe for '{case.subject}' was allowed by "
+                f"{case.resource} but returned no content, so the canary's echo could "
+                f"not be read and nothing was learned about what it forwards"
+            )
+    return blind
+
+
 def assess(
     cases: Sequence[TestCase],
     observations: Sequence[Observation],
@@ -279,6 +320,10 @@ def assess(
                 f"the credentials or the matrix are wrong, so the negative results cannot "
                 f"be trusted"
             )
+
+    # A probe that was sent, was not a delivery failure, and still could not see
+    # what it came to look at. Not a sick target — a question nobody answered.
+    health.reasons.extend(_unanswered_passthrough(cases, observations))
 
     # A healthy target can still hold one endpoint that answered nothing, and
     # that endpoint's negative tests are the ones whose silence reads as safety.
