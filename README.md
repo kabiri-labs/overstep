@@ -271,9 +271,16 @@ overstep run matrix.yaml --resource read_document --subject alice --read-only
 
 `--resource` and `--subject` are repeatable. Such a run is **partial** and says
 so everywhere, because a clean result for one resource says nothing about the
-rest. `--read-only` skips every mutating operation and the client-registration
-probe, and the run reports what it did not send. Neither flag applies to
-`snapshot`: a baseline of part of the matrix would report the rest as new.
+rest. Neither flag applies to `snapshot`: a baseline of part of the matrix would
+report the rest as new.
+
+`--read-only` skips every mutating *test* — mutating verbs over HTTP, any tool
+marked `mutating`, and the client-registration probe — and the run reports what
+it did not send. Two exceptions matter if you are pointing this at something you
+care about. It does **not** skip `setup:` and `teardown:` steps, which still run
+and still change state. And a mutating operation the matrix declares as
+non-mutating is still sent, because the flag reads the declaration, not the
+target.
 
 ---
 
@@ -503,7 +510,7 @@ Each command names the next on `stderr`; `OVERSTEP_NO_HINTS=1` switches that off
 | `--fail-on VALUE` | ✅ | — | `vuln` (default), `drift`, `vuln-or-drift`, `any`, `never` |
 | `--baseline FILE` | ✅ | — | compare against a snapshot for drift |
 | `--waivers FILE` | ✅ | — | accepted findings |
-| `--read-only` | ✅ | ✅ | skip mutating verbs, mutating tools and the registration probe |
+| `--read-only` | ✅ | ✅ | skip mutating tests — not `setup:`/`teardown:`, which still run and still write |
 | `--resource NAME` | ✅ | — | run only this resource (repeatable; the run is partial) |
 | `--subject NAME` | ✅ | — | run only this subject's requests (repeatable; partial) |
 | `--concurrency N` | ✅ | ✅ | bound in-flight requests |
