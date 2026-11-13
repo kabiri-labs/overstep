@@ -226,6 +226,60 @@
               }
             },
             {
+              "id": "scope-escalation",
+              "name": "SCOPE_ESCALATION",
+              "shortDescription": {
+                "text": "scope-escalation"
+              },
+              "fullDescription": {
+                "text": "A credential obtained by delegation reached something the delegation declared it must not. RFC 8693 requires no attenuation of an exchanged token, so the boundary is the one the matrix drew."
+              },
+              "helpUri": "https://owasp.org/API-Security/editions/2023/en/0xa5-broken-function-level-authorization/",
+              "help": {
+                "text": "A credential obtained by delegation reached something the delegation declared it must not. RFC 8693 requires no attenuation of an exchanged token, so the boundary is the one the matrix drew.\n\nCWE-269 (Improper Privilege Management) · API5:2023 Broken Function Level Authorization"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "cwe": "CWE-269",
+                "owasp-api": "API5:2023 Broken Function Level Authorization",
+                "security-severity": "8.4",
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-269",
+                  "API5:2023"
+                ]
+              }
+            },
+            {
+              "id": "delegation-opacity",
+              "name": "DELEGATION_OPACITY",
+              "shortDescription": {
+                "text": "delegation-opacity"
+              },
+              "fullDescription": {
+                "text": "A delegated credential carries no actor claim, so a record of the call cannot say which agent made it. An attribution defect, not an exploit; it does not fail a default gate."
+              },
+              "helpUri": "https://owasp.org/API-Security/editions/2023/en/0xa8-security-misconfiguration/",
+              "help": {
+                "text": "A delegated credential carries no actor claim, so a record of the call cannot say which agent made it. An attribution defect, not an exploit; it does not fail a default gate.\n\nCWE-778 (Insufficient Logging) · API8:2023 Security Misconfiguration"
+              },
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "properties": {
+                "cwe": "CWE-778",
+                "owasp-api": "API8:2023 Security Misconfiguration",
+                "security-severity": "3.1",
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-778",
+                  "API8:2023"
+                ]
+              }
+            },
+            {
               "id": "token-passthrough",
               "name": "TOKEN_PASSTHROUGH",
               "shortDescription": {

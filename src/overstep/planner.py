@@ -685,6 +685,108 @@ def _passthrough_cases(matrix: Matrix, context: Dict[str, str]) -> List[TestCase
     return cases
 
 
+def _delegation_cases(matrix: Matrix, context: Dict[str, str]) -> List[TestCase]:
+    """Did the delegated credential reach what the delegation said it must not?
+
+    The boundary here is one the operator drew, and that is not a hedge: RFC 8693
+    places no attenuation requirement on a token exchange — the word does not
+    appear in it, and the `scope` parameter it defines is called a suggested
+    mitigation in the security considerations. So the probe tests a declaration
+    rather than a rule, which is why `expect.denied` names resources outright
+    instead of being derived from scopes. Deriving it would need a mapping from
+    OAuth scope to resource that this matrix does not have, and would make the
+    author restate in scope terms what the policy already says in role terms.
+
+    What this adds over what the planner already generates is the case the
+    policy cannot express. The actor's *role* may well allow the resource — it
+    is an agent of a user who is allowed it — while this particular delegation
+    was never meant to convey it. An ordinary expected-deny case would not be
+    generated at all there, and a successful call would look like the policy
+    working.
+
+    An object resource is probed at the *delegator's* object, because that is
+    the interesting reach: the agent getting at the human's document. The
+    delegator's marker travels with it so the content oracle can tell a real
+    read from a 200 with nothing in it.
+    """
+    chains = matrix.modules.mcp.delegation
+    if not chains:
+        return []
+
+    by_name = {s.name: s for s in matrix.subjects}
+    resources = matrix.resource_map()
+    cases: List[TestCase] = []
+    for chain in chains:
+        actor, delegator = by_name.get(chain.actor), by_name.get(chain.delegator)
+        if actor is None or delegator is None:
+            continue  # `validate` reports it
+        # One attribution note per chain, not per probe: it is a property of the
+        # credential, and the first case carries it.
+        opacity = (
+            chain.expect.actor_claim == "required" and not chain._actor_claim_present
+        )
+        for index, name in enumerate(chain.expect.denied):
+            resource = resources.get(name)
+            if resource is None:
+                continue  # `validate` reports it
+            object_scoped = resource.type == ResourceType.OBJECT
+            variant_for_build = Variant.OTHER if object_scoped else Variant.NA
+            target = delegator if object_scoped else None
+            markers = [delegator.marker] if object_scoped and delegator.marker else []
+            common = dict(
+                id=make_test_id(f"{name}@{chain.name}", actor.name, Variant.DELEGATED),
+                resource=name,
+                subject=actor.name,
+                role=actor.role,
+                victim=delegator.name if object_scoped else None,
+                variant=Variant.DELEGATED,
+                expected=Effect.DENY,
+                resource_type=resource.type,
+                delegation=chain.name,
+                scope_declined=(
+                    f"asked for [{', '.join(chain.grant.scopes)}], "
+                    f"got [{', '.join(chain._granted_scopes)}]"
+                ) if chain._scope_was_declined else None,
+                expect_markers=markers,
+                defect_kind="missing-actor-claim" if (opacity and index == 0) else None,
+                defect_detail=(
+                    f"the credential delegation '{chain.name}' obtained for "
+                    f"'{chain.actor}' carries no RFC 8693 'act' claim, so a record of "
+                    f"this call cannot say which agent made it. The matrix asked for "
+                    f"one with expect.actor_claim: required. Issuing the claim is at "
+                    f"the authorization server's discretion, so its absence breaks no "
+                    f"rule — it is an attribution gap, not an exploit."
+                ) if (opacity and index == 0) else None,
+            )
+            if resource.transport == "mcp":
+                inv = _build_mcp_invocation(
+                    matrix, resource, actor, variant_for_build, target, context
+                )
+                cases.append(TestCase(
+                    transport="mcp", method=inv.method,
+                    path_template=resource.call.tool if resource.call else resource.read.uri,
+                    path=inv.tool or inv.uri or name,
+                    # No `matcher`: for an MCP case the resolved matcher rides
+                    # on the invocation, which `_build_mcp_invocation` has
+                    # already put there. The field on the case is the REST one.
+                    mcp=inv,
+                    **common,
+                ))
+            else:
+                req = _build_http_request(
+                    resource, actor, variant_for_build, target, context
+                )
+                cases.append(TestCase(
+                    transport="http", method=resource.request.method,
+                    path_template=resource.request.path, path=req["path"],
+                    query=req["query"], body=req["body"], form=req["form"],
+                    headers=req["headers"],
+                    matcher=resource.access or matrix.access,
+                    **common,
+                ))
+    return cases
+
+
 def _surface_cases(matrix: Matrix, context: Dict[str, str]) -> List[TestCase]:
     """Cases a surface contributes that no declared resource could produce.
 
@@ -835,5 +937,6 @@ def plan(matrix: Matrix, context: Optional[Dict[str, str]] = None) -> List[TestC
     cases.extend(_session_cases(matrix, context))
     cases.extend(_enumeration_cases(matrix, context))
     cases.extend(_passthrough_cases(matrix, context))
+    cases.extend(_delegation_cases(matrix, context))
     cases.extend(_surface_cases(matrix, context))
     return cases

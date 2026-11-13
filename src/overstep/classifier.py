@@ -51,6 +51,12 @@ def _classify_violation(matrix: Matrix, case: TestCase) -> VulnClass:
     # particular. Both are read before the policy, which has nothing to say.
     if case.variant == Variant.METADATA:
         return VulnClass.METADATA_SPOOF
+    # A delegated credential reaching something the chain said it must not. Read
+    # before the policy for the same reason the others are: the policy may well
+    # allow the actor's *role* here, and the boundary being tested is the
+    # delegation's, which the policy cannot express.
+    if case.variant == Variant.DELEGATED:
+        return VulnClass.SCOPE_ESCALATION
     if case.variant == Variant.REGISTER:
         return VulnClass.OPEN_REGISTRATION
 
@@ -171,6 +177,15 @@ def _grade(vuln: VulnClass, case: TestCase, obs: Observation):
     # reports without failing a default gate.
     if vuln == VulnClass.OPEN_REGISTRATION:
         return "low", "confirmed"
+    if vuln == VulnClass.SCOPE_ESCALATION:
+        # Graded like BOLA, and for the same reason: reaching an object proves
+        # less than reading one. A function resource has no marker to configure,
+        # so it is decided on the outcome alone and says so.
+        if not case.expect_markers:
+            return "high", "unverified"
+        if obs.matched_markers:
+            return "high", "confirmed"
+        return "medium", "suspected"
     if vuln != VulnClass.BOLA:
         return "high", "confirmed"
     if not case.expect_markers:
@@ -232,6 +247,22 @@ def _detail(case: TestCase, obs: Observation, vuln: VulnClass, confidence: str =
             f"which is worth knowing before deciding what a client id is trusted to "
             f"mean."
         )
+    if vuln == VulnClass.SCOPE_ESCALATION:
+        reach = f"{case.method} {case.path}"
+        proof = (
+            f" and the response carried {case.victim}'s data "
+            f"({', '.join(obs.matched_markers)})"
+            if obs.matched_markers
+            else ""
+        )
+        return (
+            f"the credential delegation '{case.delegation}' obtained for "
+            f"'{case.subject}' reached {reach}{proof}, which that delegation declared "
+            f"it must not. Authority did not shrink to what the delegation was meant "
+            f"to convey. The boundary is the one the matrix drew: RFC 8693 requires no "
+            f"attenuation of an exchanged token, so this is the operator's rule and "
+            f"not the specification's."
+        )
     if vuln == VulnClass.TOKEN_PASSTHROUGH:
         target = case.mcp.url if case.mcp else case.resource
         return (
@@ -289,6 +320,31 @@ def classify(
         # A deliberately skipped request (read-only) is not evidence either way.
         if obs.skipped:
             continue
+
+        if case.variant == Variant.DELEGATED and case.defect_kind == "missing-actor-claim":
+            # Reported whatever the response was, and once per chain: the claim
+            # is missing from the credential, which is true before the request
+            # is sent and stays true however the server answers.
+            findings.append(
+                Finding(
+                    test_id=f"{case.delegation}::actor-claim",
+                    vuln_class=VulnClass.DELEGATION_OPACITY,
+                    severity="low",
+                    resource=case.resource,
+                    subject=case.subject,
+                    role=case.role,
+                    method=case.method,
+                    path=case.path,
+                    expected=Effect.DENY,
+                    observed=Effect.ALLOW,
+                    status=obs.status,
+                    variant=case.variant,
+                    detail=case.defect_detail or "",
+                    evidence=sanitize_evidence(obs, secrets, EVIDENCE_BODY_LIMIT),
+                    confidence="confirmed",
+                )
+            )
+            # Falls through: the same case is also an access probe.
 
         if case.variant == Variant.PASSTHROUGH:
             # Like the enumeration probe, this one reports on what came back

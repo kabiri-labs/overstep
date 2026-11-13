@@ -227,6 +227,30 @@ def _unanswered_passthrough(
     return blind
 
 
+def _declined_delegations(cases: Sequence[TestCase]) -> List[str]:
+    """Chains whose authorization server did not grant the scope asked for.
+
+    RFC 8693 section 2.2.1 makes the response carry `scope` whenever the issued
+    scope differs from the requested one, so this is the server saying so rather
+    than the run guessing. It does not void the probes — what the delegated
+    credential can reach is still a fact — but the delegation that was tested is
+    narrower, or simply other, than the one written down, and a clean result
+    reads as if the declared chain had been exercised.
+    """
+    seen: Dict[str, str] = {}
+    for case in cases:
+        if case.variant != Variant.DELEGATED or not case.delegation:
+            continue
+        note = case.scope_declined
+        if note and case.delegation not in seen:
+            seen[case.delegation] = note
+    return [
+        f"delegation '{name}' did not get the scope it asked for — {note}; the probes "
+        f"below tested the credential that was actually issued"
+        for name, note in seen.items()
+    ]
+
+
 def assess(
     cases: Sequence[TestCase],
     observations: Sequence[Observation],
@@ -335,6 +359,11 @@ def assess(
                 f"the credentials or the matrix are wrong, so the negative results cannot "
                 f"be trusted"
             )
+
+    # A delegation whose exchange came back narrower than it asked for: the
+    # probes still mean something, but what they tested is not what the matrix
+    # described, and a reader comparing the two deserves to be told.
+    health.reasons.extend(_declined_delegations(cases))
 
     # A probe that was sent, was not a delivery failure, and still could not see
     # what it came to look at. Not a sick target — a question nobody answered.

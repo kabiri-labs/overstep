@@ -85,6 +85,9 @@ class Variant(str, Enum):
     # A tool call aimed at an address the operator watches, to see whether the
     # server forwards the caller's own credential to it.
     PASSTHROUGH = "passthrough"
+    # A request made with a delegated credential, at something the delegation
+    # was declared not to reach.
+    DELEGATED = "delegated"
 
 
 class VulnClass(str, Enum):
@@ -112,6 +115,20 @@ class VulnClass(str, Enum):
     # example is a document served from attacker.example claiming an honest
     # issuer, and the credential is what travels next.
     METADATA_SPOOF = "metadata-spoof"
+    # A delegated credential reached something the delegation was declared not
+    # to convey. Not a specification violation, and the taxonomy comment says
+    # so: RFC 8693 places no attenuation requirement on a token exchange — the
+    # word does not appear in it, and the scope parameter is called a
+    # "suggested" mitigation. The authority for this finding is the operator's
+    # own declaration, exactly as it is for BOLA, and it gates for the same
+    # reason: a boundary somebody wrote down did not hold.
+    SCOPE_ESCALATION = "scope-escalation"
+    # A delegated credential carries no actor claim, so after an incident
+    # nobody can say which agent acted. Reported only when the matrix asks for
+    # it, and never a gate: RFC 8693 defines the `act` claim but leaves issuing
+    # it to the authorization server's discretion, so its absence breaks no
+    # rule. It is an attribution defect, not an exploit.
+    DELEGATION_OPACITY = "delegation-opacity"
     # An MCP server handed the caller's own credential to an upstream API. The
     # authorization specification is a flat MUST NOT on this in both revisions
     # that have one, and it says what the server should do instead: act as an
@@ -483,7 +500,16 @@ class AuthProvider(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
-    type: Literal["http", "oauth2_password", "oauth2_client_credentials"] = "http"
+    type: Literal[
+        "http",
+        "oauth2_password",
+        "oauth2_client_credentials",
+        # RFC 8693. Unlike the others this one cannot stand alone: it exchanges
+        # a credential somebody else already holds, so it is only reachable
+        # through a `delegation:` entry naming the subject whose credential is
+        # the subject_token.
+        "oauth2_token_exchange",
+    ] = "http"
     base_url: Optional[str] = None  # defaults to the matrix base URL
 
     # type == "http"
@@ -814,11 +840,11 @@ class TestCase(BaseModel):
     # For an AUDIENCE-variant probe: the audience the credential being replayed
     # was issued for, so the finding can name it. None on every other case.
     audience: Optional[str] = None
-    # For a METADATA-variant probe: which identity rule the target broke, and
-    # the sentence that explains it. This probe is a document the run read on
-    # its way to authenticating rather than a request it composed, so there is
-    # no response body the detail could be derived from later; it travels with
-    # the case exactly as `audience` does. None on every other case.
+    # What the run learned somewhere other than in a response, and the sentence
+    # that explains it: a metadata document read on the way to authenticating,
+    # or a claim missing from a credential the run obtained. Neither is
+    # derivable from a response body later, so it travels with the case the way
+    # `audience` does. None on every other case.
     defect_kind: Optional[str] = None
     defect_detail: Optional[str] = None
     # For a REGISTER-variant probe: the discovery pins the matrix's auth
@@ -828,6 +854,16 @@ class TestCase(BaseModel):
     # authentication succeeded under, refusing a deployment the operator had
     # already described. None on every other case.
     discovery_pins: Optional[Dict[str, str]] = None
+    # For a DELEGATED-variant probe: what the authorization server granted,
+    # when that differed from what the chain asked for. RFC 8693 section 2.2.1
+    # requires the response to say so, and `overstep.health` reports it: the
+    # probes still mean something, but the chain they tested is not the one the
+    # matrix describes.
+    scope_declined: Optional[str] = None
+    # For a DELEGATED-variant probe: which `delegation:` entry it came from.
+    # Carried so one attribution finding is reported per delegation rather than
+    # per probe, and so a finding can name the chain it is about.
+    delegation: Optional[str] = None
     # For a PASSTHROUGH-variant probe: the string the operator's canary echoes.
     # Carried on the case because two readers need it and neither should have to
     # reach back into the matrix for it — the classifier, to tell the canary's
@@ -1134,6 +1170,7 @@ class RunResult(BaseModel):
             VulnClass.TOOL_ENUMERATION,
             VulnClass.METADATA_SPOOF,
             VulnClass.TOKEN_PASSTHROUGH,
+            VulnClass.SCOPE_ESCALATION,
         }
         return [f for f in self.findings if f.vuln_class in vuln]
 

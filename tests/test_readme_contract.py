@@ -105,25 +105,50 @@ def test_the_scale_is_defined_before_it_is_used():
     )
 
 
-def test_the_readme_does_not_claim_delegation_chain_testing():
-    """The one capability the positioning discusses but the tool does not have.
+def test_the_readme_describes_delegation_testing_accurately():
+    """Inverted rather than deleted, like the token-passthrough one before it.
 
-    The README describes delegation chains and scope attenuation to explain why
-    MCP is the hard case, which puts the vocabulary a few lines away from the
-    feature list. Nothing in `overstep` tests either, so both must stay on the
-    roadmap; this fails if a future edit quietly promotes them.
+    The README used to describe delegation chains and scope attenuation only to
+    explain why MCP is the hard case, which put the vocabulary a few lines from
+    the feature list while nothing in `overstep` tested either — so this held
+    both on the roadmap. One hop of a declared chain is tested now, so the test
+    turns around: the capability is in the maturity table, the roadmap carries
+    only the part that is still missing, and the non-goal says which is which.
+
+    What is guarded has not changed. What the document claims about delegation
+    has to match what the code does, in whichever direction that currently cuts.
     """
     text = _readme()
     roadmap = text.split("## Roadmap", 1)
     assert len(roadmap) == 2, "the README has no Roadmap section"
 
-    for term in ("Delegation-chain testing", "Scope-attenuation checks"):
-        entry = next(
-            (line for line in roadmap[1].splitlines() if line.startswith(f"| {term}")),
-            None,
-        )
-        assert entry, f"'{term}' is not listed on the roadmap"
-        assert "**planned**" in entry, f"'{term}' is on the roadmap without a planned marker"
+    row = next(
+        (
+            line
+            for line in text.splitlines()
+            if line.startswith("| Delegation-chain and scope-attenuation testing")
+        ),
+        None,
+    )
+    assert row, "the maturity table does not list delegation testing"
+    assert "**implemented**" in row, (
+        "delegation testing is in the table without an implemented marker"
+    )
+    assert "opt-in" in row, "the row does not say the capability has to be asked for"
+
+    # The hop that is still not tested stays on the roadmap, and stays planned.
+    hop = next(
+        (line for line in roadmap[1].splitlines() if line.startswith("| Re-checking")),
+        None,
+    )
+    assert hop, "the un-tested downstream hop left the roadmap"
+    assert "**planned**" in hop, "the remaining hop is on the roadmap without a marker"
+
+    # And the non-goal says one hop, not all of them.
+    assert "one hop of a delegation chain, not all of them" in " ".join(text.split()), (
+        "the non-goal no longer distinguishes the hop that is tested from the one "
+        "that is not"
+    )
 
 
 def test_the_readme_describes_upstream_credential_forwarding_accurately():

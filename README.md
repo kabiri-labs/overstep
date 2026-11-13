@@ -2,7 +2,7 @@
 
 **Authorization testing for MCP servers. Declare who may invoke which tool and reach which object, and overstep proves whether the server enforces it — including the REST API behind the server, in the same run.**
 
-![Version](https://img.shields.io/badge/version-1.12.0-blue)
+![Version](https://img.shields.io/badge/version-1.13.0-blue)
 [![CI](https://github.com/kabiri-labs/overstep/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kabiri-labs/overstep/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -186,6 +186,60 @@ One process per subject, JSON-RPC over stdin/stdout. Everything else is
 identical. None of the protocol probes applies: there is no connection carrying
 a credential and no OAuth metadata to check.
 
+### A user delegating to an agent
+
+The caller is usually an agent acting for a person, and the question is whether
+its authority shrank to what the delegation was meant to convey. Declare the
+chain and what it must **not** reach:
+
+```yaml
+auth:
+  providers:
+    - name: agent-exchange
+      type: oauth2_token_exchange      # RFC 8693
+      token_url: https://as.example/token
+      client_id: overstep
+
+modules:
+  mcp:
+    delegation:
+      - name: agent-for-alice
+        delegator: alice               # the human, an existing subject
+        actor: support-agent           # the agent identity
+        grant:
+          provider: agent-exchange
+          scopes: [docs.read]          # what the delegation is meant to convey
+        expect:
+          denied: [read_salary, list_all_users]
+          actor_claim: required        # see below
+```
+
+overstep takes alice's credential, exchanges it for the agent's, and probes each
+`denied:` resource as the agent. An object resource is probed at **alice's**
+object, because that is the interesting reach, and her `marker:` confirms a real
+read. Reached → `scope-escalation`. Refused → the pass.
+
+**`denied:` names resources rather than being derived from scopes, and that is
+deliberate.** RFC 8693 places no attenuation requirement on a token exchange —
+the word does not appear in it, and the `scope` parameter is a *suggested*
+mitigation in its security considerations. So the boundary here is one you drew,
+not one the specification drew, and the finding says so. Deriving the probe from
+scopes would also need a scope-to-resource mapping this matrix does not have,
+and would make you restate in scope terms what your policy already says in role
+terms.
+
+What the RFC does give is a check worth having: section 2.2.1 requires the
+exchange response to carry `scope` whenever the issued scope differs from the
+one requested. So if your authorization server declined the request, the run
+says so and tells you the probes below tested the credential that was actually
+issued.
+
+`actor_claim: required` reports `delegation-opacity` when the delegated
+credential carries no RFC 8693 `act` claim — nobody can say which agent acted
+after an incident. It is off by default, scored lowest in the table and **never
+gates**, because issuing that claim is at the authorization server's discretion
+and its absence breaks no rule. It is an attribution defect, not an exploit.
+
 ### One matrix across MCP and the API behind it
 
 The headline case, and the one an MCP-only check cannot see. An MCP server is
@@ -290,11 +344,11 @@ Every run prints five sections, in this order, because the reader is usually
 somebody scrolling a CI log days later with one of five questions.
 
 ```
-overstep 1.12.0
+overstep 1.13.0
 authorization testing for MCP servers
 
 Configuration ──────────────────────────────────────────────────
-  overstep     1.12.0
+  overstep     1.13.0
   matrix       examples/mcp_api/matrix.yaml
   targets      http://127.0.0.1:9000/mcp
   started      2026-11-13T07:12:47+00:00
@@ -543,6 +597,8 @@ rules with a `security-severity` score and on every JSON finding.
 | tool-enumeration | CWE-200 | API5:2023 | MCP |
 | metadata-spoof | CWE-346 | API2:2023 | MCP |
 | token-passthrough | CWE-522 | API2:2023 | MCP |
+| scope-escalation | CWE-269 | API5:2023 | MCP |
+| delegation-opacity | CWE-778 | API8:2023 | MCP |
 | open-registration | CWE-1188 | API8:2023 | MCP |
 | authorization-drift | — | — | MCP, REST |
 | unexpected-deny | — | — | MCP, REST |
@@ -569,7 +625,7 @@ Conservative markers: **implemented** means exercised by the test suite;
 | Transport | **implemented** (Streamable HTTP and stdio) | **implemented** (HTTP/HTTPS) |
 | Matrix scaffolding | **implemented** — a live server or a saved listing drafts a full matrix | **partial** — OpenAPI drafts a full matrix with `--with-policy`; a HAR capture drafts resources only |
 | Credential acquisition | **partial** — everything REST does, plus RFC 9728/8414/8707 discovery; the interactive authorization-code flow is not supported | **implemented** (arbitrary login request, OAuth 2.1 password and client-credentials grants) |
-| Delegation-chain and scope-attenuation testing | **planned** | **planned** |
+| Delegation-chain and scope-attenuation testing | **implemented**, opt-in — a declared chain and what it must not reach | n/a |
 
 The bundled demos are a subset: they cover object- and function-level probes,
 resource reads, session binding and tool enumeration. Property-level checks,
@@ -651,9 +707,13 @@ both surfaces possible at all.
   redirect-URI matching are absent however often they appear in MCP flaw counts.
   The open-registration probe is not a fourth: it reports a permitted behaviour,
   which is why it never gates.
-- **It does not test the delegation chain.** It authenticates as a subject and
-  tests the enforcement of the callee it talks to. Whether authority was
-  correctly attenuated across hops is [roadmap](#roadmap), not a feature.
+- **It tests one hop of a delegation chain, not all of them.** A declared
+  `delegation:` proves whether the agent's credential reaches what the chain
+  said it must not, at the callee overstep is talking to. Whether a *downstream*
+  service re-checks what an upstream one allowed is [roadmap](#roadmap) — and
+  once the matrix declares that downstream resource, the ordinary planner
+  already tests it as a resource carrying the delegated credential, which is the
+  supported way to express a second hop today.
 - **It is not an AI or LLM security tool.** It does not drive an agent with
   prompts and has no opinion about tool descriptions. Prompt injection and tool
   poisoning *against the agent* are a separate, non-deterministic concern, and
@@ -674,8 +734,7 @@ Short and honest. Nothing here is scheduled.
 | | Status |
 |---|---|
 | MCP and REST modules as described above | **implemented** |
-| Delegation-chain testing: on-behalf-of token shape, actor claims, re-checking at each hop | **planned** |
-| Scope-attenuation checks: proving a delegated credential carries strictly fewer privileges than the one it was derived from | **planned** |
+| Re-checking a delegated credential at each hop of a chain, rather than at the callee overstep talks to | **planned** |
 | Policy inference when scaffolding from a HAR capture | **planned** |
 | Interactive OAuth authorization-code flow for subjects that cannot use a machine grant | **planned** |
 | Further surfaces | **planned**, unscheduled — a third is a package under `overstep/modules/`, an executor, a body shape and a config block; the registries carry the rest |
