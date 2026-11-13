@@ -21,6 +21,7 @@ def build_record(base_url: str, subject: Subject, case: TestCase) -> Dict[str, A
     """The masked, structured description of what was sent."""
     record: Dict[str, Any] = {
         "method": case.method,
+        # No shell to expand a variable in a structured record, so a bare mask.
         "url": _full_url(base_url, case.path, case.query),
         "headers": mask_headers(build_headers(subject, case), subject.name),
         "body": case.body,
@@ -43,5 +44,8 @@ def build_repro(base_url: str, subject: Subject, case: TestCase) -> str:
         parts += ["--data", shlex.quote(payload)]
         if not any(p.lower().startswith("content-type") for p in parts):
             parts += ["-H", shlex.quote("Content-Type: application/json")]
-    parts.append(shlex.quote(_full_url(base_url, case.path, case.query)))
+    # Runnable: the userinfo becomes a variable, as the credential header does —
+    # and quoted through `_shell_arg`, because `shlex.quote` would single-quote
+    # it and stop the variable expanding.
+    parts.append(_shell_arg(_full_url(base_url, case.path, case.query, runnable=True)))
     return " ".join(parts)

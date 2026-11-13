@@ -50,14 +50,26 @@ def run_info(result: RunResult) -> Dict[str, object]:
     """
     from overstep import __version__
 
+    from overstep.repro import safe_url
+
+    # Every URL here goes through `safe_url`. A `base_url` or a server `url` may
+    # carry credentials in its userinfo — `https://user:password@api.example` is
+    # legal and httpx accepts it — and these documents are written to be shared:
+    # attached to tickets, uploaded as CI artifacts, read by dashboards. The
+    # masking that covers every other credential cannot help, because this one
+    # was never declared as a value: it arrived inside a URL, so there is nothing
+    # for `credential_values` to have recognised. The host survives, which is
+    # the part that says which run this is.
     http = any(case.mcp is None for case in result.cases)
-    targets = [result.base_url] if (http and result.base_url) else []
+    targets = [safe_url(result.base_url)] if (http and result.base_url) else []
     for case in result.cases:
         if case.mcp is None:
             continue
         # A stdio server is named by its program alone. The arguments belong to
         # whoever wrote the matrix and have no business in a shared document.
-        target = case.mcp.url or f"stdio: {(case.mcp.command or ['?'])[0]}"
+        target = safe_url(case.mcp.url) if case.mcp.url else (
+            f"stdio: {(case.mcp.command or ['?'])[0]}"
+        )
         if target not in targets:
             targets.append(target)
     return {
