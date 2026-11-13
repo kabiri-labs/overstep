@@ -1,22 +1,29 @@
 # overstep
 
-**Authorization testing for REST APIs and MCP servers — one problem class, two surfaces.**
+**Authorization testing for MCP servers. Declare who may invoke which tool and reach which object, and overstep proves whether the server enforces it — including the REST API behind the server, in the same run.**
 
 ![Version](https://img.shields.io/badge/version-1.10.0-blue)
 [![CI](https://github.com/kabiri-labs/overstep/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kabiri-labs/overstep/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 
-Authorization is the check a callee makes before it acts: *may this caller perform
-this action on this object?* When that check is missing, weak or inconsistent, the
-request is still well-formed and the response is still a `200` — the system simply
-hands one tenant's data to another. overstep makes the intended answer explicit as
-a file, turns it into positive and negative requests against a running target, and
-reports every request that should have been refused and wasn't.
+An MCP server decides, on every call, whether this caller may invoke this tool
+and reach this object. When that check is missing, weak or inconsistent nothing
+looks wrong: the call is well-formed, the result is an ordinary tool result, and
+the server hands one tenant's documents to another. overstep makes the intended
+answer explicit as a file, turns it into positive and negative calls against a
+running server, and reports every one that should have been refused and wasn't.
+
+It does the same for the API behind that server, in the same run, because an MCP
+server is almost never the system of record. A façade that enforces ownership
+perfectly says nothing about whether the object underneath it is protected — and
+that is the gap an MCP-only check cannot see. See [when testing an MCP server
+means testing the API behind
+it](#when-testing-an-mcp-server-means-testing-the-api-behind-it).
 
 ```
    authorization matrix  ──►  positive + negative tests  ──►  run  ──►  findings
-   (subjects × resources)     (self / other, per role)       (REST + MCP)
+   (subjects × resources)     (self / other, per role)      (MCP + the API behind it)
 ```
 
 ---
@@ -24,6 +31,7 @@ reports every request that should have been refused and wasn't.
 **Contents**
 
 [Why it is hard to automate](#why-authorization-is-hard-to-automate) ·
+[The API behind the server](#when-testing-an-mcp-server-means-testing-the-api-behind-it) ·
 [Scope](#scope-one-problem-class-two-modules) ·
 [Install](#install) ·
 [Usage](#usage) ·
@@ -40,81 +48,40 @@ traversal sequence, a missing security header: a scanner recognises the *shape* 
 the problem without knowing anything about the application. Authorization has no
 such shape.
 
-- **It is a logic flaw, not a syntax flaw.** `GET /invoices/8842` is a valid
-  request whether or not invoice 8842 belongs to the caller. Nothing in the
-  request, the response, or the specification distinguishes the legitimate read
-  from the cross-tenant one. The two are byte-identical apart from a number.
-- **Detection requires the intended policy, and the intended policy is not in the
-  code.** To call a `200` a finding you must already know that this subject was
-  not supposed to reach this object. That knowledge lives in a product decision,
-  not in an OpenAPI document, a type signature or a route table — which is why a
-  scanner with no policy input can only report what crashed, never what leaked.
-- **Ownership is invisible to a spec.** An OpenAPI document describes
-  `/invoices/{id}` as taking a string. It does not say which ids belong to whom,
-  so nothing tells a generic scanner which id to substitute in order to make the
-  request *wrong*. Without at least two identities holding genuinely different
-  objects, there is no cross-owner probe to send.
+- **It is a logic flaw, not a syntax flaw.** `read_document(doc_id: "d-8842")`
+  is a valid call whether or not document `d-8842` belongs to the caller.
+  Nothing in the request, the result, or the tool's schema distinguishes the
+  legitimate read from the cross-tenant one. The two are byte-identical apart
+  from an identifier.
+- **Detection requires the intended policy, and the policy is not in the
+  schema.** To call a successful result a finding you must already know that
+  this subject was not supposed to reach this object. That knowledge lives in a
+  product decision, not in a tool description, an input schema or an OpenAPI
+  document — which is why a scanner with no policy input can only report what
+  crashed, never what leaked.
+- **Ownership is invisible to a description.** `tools/list` tells you
+  `read_document` takes a `doc_id` string. It does not say which ids belong to
+  whom, so nothing tells a generic scanner which id to substitute in order to
+  make the call *wrong*. Without at least two identities holding genuinely
+  different objects, there is no cross-owner probe to send.
 - **The failure is silent by construction.** A missing check produces no error,
   no log line and no anomaly. It looks exactly like a feature working.
 
-The consequence is that authorization testing cannot be discovery-driven. It has
-to be **declarative**: someone writes down the intended policy, and the tool holds
-the target to it. That is what the [authorization
-matrix](#the-authorization-matrix) is, and it is why overstep asks for one before
-it sends anything.
-
-## Scope: one problem class, two modules
-
-Authorization is the problem class. **REST** and **MCP** are two surfaces on which
-it shows up — transports and layers, not two separate tools sharing a repository.
-The detection logic is the same on both: resolve who the caller is, resolve which
-object the request names, ask whether the callee refused, and compare that against
-the declared policy.
-
-The vocabulary is the standard one, and it is transport-independent:
-
-| Term | The question | Where it applies |
-|---|---|---|
-| **Object-level authorization** (BOLA) | may this subject reach *this object*? | REST, MCP |
-| **Function-level authorization** (BFLA) | may this subject invoke *this operation*? | REST, MCP |
-| **Property-level authorization** (BOPLA) | may this subject see *this field* of an allowed response? | REST, MCP |
-| **Privilege escalation** | does a lower-privileged role reach what a higher one is reserved for? | REST, MCP |
-| **Multi-tenancy isolation** | does the tenant boundary hold when the caller is authenticated but foreign? | REST, MCP |
-| **Credential audience binding** | does the callee check who the credential was issued *for*? | MCP |
-| **Session binding** | can a connection identifier stand in for a credential? | MCP |
-| **Server metadata identity** | do the OAuth documents a server serves name that server? | MCP |
-| **Authorization drift** | did any of the above answers change since the last release? | REST, MCP |
-
-### The shared core
-
-Everything except delivery is common to both modules and lives in one place: the
-matrix model, the planner that expands it into cases, the ownership resolution,
-the classifier, the confidence grading, the drift baseline, the waivers and every
-report format. **The architecture is module-based**: each surface is a package
-under `overstep/modules/`, and reaches the core only through registries — how a
-case is delivered, how a finding is rendered, how a setup step runs, where a
-credential is discovered, and which finding classes it can report. Neither module
-sits at the package root, neither may import the other, and the core may not
-import either; an import-graph test measures all three.
-
-A resource does not name its module — it is read off the body the resource
-declares — so adding a third surface means a package, an executor and a body
-shape, not a string in a config file.
-
-The matrix file has the same shape. Its top level is the shared core — subjects,
-resources, policy, credentials, fixtures — and each module's own configuration
-sits under its name in [`modules:`](#the-authorization-matrix). Neither surface is
-the unmarked default, so adding a third would add a block rather than rearrange
-the two that exist.
-
-A single matrix can span both. The dispatcher groups planned cases by the module
-each resource belongs to and routes each group to its executor, so a REST API and
-the MCP server in front of it are one run, one baseline and one report.
+So one half of the problem is discoverable and the other half is not. An MCP
+server describes its own surface — `tools/list` and
+`resources/templates/list` return the inventory with its schemas, which is why
+`scaffold` can draft a whole matrix from a live server and is marked
+**implemented** for MCP while it is only **partial** for REST. What no server
+returns is who may reach what, and which ids belong to whom. That part is
+**declarative**: somebody writes it down, and the tool holds the server to it.
+That is what the [authorization matrix](#the-authorization-matrix) is, and
+scaffolding is how most of it gets written for you before you fill in the one
+part only you can know.
 
 ### MCP: the newest and hardest instance of the class
 
-MCP belongs under the same umbrella as REST, not above it — but it is where the
-class is currently hardest to reason about, for four reasons:
+This is one problem class, and MCP is where it is currently hardest to reason
+about — which is the whole reason overstep leads with it. Four reasons:
 
 - **The caller is an agent, not a person.** The identity that reaches the server
   is acting **on behalf of** a user. Authorization therefore depends on a
@@ -143,6 +110,103 @@ overstep tests the **server's own enforcement** on this surface. It does not dri
 the agent, and it does not evaluate what the agent was persuaded to ask for; see
 [non-goals](#what-overstep-does-not-do).
 
+### When testing an MCP server means testing the API behind it
+
+An MCP server is almost never the system of record. It is a façade over an API, a
+database or a SaaS product, and authorization either holds at the object or it
+does not. That is why overstep covers plain HTTP as well — not to serve REST
+users, but because MCP engagements run into it. Ranked by whether they produce a
+defect:
+
+**1. The check lives in the façade, not at the resource.** The most common case
+and the most serious. The MCP server enforces ownership correctly on every tool;
+the API behind it does not. Testing only the MCP surface proves the wrapper
+enforces — not that the object is protected. Anyone reaching the API directly
+goes around the wrapper: a second MCP server pointed at the same backend, a
+mobile client, an internal service, a developer holding a token. One matrix
+across both surfaces answers where the check actually sits, and it is the reason
+the two [worked examples](#worked-example-the-mcp-module) below are keyed to the
+same objects.
+
+**2. Blast radius of a compromised MCP server.** The conformance probes ask
+whether the server leaks *your* credential upstream. The companion question is
+what the server's own service credential can reach. Point the REST module at the
+backing API with that credential and the answer is a list rather than a guess:
+this is what an attacker who owns the MCP server gets. It is also the question a
+reviewer asks before approving an MCP deployment.
+
+**3. Drift between two doors to the same object.** The same object is exposed as
+an MCP tool and as a REST endpoint. A policy fix lands on one and not the other.
+The [drift baseline](#gating-on-change-baselines-and-waivers) spans both surfaces
+in one run, so the regression arrives as a diff instead of as an incident.
+
+**4. The MCP server's own HTTP surface.** A deployment ships more than the
+JSON-RPC endpoint: health and admin routes, the OAuth metadata documents the
+[conformance probes](#the-mcp-protocol-probes) already read, sometimes a
+registration endpoint or a management console. That is plain HTTP and needs the
+same matrix.
+
+**5. Where the matrix comes from.** MCP tools usually mirror API operations, and
+the OpenAPI document for the backing API carries the resource inventory and often
+the ownership parameter names. Scaffold from OpenAPI, then re-point the resources
+at the tools. Not a defect class — a workflow answer to the question every
+declarative tool is asked, which is where the policy file is supposed to come
+from.
+
+The one-sentence version: the MCP server is not the system of record, so an MCP
+authorization tool that cannot test the API behind the server is testing a
+wrapper.
+
+## Scope: one problem class, two modules
+
+Authorization is the problem class. **MCP** is the surface overstep leads with
+and **REST** is the one underneath it — transports and layers, not two separate
+tools sharing a repository. The detection logic is identical on both: resolve who
+the caller is, resolve which object the request names, ask whether the callee
+refused, and compare that against the declared policy. That the same code finds
+the same defect on either door is the evidence that none of this is MCP-specific
+hand-waving, and it is what makes the case above possible at all.
+
+The vocabulary is the standard one, and it is transport-independent:
+
+| Term | The question | Where it applies |
+|---|---|---|
+| **Object-level authorization** (BOLA) | may this subject reach *this object*? | MCP, REST |
+| **Function-level authorization** (BFLA) | may this subject invoke *this operation*? | MCP, REST |
+| **Property-level authorization** (BOPLA) | may this subject see *this field* of an allowed response? | MCP, REST |
+| **Privilege escalation** | does a lower-privileged role reach what a higher one is reserved for? | MCP, REST |
+| **Multi-tenancy isolation** | does the tenant boundary hold when the caller is authenticated but foreign? | MCP, REST |
+| **Credential audience binding** | does the callee check who the credential was issued *for*? | MCP |
+| **Session binding** | can a connection identifier stand in for a credential? | MCP |
+| **Server metadata identity** | do the OAuth documents a server serves name that server? | MCP |
+| **Authorization drift** | did any of the above answers change since the last release? | MCP, REST |
+
+### The shared core
+
+Everything except delivery is common to both modules and lives in one place: the
+matrix model, the planner that expands it into cases, the ownership resolution,
+the classifier, the confidence grading, the drift baseline, the waivers and every
+report format. **The architecture is module-based**: each surface is a package
+under `overstep/modules/`, and reaches the core only through registries — how a
+case is delivered, how a finding is rendered, how a setup step runs, where a
+credential is discovered, and which finding classes it can report. Neither module
+sits at the package root, neither may import the other, and the core may not
+import either; an import-graph test measures all three.
+
+A resource does not name its module — it is read off the body the resource
+declares — so adding a third surface means a package, an executor and a body
+shape, not a string in a config file.
+
+The matrix file has the same shape. Its top level is the shared core — subjects,
+resources, policy, credentials, fixtures — and each module's own configuration
+sits under its name in [`modules:`](#the-authorization-matrix). Neither surface is
+the unmarked default, so adding a third would add a block rather than rearrange
+the two that exist.
+
+A single matrix can span both. The dispatcher groups planned cases by the module
+each resource belongs to and routes each group to its executor, so a REST API and
+the MCP server in front of it are one run, one baseline and one report.
+
 ### Module maturity
 
 Conservative markers: **implemented** means exercised by the test suite;
@@ -157,22 +221,22 @@ those rows as "there is a test for it", not as "you can watch it run in two
 minutes". The conformance probes in particular need an authorization server that
 misbehaves, which is not something a demo you are invited to run should ship.
 
-| Capability | REST | MCP |
+| Capability | MCP | REST |
 |---|---|---|
-| Object-level (BOLA) probes across owners | **implemented** | **implemented** (tool arguments and resource URIs) |
+| Object-level (BOLA) probes across owners | **implemented** (tool arguments and resource URIs) | **implemented** |
 | Function-level (BFLA) and privilege-escalation probes | **implemented** | **implemented** |
 | Property-level (BOPLA) forbidden response fields | **implemented** | **implemented** |
 | Multi-tenancy isolation via policy conditions | **implemented** | **implemented** |
-| Ownership injection points | **implemented** (path, query, header, cookie, form, JSON body, GraphQL variables) | **implemented** (tool argument, resource URI placeholder) |
-| Cross-method probing (`PUT`/`DELETE` against another owner's object) | **implemented** | n/a — MCP has no verb |
-| Credential audience probe | n/a | **implemented** (Streamable HTTP only) |
-| Session-binding probe | n/a | **implemented** (Streamable HTTP, stateful revisions; not applicable on `2026-07-28`) |
-| Tool-enumeration probe | n/a | **implemented**, opt-in |
-| Metadata-identity conformance probe | n/a | **implemented** (Streamable HTTP, where a provider discovers its token endpoint) |
-| Open-registration conformance probe | n/a | **implemented**, opt-in — writes to the target's authorization server, and reports without gating |
-| Transport | **implemented** (HTTP/HTTPS) | **implemented** (Streamable HTTP and stdio) |
-| Matrix scaffolding | **partial** — OpenAPI drafts a full matrix with `--with-policy`; a HAR capture drafts resources only, with no policy | **implemented** — a live server or a saved listing drafts a full matrix |
-| Credential acquisition | **implemented** (arbitrary login request, OAuth 2.1 password and client-credentials grants) | **partial** — the same, plus RFC 9728/8414/8707 discovery; the interactive authorization-code flow is not supported |
+| Ownership injection points | **implemented** (tool argument, resource URI placeholder) | **implemented** (path, query, header, cookie, form, JSON body, GraphQL variables) |
+| Cross-method probing (`PUT`/`DELETE` against another owner's object) | n/a — MCP has no verb | **implemented** |
+| Credential audience probe | **implemented** (Streamable HTTP only) | n/a |
+| Session-binding probe | **implemented** (Streamable HTTP, stateful revisions; not applicable on `2026-07-28`) | n/a |
+| Tool-enumeration probe | **implemented**, opt-in | n/a |
+| Metadata-identity conformance probe | **implemented** (Streamable HTTP, where a provider discovers its token endpoint) | n/a |
+| Open-registration conformance probe | **implemented**, opt-in — writes to the target's authorization server, and reports without gating | n/a |
+| Transport | **implemented** (Streamable HTTP and stdio) | **implemented** (HTTP/HTTPS) |
+| Matrix scaffolding | **implemented** — a live server or a saved listing drafts a full matrix | **partial** — OpenAPI drafts a full matrix with `--with-policy`; a HAR capture drafts resources only, with no policy |
+| Credential acquisition | **partial** — everything REST does, plus RFC 9728/8414/8707 discovery; the interactive authorization-code flow is not supported | **implemented** (arbitrary login request, OAuth 2.1 password and client-credentials grants) |
 | Delegation-chain and scope-attenuation testing | **planned** | **planned** |
 
 ## Install
@@ -233,113 +297,47 @@ a resource cannot contradict itself about what it sends.
 roles: [anonymous, user, admin]
 
 modules:
-  rest:
-    base_url: http://127.0.0.1:8000
+  mcp:
+    servers:
+      - name: docs
+        url: http://127.0.0.1:9000/mcp     # Streamable HTTP (JSON-RPC)
 
 subjects:
-  - { name: alice, role: user,  token: "${ALICE_TOKEN}", marker: "alice@corp", attributes: { user_id: u1 } }
-  - { name: bob,   role: user,  token: "${BOB_TOKEN}",   marker: "bob@corp",   attributes: { user_id: u2 } }
-  - { name: root,  role: admin, token: "${ADMIN_TOKEN}", attributes: { user_id: u9 } }
+  - { name: alice, role: user,  token: "${ALICE_TOKEN}", marker: "alice@corp", attributes: { doc_id: d-a1 } }
+  - { name: bob,   role: user,  token: "${BOB_TOKEN}",   marker: "bob@corp",   attributes: { doc_id: d-b1 } }
+  - { name: root,  role: admin, token: "${ADMIN_TOKEN}", attributes: { doc_id: d-a9 } }
   - { name: anon,  role: anonymous, token: null }
 
 resources:
-  - name: get_user
-    request: { method: GET, path: "/users/{id}" }
-    type: object            # object-level -> BOLA surface
-    owner: id               # {id} must match the caller's user_id
-    owner_attr: user_id
-  - name: admin_list_users
-    request: { method: GET, path: "/admin/users" }
+  - name: read_document
+    call: { server: docs, tool: read_document }
+    type: object            # object-level -> BOLA surface on the tool argument
+    owner: doc_id           # the argument that must match the caller's own
+    owner_attr: doc_id
+  - name: list_all_users
+    call: { server: docs, tool: list_all_users }
     type: function          # function-level -> BFLA surface
 
 policy:
-  get_user:
+  read_document:
     allow:
-      - { role: user, scope: own }    # a user may read only their own profile
+      - { role: user, scope: own }    # a user may read only their own document
       - { role: admin, scope: any }   # admins may read anyone's
-  admin_list_users:
+  list_all_users:
     allow:
       - { role: admin }               # admin-only
 ```
+
+The same file reaches a REST API by giving a resource a `request:` instead of a
+`call:`, and a `modules.rest.base_url` to send it to — the [REST worked
+example](#worked-example-the-rest-module) is that file. Nothing above the
+`modules:` block changes, which is what lets one matrix span both doors to the
+same object.
 
 Every **deny** case the planner derives is a probe: if the target answers it
 successfully, that is a finding. Every **allow** case is a control: if the target
 refuses it, either the matrix or the target is wrong, and overstep reports
 `unexpected-deny`.
-
-### Worked example: the REST module
-
-A deliberately broken HTTP API ships with the repository.
-
-```bash
-python -m uvicorn examples.rest_api.server:app --port 8000
-overstep plan examples/rest_api/matrix.yaml
-```
-
-`plan` sends nothing. It prints the eighteen cases the matrix above (plus a
-`delete_user` resource) expands into — every subject against every resource:
-
-```
-┏━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┓
-┃ Expected ┃ Class    ┃ Request          ┃ Subject          ┃ Variant ┃
-┡━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━┩
-│ allow    │ object   │ GET /users/u1    │ alice (user)     │ self    │
-│ deny     │ object   │ GET /users/u2    │ alice (user)     │ other   │
-│ allow    │ object   │ GET /users/u2    │ bob (user)       │ self    │
-│ deny     │ object   │ GET /users/u1    │ bob (user)       │ other   │
-│ allow    │ object   │ GET /users/u9    │ root (admin)     │ self    │
-│ allow    │ object   │ GET /users/u1    │ root (admin)     │ other   │
-│ deny     │ object   │ GET /users/u1    │ anon (anonymous) │ other   │
-│ deny     │ object   │ DELETE /users/u2 │ alice (user)     │ other   │
-│ …        │          │                  │                  │         │
-│ deny     │ function │ GET /admin/users │ alice (user)     │ na      │
-│ allow    │ function │ GET /admin/users │ root (admin)     │ na      │
-└──────────┴──────────┴──────────────────┴──────────────────┴─────────┘
-```
-
-The `other` rows are the object-level probes. They exist only because alice and
-bob hold genuinely *different* objects; give two subjects the same id and the
-cross-owner probe disappears, which is why `validate` warns about it — both when
-every subject shares one object, and when only some do and are quietly probed
-against a third subject instead of each other.
-
-```bash
-overstep run examples/rest_api/matrix.yaml --out out
-```
-
-```
- Tests run                            18
- Positive / negative               7 / 11
- Vulnerabilities            8 (3 defects)
-   BOLA                                2
-   privilege-escalation                6
- Object resources probed             2/2
-Defects (3) — one line per thing to fix:
-  privilege-escalation  DELETE /users/{id}  as alice, bob  (high, confirmed)
-  privilege-escalation  GET /admin/users  as alice, bob  (high, confirmed)
-  BOLA  GET /users/{id}  as alice, bob  (high, unverified)
-```
-
-Eight probes got through, tracing back to **three** distinct defects — one line per
-thing to fix, with the subjects that reached it as evidence of blast radius. The
-terminal names them, so a CI log is enough to act on: up to 20 defects, then a
-pointer to `report.html`. Requests the matrix allows and the target refused are
-listed separately as *unexpected denials*, because they usually mean the matrix
-is wrong rather than the target.
-
-The same matrix against a target that *does* enforce it ships alongside, at
-[`examples/secure_api/`](examples/secure_api/):
-
-```bash
-python -m uvicorn examples.secure_api.server:app --port 8010
-overstep run examples/secure_api/matrix.yaml --out out
-```
-
-Zero vulnerabilities and exit 0 — and, the part worth checking, a conclusive run
-with all 7 expected-allow tests allowed and both object resources probed across
-owners. An unreachable target reports zero too, so the second half is
-what makes the first mean anything; see
-[what a clean result is allowed to mean](#what-a-clean-result-is-allowed-to-mean).
 
 ### Worked example: the MCP module
 
@@ -369,8 +367,8 @@ Defects (7) — one line per thing to fix:
   tool-enumeration  tools/list docs  as alice, bob  (medium, confirmed)
 ```
 
-Its matrix has the same shape — the same core at the top, a different module
-block, and resources whose bodies place them:
+Its matrix is the one above with a second door added — the resource URI — so the
+same two documents are reached two ways:
 
 ```yaml
 modules:
@@ -445,6 +443,85 @@ enumeration probes *run and passed* rather than skipped. On this
 surface especially, a clean result needs that second half: there is no status
 code to lean on, so a server that answered nothing looks much like one that
 refused correctly.
+
+### Worked example: the REST module
+
+The other door. A deliberately broken HTTP API ships with the repository, and it
+is the same three parts over a different transport — which is how you point
+overstep at the API behind an MCP server, and the reason
+[§ the API behind the server](#when-testing-an-mcp-server-means-testing-the-api-behind-it)
+is not a hypothetical.
+
+```bash
+python -m uvicorn examples.rest_api.server:app --port 8000
+overstep plan examples/rest_api/matrix.yaml
+```
+
+`plan` sends nothing. It prints the eighteen cases that demo's matrix — the same
+three parts over HTTP, plus a `delete_user` resource — expands into, every
+subject against every resource:
+
+```
+┏━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┓
+┃ Expected ┃ Class    ┃ Request          ┃ Subject          ┃ Variant ┃
+┡━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━┩
+│ allow    │ object   │ GET /users/u1    │ alice (user)     │ self    │
+│ deny     │ object   │ GET /users/u2    │ alice (user)     │ other   │
+│ allow    │ object   │ GET /users/u2    │ bob (user)       │ self    │
+│ deny     │ object   │ GET /users/u1    │ bob (user)       │ other   │
+│ allow    │ object   │ GET /users/u9    │ root (admin)     │ self    │
+│ allow    │ object   │ GET /users/u1    │ root (admin)     │ other   │
+│ deny     │ object   │ GET /users/u1    │ anon (anonymous) │ other   │
+│ deny     │ object   │ DELETE /users/u2 │ alice (user)     │ other   │
+│ …        │          │                  │                  │         │
+│ deny     │ function │ GET /admin/users │ alice (user)     │ na      │
+│ allow    │ function │ GET /admin/users │ root (admin)     │ na      │
+└──────────┴──────────┴──────────────────┴──────────────────┴─────────┘
+```
+
+The `other` rows are the object-level probes. They exist only because alice and
+bob hold genuinely *different* objects; give two subjects the same id and the
+cross-owner probe disappears, which is why `validate` warns about it — both when
+every subject shares one object, and when only some do and are quietly probed
+against a third subject instead of each other.
+
+```bash
+overstep run examples/rest_api/matrix.yaml --out out
+```
+
+```
+ Tests run                            18
+ Positive / negative               7 / 11
+ Vulnerabilities            8 (3 defects)
+   BOLA                                2
+   privilege-escalation                6
+ Object resources probed             2/2
+Defects (3) — one line per thing to fix:
+  privilege-escalation  DELETE /users/{id}  as alice, bob  (high, confirmed)
+  privilege-escalation  GET /admin/users  as alice, bob  (high, confirmed)
+  BOLA  GET /users/{id}  as alice, bob  (high, unverified)
+```
+
+Eight probes got through, tracing back to **three** distinct defects — one line per
+thing to fix, with the subjects that reached it as evidence of blast radius. The
+terminal names them, so a CI log is enough to act on: up to 20 defects, then a
+pointer to `report.html`. Requests the matrix allows and the target refused are
+listed separately as *unexpected denials*, because they usually mean the matrix
+is wrong rather than the target.
+
+The same matrix against a target that *does* enforce it ships alongside, at
+[`examples/secure_api/`](examples/secure_api/):
+
+```bash
+python -m uvicorn examples.secure_api.server:app --port 8010
+overstep run examples/secure_api/matrix.yaml --out out
+```
+
+Zero vulnerabilities and exit 0 — and, the part worth checking, a conclusive run
+with all 7 expected-allow tests allowed and both object resources probed across
+owners. An unreachable target reports zero too, so the second half is
+what makes the first mean anything; see
+[what a clean result is allowed to mean](#what-a-clean-result-is-allowed-to-mean).
 
 ### Pointing it at your own target
 
@@ -1145,10 +1222,10 @@ SARIF rules (with a `security-severity` score) and on every JSON finding.
 
 | Class | CWE | OWASP API Top 10 | Surface |
 |---|---|---|---|
-| BOLA | CWE-639 | API1:2023 | REST, MCP |
-| BOPLA | CWE-213 | API3:2023 | REST, MCP |
-| BFLA | CWE-285 | API5:2023 | REST, MCP |
-| privilege-escalation | CWE-269 | API5:2023 | REST, MCP |
+| BOLA | CWE-639 | API1:2023 | MCP, REST |
+| BOPLA | CWE-213 | API3:2023 | MCP, REST |
+| BFLA | CWE-285 | API5:2023 | MCP, REST |
+| privilege-escalation | CWE-269 | API5:2023 | MCP, REST |
 | token-audience | CWE-863 | API2:2023 | MCP |
 | session-hijack | CWE-287 | API2:2023 | MCP |
 | tool-enumeration | CWE-200 | API5:2023 | MCP |
@@ -1199,7 +1276,7 @@ Short and honest. Nothing here is scheduled.
 
 | | Status |
 |---|---|
-| REST and MCP modules as described above | **implemented** |
+| MCP and REST modules as described above | **implemented** |
 | Policy inference when scaffolding from a HAR capture (today: resources only) | **planned** |
 | Interactive OAuth authorization-code flow for subjects that cannot use a machine grant | **planned** |
 | Delegation-chain testing: on-behalf-of token shape, actor claims, re-checking at each hop | **planned** |
