@@ -35,6 +35,23 @@ def _min_required_rank(matrix: Matrix, case: TestCase) -> int:
     return min(ranks) if ranks else -1
 
 
+def _declared_urls(matrix: Matrix) -> List[str]:
+    """Every address the run was given, so a credential inside one is known.
+
+    `safe_url` removes userinfo from the URLs this tool writes; that cannot help
+    when a target echoes back the URL it was reached at, because then the
+    password is text in a response body. Collected here so the masking knows the
+    value and can recognise it wherever it turns up.
+    """
+    from overstep import netopts
+
+    urls = [matrix.base_url] + [s.url or "" for s in matrix.servers]
+    proxy = netopts.current().proxy
+    if proxy:
+        urls.append(proxy)
+    return [u for u in urls if u]
+
+
 def _classify_violation(matrix: Matrix, case: TestCase) -> VulnClass:
     """A negative test slipped through — decide which flavour of broken authz."""
     # An audience probe is not about this subject's role or this object's owner:
@@ -309,7 +326,7 @@ def classify(
     by_case: Dict[str, TestCase] = by_id
     subjects = {s.name: s for s in matrix.subjects}
     # Collected once: every finding's evidence is scrubbed against the same set.
-    secrets = credential_values(matrix.subjects, cases)
+    secrets = credential_values(matrix.subjects, cases, _declared_urls(matrix))
     repro_base = base_url or matrix.base_url or ""
     findings: List[Finding] = []
 

@@ -1,5 +1,51 @@
 # Changelog
 
+## [1.13.1] - 2026-11-13
+
+A guard over the documents themselves, and the fifth leak it found on the way in.
+
+### Fixed
+
+**A credential inside a declared URL is masked when a target echoes it back.**
+`repro.safe_url` takes userinfo out of every URL overstep *writes*, which was
+not enough: a target may echo the URL it was reached at, and then the password
+arrives as text in a response body, where nothing structural can clean it. It
+has to be a value the masking knows, so `credential_values` now harvests
+userinfo from the addresses the run was given — the base URL, the declared
+servers, a proxy, and an MCP invocation's own URL. Found by the new test module
+below, on its first run.
+
+That is the fifth instance of one cause. `credential_values` collects what the
+matrix *declared*, and five credentials have reached an output another way: a
+`client_secret` minted mid-run, a value in `matched_markers`, userinfo in a URL
+written by the tool, a delegated token on a subject whose header the validator
+did not check, and now the same userinfo echoed back by a target.
+
+### Added
+
+**`tests/test_no_credential_in_documents.py` asks the question of the documents
+rather than of the functions.** Every other guard checks one path — the masking
+functions, one probe's credential, the terminal — and each was written after a
+leak reached review. This one takes the four documents a run writes and asks of
+each: is anything in here a credential?
+
+Two halves, because they fail differently. The first names the credentials a run
+holds — declared, inside a URL, or obtained mid-run — and asserts that none of
+them appears in any document, parametrized over the cross product so a failure
+says which document and which kind. The second knows no values at all: it reads
+the documents for the *shape* of a credential — userinfo in a URL, a `Bearer`
+presented inline, a field whose own name says what it holds — which is what
+catches the leak nobody thought to name.
+
+Both halves are themselves tested. Each pattern is run against the shape of a
+real leak from this repository's history, because a regex that matches nothing
+passes every document and proves nothing; and each is run against the content a
+report legitimately contains — the mask, the shell variables the reproduction
+emits on purpose, a test id, an OWASP help URL — because a net that catches the
+furniture gets taken down within a week. There is also an assertion that the
+victim's marker survives, since masking that took the evidence with it would
+pass every other check here and leave the reports useless.
+
 ## [1.13.0] - 2026-11-13
 
 The last of the three delegation classes on the roadmap, and the two that

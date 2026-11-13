@@ -69,7 +69,9 @@ _MIN_REDACTABLE = 4
 
 
 def credential_values(
-    subjects: Iterable[Subject], cases: Iterable[TestCase] = ()
+    subjects: Iterable[Subject],
+    cases: Iterable[TestCase] = (),
+    urls: Iterable[str] = (),
 ) -> Set[str]:
     """Every credential this run holds, for finding them in text it did not write.
 
@@ -82,6 +84,13 @@ def credential_values(
     Both the raw value and its scheme-stripped tail are collected: a body may
     echo ``Bearer abc123`` or just ``abc123``, and only the second is what a
     ``token:`` in the matrix actually says.
+
+    ``urls`` are the addresses the run was given — the base URL, the declared
+    servers, a proxy. A credential can sit in one of those as userinfo, and
+    :func:`safe_url` takes it out of every URL this tool *writes*. That is not
+    enough on its own: a target may echo the URL it was reached at, and then the
+    password arrives in a response body, which is text nothing structural can
+    clean. It has to be a value the masking knows, so it is collected here.
     """
     values: Set[str] = set()
 
@@ -93,6 +102,17 @@ def credential_values(
         scheme, _, rest = value.partition(" ")
         if rest and scheme.isalpha():
             values.add(rest)
+
+    def add_userinfo(url: Optional[str]) -> None:
+        """The credential inside a URL, if it has one."""
+        if not url or "@" not in url:
+            return
+        parts = urlsplit(url)
+        add(parts.password)
+        add(parts.username)
+
+    for url in urls:
+        add_userinfo(url)
 
     for subject in subjects:
         add(subject.token)
@@ -109,6 +129,7 @@ def credential_values(
         inv = case.mcp
         if inv is None:
             continue
+        add_userinfo(inv.url)
         for headers in (inv.headers, inv.handshake_headers or {}):
             for key, value in headers.items():
                 if key.lower() in _SECRET_HEADERS:
