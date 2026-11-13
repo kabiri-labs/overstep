@@ -658,7 +658,13 @@ def _passthrough_cases(matrix: Matrix, context: Dict[str, str]) -> List[TestCase
     for subject in matrix.subjects:
         if not has_credential(subject):
             continue
-        inv = _build_mcp_invocation(matrix, resource, subject, Variant.NA, None, context)
+        # SELF, not NA: the canary may well be pointed at an object-level tool,
+        # and under NA the ownership injections are switched off, so the probe
+        # would send the template's empty owner argument and be refused before
+        # the server ever called the canary. The matrix already holds this
+        # caller's own object id; the probe reaches for its own object, as the
+        # caller would, and the canary URL is written over the top afterwards.
+        inv = _build_mcp_invocation(matrix, resource, subject, Variant.SELF, subject, context)
         inv.arguments = {**inv.arguments, upstream.argument: upstream.url}
         cases.append(
             _protocol_case(
@@ -667,7 +673,13 @@ def _passthrough_cases(matrix: Matrix, context: Dict[str, str]) -> List[TestCase
                 # whether this subject may invoke the tool but what the server
                 # does with the credential while invoking it.
                 expected=Effect.ALLOW,
-                expect_markers=sorted(credential_values([subject])),
+                # Both, because the finding needs both: the canary's own marker
+                # says the echo came from the canary, and the credential says
+                # what arrived there.
+                expect_markers=sorted(
+                    credential_values([subject]) | {upstream.marker}
+                ),
+                canary_marker=upstream.marker,
             )
         )
     return cases

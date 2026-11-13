@@ -145,11 +145,19 @@ class McpCanaryUpstream(BaseModel):
     url: Optional[str] = None
     resource: Optional[str] = None
     argument: Optional[str] = None
+    # A string your canary includes in what it echoes back. Required, and it is
+    # what makes the finding a confirmation rather than an inference: without it
+    # the probe cannot tell its own credential arriving at the canary from the
+    # same credential reflected by a tool that echoes its request and never
+    # called anything. That second case is not hypothetical — a tool that
+    # reflects its arguments is exactly the shape of tool a canary gets pointed
+    # at. Seeing this marker is how the run knows the echo is the canary's.
+    marker: Optional[str] = None
 
     @property
     def complete(self) -> bool:
         """Whether the probe has everything it needs to decide anything."""
-        return bool(self.url and self.resource and self.argument)
+        return bool(self.url and self.resource and self.argument and self.marker)
 
 
 class McpCanary(BaseModel):
@@ -237,10 +245,12 @@ class McpModule(BaseModel):
         if self.probes.conformance.token_passthrough and not self.canary.upstream.complete:
             raise ValueError(
                 "modules.mcp.probes.conformance.token_passthrough is on but "
-                "modules.mcp.canary.upstream needs all three of 'url', 'resource' and "
-                "'argument' — nothing in the protocol says what a server sent upstream, "
-                "so the probe needs a tool that will call an address you can watch. "
-                "Set them, or turn the probe off."
+                "modules.mcp.canary.upstream needs all four of 'url', 'resource', "
+                "'argument' and 'marker' — nothing in the protocol says what a server "
+                "sent upstream, so the probe needs a tool that will call an address you "
+                "can watch, and a string your canary echoes back so the run can tell "
+                "that echo from a tool reflecting its own request. Set them, or turn the "
+                "probe off."
             )
         return self
 

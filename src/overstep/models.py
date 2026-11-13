@@ -828,6 +828,13 @@ class TestCase(BaseModel):
     # authentication succeeded under, refusing a deployment the operator had
     # already described. None on every other case.
     discovery_pins: Optional[Dict[str, str]] = None
+    # For a PASSTHROUGH-variant probe: the string the operator's canary echoes.
+    # Carried on the case because two readers need it and neither should have to
+    # reach back into the matrix for it — the classifier, to tell the canary's
+    # echo from any other response that happens to contain a credential, and
+    # `overstep.health`, to tell "the echo never arrived" from "it arrived and
+    # carried nothing", which are an inconclusive run and a clean one.
+    canary_marker: Optional[str] = None
 
     @property
     def is_negative(self) -> bool:

@@ -929,12 +929,8 @@ service trusting the same issuer, which is why it scores above the audience
 probe.
 
 Nothing in the protocol reports what a server sent onward, so the matrix
-supplies the observation point: a canary URL you run which echoes back the
-request it received, a declared tool that takes a URL, and which argument to put
-it in. The echo returns as the tool's result and the credential is found in it.
-A server using its own upstream token echoes something else and reports
-nothing — that is the specification being obeyed, and the probe is built to tell
-the two apart rather than to flag every server that talks to an API.
+supplies the observation point. Four values, and the probe does not run without
+all of them:
 
 ```yaml
 modules:
@@ -947,13 +943,30 @@ modules:
         url: https://canary.example/echo   # your endpoint; it echoes the request
         resource: fetch_page               # a declared resource whose tool takes a URL
         argument: url                      # which argument
+        marker: overstep-canary-7f3a       # a string your canary echoes back
 ```
 
-A refused call, or one that returns no content, is reported as **inconclusive**
-rather than clean: the server never reached the canary, or there was no echo to
-read, and silence here must not be mistaken for a server that behaved. The
-credential the probe recovers is masked everywhere a report could carry it — the
-body, the headers and the matched marker that confirmed the finding.
+The echo returns as the tool's result, and three things have to hold before it
+is a finding: the call was **allowed**, the canary's own **marker** came back,
+and the caller's **credential** came back with it.
+
+The marker is what makes the finding a confirmation rather than a guess. A tool
+that reflects its arguments and headers to the caller — exactly the shape of
+tool a canary gets pointed at — returns the credential having called nothing at
+all, and some servers quote the credential they *refused* in their error text.
+Neither carries the marker, and neither is reported.
+
+So there are four outcomes and only one of them is a finding. A refusal, an
+allowed call with no content, and an allowed call whose result does not carry
+the marker are each reported as **inconclusive** with the reason: the server did
+not reach the canary, or there was nothing to read, and silence about credential
+handling must never be mistaken for a server that behaved. The marker coming
+back **without** the credential is the fourth: a server using a separate
+upstream token of its own, which is the specification being obeyed and a clean
+pass.
+
+The credential the probe recovers is masked everywhere a report could carry it —
+the body, the headers, and the matched marker that confirmed the finding.
 
 On revision `2026-07-28` Dynamic Client Registration is marked deprecated — new
 implementations should use Client ID Metadata Documents — but it is retained as
