@@ -27,6 +27,7 @@ from pydantic import (
 from overstep.documents import DocumentError, read_yaml
 from overstep.interpolation import InterpolationError, interpolate
 from overstep.models import (
+    SECRET_HEADERS,
     AuthConfig,
     McpMatcher,
     McpServer,
@@ -825,6 +826,7 @@ class Matrix(BaseModel):
         # A wrong delegation block produces wrong results exactly as a wrong
         # policy does, so every name in it is checked against what exists.
         subject_names = {s.name for s in self.subjects}
+        actors_seen: Dict[str, str] = {}
         resource_names = set(self.resource_map())
         provider_types = {p.name: p.type for p in self.auth.providers}
         for chain in self.modules.mcp.delegation:
@@ -849,24 +851,54 @@ class Matrix(BaseModel):
                     f"'oauth2_token_exchange', which is the grant that takes somebody "
                     f"else's credential as its subject_token"
                 )
-            actor = next((s for s in self.subjects if s.name == chain.actor), None)
-            if actor is not None and (actor.token or actor.auth):
+            # One actor identity, one delegated credential. Two chains minting
+            # into the same subject both pass every other check and then
+            # overwrite each other: the transports resolve a credential by
+            # subject name, so every chain's probes would go out carrying the
+            # last exchange's token while still reporting under their own name.
+            # That attributes one delegation's access to another, or clears a
+            # chain that was never exercised.
+            if chain.actor in actors_seen:
                 error(
-                    f"{where} makes '{chain.actor}' a delegated identity, but that "
-                    f"subject also declares its own token or auth provider — one "
-                    f"identity cannot have two credentials, and a finding against it "
-                    f"would not say which one reached the target"
+                    f"{where} and '{actors_seen[chain.actor]}' both delegate to "
+                    f"'{chain.actor}'; one identity holds one credential, so the "
+                    f"second exchange would replace the first and both chains would "
+                    f"be tested with whichever token was minted last"
+                )
+            else:
+                actors_seen[chain.actor] = chain.name
+
+            actor = next((s for s in self.subjects if s.name == chain.actor), None)
+            if actor is not None:
+                # Every place a credential lives, not the two that are easy to
+                # remember. `headers` is the third, and it is the dangerous one:
+                # an `Authorization` the subject set takes precedence over the
+                # token at request time, so the exchange would succeed, the
+                # probe would go out carrying the *original* credential, and the
+                # finding would report it against the delegated one.
+                own_header = next(
+                    (k for k in actor.headers if k.lower() in SECRET_HEADERS), None
+                )
+                if actor.token or actor.auth or own_header:
+                    carries = (
+                        f"a '{own_header}' header" if own_header
+                        else "its own token or auth provider"
+                    )
+                    error(
+                        f"{where} makes '{chain.actor}' a delegated identity, but that "
+                        f"subject also declares {carries} — one identity cannot have "
+                        f"two credentials, and a finding against it would not say "
+                        f"which one reached the target"
+                    )
+            if not chain.expect.denied:
+                error(
+                    f"{where} declares no expect.denied, so there is nothing for it to "
+                    f"test: the probes are the resources it names, and a chain that "
+                    f"names none sends nothing and reports nothing"
                 )
             for name in chain.expect.denied:
                 if name not in resource_names:
                     error(f"{where} expect.denied names unknown resource '{name}'")
-            if not chain.expect.denied:
-                # Not an error: a chain declared only to check the actor claim is
-                # legitimate. But a reader should know it tests no boundary.
-                warn(
-                    f"{where} declares no expect.denied, so nothing about what the "
-                    f"delegation may reach is tested — only the actor claim, if asked"
-                )
 
         upstream = self.modules.mcp.canary.upstream
         if self.modules.mcp.probes.conformance.token_passthrough and upstream.complete:

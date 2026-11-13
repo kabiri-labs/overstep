@@ -234,6 +234,14 @@ one requested. So if your authorization server declined the request, the run
 says so and tells you the probes below tested the credential that was actually
 issued.
 
+`expect.denied` is required: the probes *are* the resources a chain names, so a
+chain naming none sends nothing. `validate` also refuses an actor that carries a
+credential of its own — in `token`, in `auth` or in a header, since a subject's
+own `Authorization` takes precedence over its token at request time and the
+probe would quietly go out as the wrong identity — and two chains delegating to
+the same actor, because one identity holds one credential and the second
+exchange would replace the first.
+
 `actor_claim: required` reports `delegation-opacity` when the delegated
 credential carries no RFC 8693 `act` claim — nobody can say which agent acted
 after an incident. It is off by default, scored lowest in the table and **never

@@ -497,7 +497,59 @@ def test_an_unknown_denied_resource_is_an_error():
     assert found and found[0].severity is Severity.ERROR
 
 
-def test_a_chain_with_nothing_denied_is_a_warning():
-    """Legitimate if you only want the actor claim checked, and worth saying."""
-    found = [p for p in _problems(expect={"denied": []}) if "no expect.denied" in p.message]
-    assert found and found[0].severity is Severity.WARNING
+def test_a_chain_with_nothing_denied_is_refused():
+    """It was a warning, and a warning was the wrong answer.
+
+    The probes *are* the resources a chain names, so a chain naming none sends
+    nothing. The warning said it tested "only the actor claim" — and it did not
+    even do that, because the attribution note rides on a probe and there was no
+    probe to ride. A configuration that is permitted and does nothing is worse
+    than one that is refused.
+    """
+    found = [p for p in _problems(expect={"denied": []}) if "nothing for it to test" in p.message]
+    assert found and found[0].severity is Severity.ERROR
+
+
+def test_an_actor_whose_credential_hides_in_a_header_is_refused():
+    """The third place a credential lives, and the dangerous one.
+
+    An `Authorization` the subject set takes precedence over its token at
+    request time, so the exchange would succeed, the probe would go out carrying
+    the *original* credential, and the finding would report it against the
+    delegated one — wrong in both directions. Checked against SECRET_HEADERS
+    rather than a hand-written list, because `x-api-key` is the same hole.
+    """
+    matrix = _matrix()
+    next(s for s in matrix.subjects if s.name == "support-agent").headers = {
+        "X-API-Key": "the-agents-own-key"
+    }
+
+    found = [p for p in matrix.diagnose() if "X-API-Key" in p.message]
+
+    assert found, [p.message for p in matrix.diagnose()]
+    assert found[0].severity is Severity.ERROR
+
+
+def test_two_chains_cannot_delegate_to_the_same_actor():
+    """One identity holds one credential, and the transports resolve by name.
+
+    Both chains passed every other check and then overwrote each other's token,
+    so every probe went out with whichever was minted last while still reporting
+    under its own chain's name. That attributes one delegation's access to
+    another, or clears a chain that was never exercised.
+    """
+    matrix = _matrix()
+    chain = type(matrix.modules.mcp.delegation[0])
+    common = dict(
+        delegator="alice", actor="support-agent",
+        grant={"provider": "agent-exchange", "scopes": ["docs.read"]},
+        expect={"denied": ["read_salary"]},
+    )
+    matrix.modules.mcp.delegation = [
+        chain(name="chain-a", **common), chain(name="chain-b", **common)
+    ]
+
+    found = [p for p in matrix.diagnose() if "both delegate to" in p.message]
+
+    assert found, [p.message for p in matrix.diagnose()]
+    assert found[0].severity is Severity.ERROR
