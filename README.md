@@ -128,12 +128,14 @@ across both surfaces answers where the check actually sits, and it is the reason
 the two [worked examples](#worked-example-the-mcp-module) below are keyed to the
 same objects.
 
-**2. Blast radius of a compromised MCP server.** The conformance probes ask
-whether the server leaks *your* credential upstream. The companion question is
-what the server's own service credential can reach. Point the REST module at the
-backing API with that credential and the answer is a list rather than a guess:
-this is what an attacker who owns the MCP server gets. It is also the question a
-reviewer asks before approving an MCP deployment.
+**2. Blast radius of a compromised MCP server.** What can the MCP server's own
+service credential reach? Point the REST module at the backing API with that
+credential and the answer is a list rather than a guess: this is what an
+attacker who owns the MCP server gets, and it is the question a reviewer asks
+before approving a deployment. Note what it does *not* answer — whether the
+server forwards *your* credential to an upstream API. Nothing overstep ships
+observes the server's outbound requests, so that one is [roadmap](#roadmap)
+rather than a feature, and a clean run here says nothing about it.
 
 **3. Drift between two doors to the same object.** The same object is exposed as
 an MCP tool and as a REST endpoint. A policy fix lands on one and not the other.
@@ -1279,6 +1281,7 @@ Short and honest. Nothing here is scheduled.
 | MCP and REST modules as described above | **implemented** |
 | Policy inference when scaffolding from a HAR capture (today: resources only) | **planned** |
 | Interactive OAuth authorization-code flow for subjects that cannot use a machine grant | **planned** |
+| Token-passthrough detection: whether an MCP server forwards the caller's credential to an upstream API | **planned** |
 | Delegation-chain testing: on-behalf-of token shape, actor claims, re-checking at each hop | **planned** |
 | Scope-attenuation checks: proving a delegated credential carries strictly fewer privileges than the one it was derived from | **planned** |
 | Further surfaces | **planned**, unscheduled — `rest` and `mcp` are the two modules that exist. A third is a package under `overstep/modules/`, an executor, a body shape and a config block; the registries carry the rest |
